@@ -4,33 +4,79 @@ os.environ['TK_SILENCE_DEPRECATION'] = '1'
 import asyncio
 import re
 import threading
+import webbrowser
+import sys
+from pathlib import Path
 import customtkinter as ctk
+from tkinter import messagebox
 from database import DatabaseManager
 from ui.host_dialog import HostDialog
 from ui.export_dialog import ExportDialog
 from ui.import_dialog import ImportDialog
+from ui.git_credential_dialog import GitCredentialDialog
+from update_service import check_for_update
 from ssh_client import SSHConnection
 from PIL import ImageTk, Image
 from ui.terminal_window import TerminalWindow
 
 ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("blue")
+ctk.set_default_color_theme("dark-blue")
+
+
+# A restrained graphite palette inspired by current macOS utility apps.
+COLORS = {
+    "window": "#111214",
+    "sidebar": "#1A1B1F",
+    "surface": "#202126",
+    "surface_hover": "#2A2C33",
+    "line": "#32343B",
+    "text": "#F5F5F7",
+    "muted": "#9699A3",
+    "accent": "#0A84FF",
+    "accent_hover": "#0072E5",
+    "danger": "#FF453A",
+}
+
+APP_VERSION = "1.0.0"
+APP_NAME = "DO.MBA Pull Manager"
+
+
+def resource_path(relative_path: str) -> Path:
+    """Resolve bundled assets in PyInstaller and source assets during development."""
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS) / relative_path
+    return Path(__file__).resolve().parent / relative_path
+
+
+def application_data_path() -> Path:
+    """Keep mutable data outside the read-only app bundle in packaged builds."""
+    if not getattr(sys, "frozen", False):
+        return Path.cwd()
+    data_path = Path.home() / "Library" / "Application Support" / APP_NAME
+    data_path.mkdir(parents=True, exist_ok=True)
+    return data_path
 
 
 class TerbiusApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.db = DatabaseManager("pullManager.db")
+        data_path = application_data_path()
+        self.db = DatabaseManager(
+            str(data_path / "pullManager.db"),
+            str(data_path / ".master.key")
+        )
 
-        self.title("DO.MBA - Pull Manager v1.0")
-        self.geometry("950x600")
+        self.title(f"DO.MBA - Pull Manager v{APP_VERSION}")
+        self.geometry("1080x680")
+        self.minsize(900, 560)
+        self.configure(fg_color=COLORS["window"])
 
         # --- SET ICON DI SINI ---
         # Pastikan file 'app_icon' berada di folder yang sama atau tentukan path lengkapnya
         try:
             # 1. Buka gambar menggunakan Pillow
-            pil_image = Image.open("src/assets/icon_512x512.png")
+            pil_image = Image.open(resource_path("assets/icon_512x512.png"))
             
             # 2. Resize ke ukuran standar window icon (misal 512x512 agar tajam di Retina display)
             resized_image = pil_image.resize((250, 250), Image.Resampling.LANCZOS)
@@ -52,94 +98,120 @@ class TerbiusApp(ctk.CTk):
         self._refresh_hosts_list()
 
     def _setup_sidebar(self):
-        self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
+        self.sidebar = ctk.CTkFrame(self, width=224, corner_radius=0, fg_color=COLORS["sidebar"])
         self.sidebar.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
         self.sidebar.grid_rowconfigure(4, weight=1)  # row 4 = spacer
         self.sidebar.grid_columnconfigure(0, weight=1)
 
-        logo_label = ctk.CTkLabel(self.sidebar, text="DO.MBA", font=ctk.CTkFont(size=20, weight="bold"))
-        logo_label.grid(row=0, column=0, padx=20, pady=(20, 30))
+        brand = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        brand.grid(row=0, column=0, padx=18, pady=(25, 30), sticky="w")
+        ctk.CTkLabel(brand, text="D", width=35, height=35, corner_radius=9, fg_color=COLORS["accent"], font=ctk.CTkFont(size=15, weight="bold")).pack(side="left", padx=(0, 9))
+        brand_copy = ctk.CTkFrame(brand, fg_color="transparent")
+        brand_copy.pack(side="left")
+        ctk.CTkLabel(brand_copy, text="DO.MBA", text_color=COLORS["text"], font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w")
+        ctk.CTkLabel(brand_copy, text="DEPLOYMENT CONSOLE", text_color=COLORS["muted"], font=ctk.CTkFont(size=8, weight="bold")).pack(anchor="w")
 
         self.btn_hosts = ctk.CTkButton(
             self.sidebar, text="Pull Blast", anchor="w",
-            fg_color="#1D3557", text_color="white",
+            height=38, corner_radius=9, fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"], text_color=COLORS["text"],
             command=self._show_hosts_view
         )
         self.btn_hosts.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
 
-        # Spacer (row 4 has weight=1, pushes import/export to bottom)
-        spacer = ctk.CTkLabel(self.sidebar, text="")
-        spacer.grid(row=4, column=0)
+        btn_git_credential = ctk.CTkButton(
+            self.sidebar, text="⌘  Git Credential", anchor="w",
+            height=34, corner_radius=8, fg_color="transparent", hover_color=COLORS["surface_hover"],
+            command=self._open_git_credential_dialog
+        )
+        btn_git_credential.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
+
+        # Spacer keeps data actions aligned with the lower edge of the window.
+        ctk.CTkLabel(self.sidebar, text="").grid(row=4, column=0)
+        ctk.CTkLabel(self.sidebar, text="DATA", text_color=COLORS["muted"], font=ctk.CTkFont(size=10, weight="bold")).grid(row=5, column=0, padx=20, pady=(0, 5), sticky="w")
 
         # --- Bottom: Import / Export Buttons ---
         btn_import = ctk.CTkButton(
             self.sidebar,
             text="⬇  Import",
-            fg_color="transparent",
+            height=34, corner_radius=8, fg_color="transparent", hover_color=COLORS["surface_hover"],
             anchor="w",
             command=self._open_import_dialog
         )
-        btn_import.grid(row=5, column=0, padx=10, pady=5, sticky="ew")
+        btn_import.grid(row=6, column=0, padx=10, pady=5, sticky="ew")
 
         btn_export = ctk.CTkButton(
             self.sidebar,
             text="⬆  Export",
-            fg_color="transparent",
+            height=34, corner_radius=8, fg_color="transparent", hover_color=COLORS["surface_hover"],
             anchor="w",
             command=self._open_export_dialog
         )
-        btn_export.grid(row=6, column=0, padx=10, pady=(5, 10), sticky="ew")
+        btn_export.grid(row=7, column=0, padx=10, pady=(5, 10), sticky="ew")
+
+        btn_update = ctk.CTkButton(
+            self.sidebar,
+            text="↻  Check for Updates",
+            height=34, corner_radius=8, fg_color="transparent", hover_color=COLORS["surface_hover"],
+            anchor="w", command=self._check_for_updates
+        )
+        btn_update.grid(row=8, column=0, padx=10, pady=(0, 10), sticky="ew")
+        self.btn_update = btn_update
 
         footer_label = ctk.CTkLabel(
             self.sidebar,
             text="Vibe Code \n By Sukma Dewa",
             font=ctk.CTkFont(size=10),
-            text_color="gray"
+            text_color=COLORS["muted"]
         )
-        footer_label.grid(row=7, column=0, padx=10, pady=(0, 12), sticky="ew")
+        footer_label.grid(row=9, column=0, padx=10, pady=(0, 12), sticky="ew")
 
     def _setup_main_content(self):
-        self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
+        self.main_frame = ctk.CTkFrame(self, fg_color=COLORS["window"])
+        self.main_frame.grid(row=0, column=1, sticky="nsew", padx=28, pady=24)
         self.main_frame.grid_columnconfigure(0, weight=1)
 
         header = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 20))
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 18))
         header.grid_columnconfigure(0, weight=1)
         header.grid_columnconfigure(1, weight=0)
         header.grid_columnconfigure(2, weight=0)
         header.grid_columnconfigure(3, weight=0)
 
-        title = ctk.CTkLabel(header, text="Hosts", font=ctk.CTkFont(size=24, weight="bold"))
+        title = ctk.CTkLabel(header, text="Servers", text_color=COLORS["text"], font=ctk.CTkFont(size=28, weight="bold"))
         title.grid(row=0, column=0, sticky="w")
 
         # Filter Group Frame
         filter_frame = ctk.CTkFrame(header, fg_color="transparent")
         filter_frame.grid(row=0, column=1, sticky="e", padx=(0, 10))
 
-        lbl_filter = ctk.CTkLabel(filter_frame, text="Group:", font=ctk.CTkFont(size=12))
+        lbl_filter = ctk.CTkLabel(filter_frame, text="Group", text_color=COLORS["muted"], font=ctk.CTkFont(size=12))
         lbl_filter.pack(side="left", padx=(0, 5))
 
         self.filter_group_opt = ctk.CTkOptionMenu(
             filter_frame,
             values=["All Groups"],
             width=140,
+            height=34,
+            corner_radius=8,
+            fg_color=COLORS["surface"],
+            button_color=COLORS["surface_hover"],
+            button_hover_color=COLORS["line"],
             command=self._on_filter_changed
         )
         self.filter_group_opt.pack(side="left")
 
-        btn_new_host = ctk.CTkButton(header, text="+ New Host", width=100, command=self._add_host_dialog)
+        btn_new_host = ctk.CTkButton(header, text="+  New Host", width=112, height=34, corner_radius=8, fg_color=COLORS["surface"], hover_color=COLORS["surface_hover"], command=self._add_host_dialog)
         btn_new_host.grid(row=0, column=2, sticky="e", padx=(5, 0))
 
-        self.btn_run_all = ctk.CTkButton(header, text="Run All", width=100, command=self._run_all_hosts)
+        self.btn_run_all = ctk.CTkButton(header, text="Run All", width=100, height=34, corner_radius=8, fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"], command=self._run_all_hosts)
         self.btn_run_all.grid(row=0, column=3, sticky="e", padx=(5, 0))
 
         # --- Search Bar ---
-        search_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        search_frame = ctk.CTkFrame(self.main_frame, fg_color=COLORS["surface"], corner_radius=10)
         search_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         search_frame.grid_columnconfigure(1, weight=1)
 
-        lbl_search = ctk.CTkLabel(search_frame, text="🔍", font=ctk.CTkFont(size=14))
+        lbl_search = ctk.CTkLabel(search_frame, text="⌕", text_color=COLORS["muted"], font=ctk.CTkFont(size=22))
         lbl_search.grid(row=0, column=0, padx=(0, 6))
 
         self.search_var = ctk.StringVar()
@@ -149,15 +221,15 @@ class TerbiusApp(ctk.CTk):
             search_frame,
             placeholder_text="Cari host berdasarkan nama...",
             textvariable=self.search_var,
-            height=34
+            height=38, corner_radius=8, border_width=0, fg_color="transparent", text_color=COLORS["text"], placeholder_text_color=COLORS["muted"]
         )
         self.search_entry.grid(row=0, column=1, sticky="ew")
 
-        self.hosts_scroll = ctk.CTkScrollableFrame(self.main_frame)
+        self.hosts_scroll = ctk.CTkScrollableFrame(self.main_frame, fg_color="transparent", corner_radius=0)
         self.hosts_scroll.grid(row=2, column=0, sticky="nsew")
         self.main_frame.grid_rowconfigure(2, weight=1)
 
-        self.output_textbox = ctk.CTkTextbox(self.main_frame, font=("Courier", 12), wrap="none", height=200)
+        self.output_textbox = ctk.CTkTextbox(self.main_frame, font=("Menlo", 12), wrap="none", height=155, corner_radius=10, border_width=1, border_color=COLORS["line"], fg_color="#17181C", text_color="#D1D5DB")
         self.output_textbox.grid(row=3, column=0, sticky="nsew", pady=(10, 0))
         self.main_frame.grid_rowconfigure(3, weight=0)
 
@@ -179,7 +251,7 @@ class TerbiusApp(ctk.CTk):
     def _set_active_nav(self, active_btn):
         """Reset semua tombol nav ke transparan, lalu aktifkan yang dipilih."""
         self.btn_hosts.configure(fg_color="transparent")
-        active_btn.configure(fg_color="#1D3557")
+        active_btn.configure(fg_color=COLORS["accent"])
 
     def _show_hosts_view(self):
         """Tampilkan kembali tampilan Hosts dan refresh daftar."""
@@ -233,26 +305,30 @@ class TerbiusApp(ctk.CTk):
             lbl_empty = ctk.CTkLabel(
                 self.hosts_scroll, 
                 text=msg,
-                text_color="gray"
+                text_color=COLORS["muted"],
+                font=ctk.CTkFont(size=13)
             )
-            lbl_empty.pack(pady=20)
+            lbl_empty.pack(pady=42)
             return
 
         for host in hosts:
             self._create_host_card(host)
 
     def _create_host_card(self, host: dict):
-        card = ctk.CTkFrame(self.hosts_scroll)
-        card.pack(fill="x", padx=10, pady=5)
+        card = ctk.CTkFrame(
+            self.hosts_scroll, fg_color=COLORS["surface"], corner_radius=12,
+            border_width=1, border_color=COLORS["line"]
+        )
+        card.pack(fill="x", padx=2, pady=5)
 
         info_frame = ctk.CTkFrame(card, fg_color="transparent")
-        info_frame.pack(side="left", padx=15, pady=10)
+        info_frame.pack(side="left", padx=18, pady=13)
 
         # Baris Header: Label Host + Badge Group
         title_row = ctk.CTkFrame(info_frame, fg_color="transparent")
         title_row.pack(anchor="w")
 
-        lbl_name = ctk.CTkLabel(title_row, text=host['label'], font=ctk.CTkFont(size=14, weight="bold"), anchor="w")
+        lbl_name = ctk.CTkLabel(title_row, text=host['label'], text_color=COLORS["text"], font=ctk.CTkFont(size=14, weight="bold"), anchor="w")
         lbl_name.pack(side="left")
 
         if host.get('group_name'):
@@ -260,9 +336,9 @@ class TerbiusApp(ctk.CTk):
                 title_row,
                 text=host['group_name'],
                 font=ctk.CTkFont(size=11, weight="bold"),
-                fg_color="#1E3A8A",
-                text_color="#93C5FD",
-                corner_radius=6,
+                fg_color="#12355F",
+                text_color="#8DC6FF",
+                corner_radius=7,
                 padx=8,
                 pady=2
             )
@@ -270,17 +346,18 @@ class TerbiusApp(ctk.CTk):
 
         branch_str = f"  •  Branch: {host['git_branch']}" if host.get('git_branch') else ""
         target_str = f"{host['username']}@{host['hostname']}:{host['port']} {branch_str}"
-        lbl_target = ctk.CTkLabel(info_frame, text=target_str, text_color="gray", font=ctk.CTkFont(size=11), anchor="w")
+        lbl_target = ctk.CTkLabel(info_frame, text=target_str, text_color=COLORS["muted"], font=ctk.CTkFont(size=11), anchor="w")
         lbl_target.pack(anchor="w", pady=(3, 0))
 
         btn_delete = ctk.CTkButton(
             card, 
             text="Delete", 
-            width=60, 
+            width=68, height=30, corner_radius=7,
             fg_color="transparent", 
             border_width=1, 
-            text_color="red",
-            hover_color="#400000",
+            border_color="#71322E",
+            text_color=COLORS["danger"],
+            hover_color="#3B2223",
             command=lambda: self._delete_host(host['id'])
         )
         btn_delete.pack(side="right", padx=(5, 15), pady=10)
@@ -288,9 +365,9 @@ class TerbiusApp(ctk.CTk):
         btn_edit = ctk.CTkButton(
             card,
             text="Edit",
-            width=60,
-            fg_color="#374151",
-            hover_color="#4B5563",
+            width=62, height=30, corner_radius=7,
+            fg_color=COLORS["surface_hover"],
+            hover_color=COLORS["line"],
             command=lambda h=host: self._edit_host_dialog(h)
         )
         btn_edit.pack(side="right", padx=5, pady=10)
@@ -298,8 +375,9 @@ class TerbiusApp(ctk.CTk):
         btn_connect = ctk.CTkButton(
             card, 
             text="Connect", 
-            width=80, 
-            command=lambda h=host: TerminalWindow(self, h)
+            width=84, height=30, corner_radius=7,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            command=lambda h=host: self._open_terminal(h)
         )
         btn_connect.pack(side="right", padx=5, pady=10)
 
@@ -331,6 +409,56 @@ class TerbiusApp(ctk.CTk):
             db_manager=self.db,
             on_import_callback=self._refresh_hosts_list
         )
+
+    def _open_git_credential_dialog(self):
+        GitCredentialDialog(parent=self, db_manager=self.db)
+
+    def _check_for_updates(self):
+        """Check GitHub Releases in a worker thread so the UI remains responsive."""
+        self.btn_update.configure(state="disabled", text="Checking...")
+
+        def worker():
+            try:
+                result = check_for_update(APP_VERSION)
+                self.after(0, lambda: self._show_update_result(result))
+            except Exception as error:
+                self.after(0, lambda: self._show_update_error(str(error)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _restore_update_button(self):
+        self.btn_update.configure(state="normal", text="↻  Check for Updates")
+
+    def _show_update_result(self, result):
+        self._restore_update_button()
+        if not result.update_available:
+            messagebox.showinfo(
+                "No Update Available",
+                f"Anda sudah memakai versi terbaru (v{APP_VERSION})."
+            )
+            return
+
+        should_open = messagebox.askyesno(
+            "Update Available",
+            f"Versi baru {result.latest_version} tersedia.\n"
+            f"Versi saat ini: v{APP_VERSION}\n\n"
+            "Buka halaman GitHub Releases?"
+        )
+        if should_open:
+            webbrowser.open(result.release_url)
+
+    def _show_update_error(self, error: str):
+        self._restore_update_button()
+        messagebox.showerror("Update Check Failed", error)
+
+    def _open_terminal(self, host: dict):
+        """Buka terminal dan terapkan credential Git global bila tersedia."""
+        terminal_host = dict(host)
+        global_credential = self.db.get_global_git_credential()
+        if global_credential:
+            terminal_host["git_user"] = global_credential["username"]
+            terminal_host["git_pass"] = global_credential["password"]
+        TerminalWindow(self, terminal_host)
 
     @staticmethod
     def _extract_git_summary(output: str) -> str:
@@ -374,6 +502,7 @@ class TerbiusApp(ctk.CTk):
             import asyncssh
 
             async def run_all():
+                global_credential = self.db.get_global_git_credential()
                 for host in hosts:
                     self.after(0, self.output_textbox.insert, "end", f"=== Running on {host['label']} ({host['hostname']}) ===\n")
                     self.after(0, self.output_textbox.see, "end")
@@ -410,6 +539,9 @@ class TerbiusApp(ctk.CTk):
 
                             git_user = host.get('git_user')
                             git_pass = host.get('git_pass')
+                            if global_credential:
+                                git_user = global_credential['username']
+                                git_pass = global_credential['password']
 
                             if git_user and git_pass:
                                 helper_str = f'!f() {{ echo "username={git_user}"; echo "password={git_pass}"; }}; f'

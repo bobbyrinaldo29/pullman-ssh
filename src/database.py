@@ -67,6 +67,17 @@ class DatabaseManager:
                 );
             """)
 
+            # Credential Git global untuk seluruh eksekusi Git Pull.
+            # Nama tabel dipisah agar tidak berbenturan dengan skema lama pengguna.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS global_git_credential (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    username TEXT NOT NULL,
+                    password TEXT NOT NULL,  -- Encrypted personal access token/password
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+
             # Tabel Hosts (Dilengkapi repo_path dan git_branch)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS hosts (
@@ -164,6 +175,36 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute("SELECT id, title, private_key_path, created_at FROM ssh_keys ORDER BY title ASC;")
             return [dict(row) for row in cursor.fetchall()]
+
+    # ==================== GLOBAL GIT CREDENTIAL API ====================
+
+    def save_global_git_credential(self, username: str, password: str) -> None:
+        """Simpan satu Git username/token global dalam bentuk terenkripsi."""
+        with self._get_connection() as conn:
+            conn.execute("""
+                INSERT INTO global_git_credential (id, username, password, updated_at)
+                VALUES (1, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET
+                    username = excluded.username,
+                    password = excluded.password,
+                    updated_at = CURRENT_TIMESTAMP;
+            """, (username.strip(), self._encrypt(password)))
+            conn.commit()
+
+    def get_global_git_credential(self) -> Optional[Dict[str, Any]]:
+        """Ambil credential Git global dan dekripsi token hanya saat diperlukan."""
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM global_git_credential WHERE id = 1;").fetchone()
+            if not row:
+                return None
+            credential = dict(row)
+            credential["password"] = self._decrypt(credential["password"])
+            return credential
+
+    def delete_global_git_credential(self) -> None:
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM global_git_credential WHERE id = 1;")
+            conn.commit()
 
     # ==================== HOSTS API ====================
 
