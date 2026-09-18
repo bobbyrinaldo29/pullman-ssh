@@ -13,3 +13,6 @@ src/ui/__pycache__/import_dialog.cpython-314.pyc
 src/ui/__pycache__/terminal_window.cpython-314.pyc
 pyvenv.cfg
 .master.key
+dist/*
+build/*
+pullManager.db
