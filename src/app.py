@@ -1,3 +1,4 @@
+from PIL import ExifTags
 import os
 os.environ['TK_SILENCE_DEPRECATION'] = '1'
 
@@ -26,9 +27,9 @@ ctk.set_default_color_theme("dark-blue")
 
 # A restrained graphite palette inspired by current macOS utility apps.
 COLORS = {
-    "window": "#111214",
-    "sidebar": "#1A1B1F",
-    "surface": "#202126",
+    "window": "#1A1B1F",
+    "sidebar": "#242529",
+    "surface": "#1A1B1F",
     "surface_hover": "#2A2C33",
     "line": "#32343B",
     "text": "#F5F5F7",
@@ -101,6 +102,9 @@ class TerbiusApp(ctk.CTk):
 
             if sys.platform == "win32" and ico_file.exists():
                 self.iconbitmap(default=str(ico_file))
+            elif sys.platform == "darwin" and png_file.exists():
+                app_icon = ImageTk.PhotoImage(Image.open(png_file))
+                self.iconphoto(True, app_icon)
         except Exception as e:
             print(f"Gagal memuat ikon aplikasi: {e}")
 
@@ -121,9 +125,14 @@ class TerbiusApp(ctk.CTk):
         brand = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         brand.grid(row=0, column=0, padx=18, pady=(25, 30), sticky="w")
         try:
-            logo_path = resource_path("assets/icon_512x512.png")
-            if logo_path.exists():
-                pil_logo = Image.open(logo_path)
+            logo_path1 = resource_path("assets/icon_512x512.png")
+            logo_path2 = resource_path("src/assets/icon_512x512.png")
+            if logo_path1.exists():
+                pil_logo = Image.open(logo_path1)
+                self.brand_icon = ctk.CTkImage(light_image=pil_logo, dark_image=pil_logo, size=(35, 35))
+                ctk.CTkLabel(brand, text="", image=self.brand_icon).pack(side="left", padx=(0, 9))
+            elif logo_path2.exists():
+                pil_logo = Image.open(logo_path2)
                 self.brand_icon = ctk.CTkImage(light_image=pil_logo, dark_image=pil_logo, size=(35, 35))
                 ctk.CTkLabel(brand, text="", image=self.brand_icon).pack(side="left", padx=(0, 9))
             else:
@@ -191,7 +200,7 @@ class TerbiusApp(ctk.CTk):
 
         footer_label = ctk.CTkLabel(
             self.sidebar,
-            text="Vibe Code \n By Sukma Dewa",
+            text="Vibe Code \n By DO.MBA Devs",
             font=ctk.CTkFont(size=10),
             text_color=COLORS["muted"]
         )
@@ -711,15 +720,48 @@ class TerbiusApp(ctk.CTk):
         auth_type = host.get('auth_type', 'password')
 
         # Salin password ke clipboard bila ada agar user bisa langsung paste
-        if password:
-            try:
-                self.clipboard_clear()
-                self.clipboard_append(password)
-                self.output_textbox.insert("end", f"ℹ [{host['label']}] Password SSH telah disalin ke clipboard.\n")
-                self.output_textbox.see("end")
-            except Exception:
-                pass
+        if sys.platform != "darwin":
+            if password:
+                try:
+                    self.clipboard_clear()
+                    self.clipboard_append(password)
+                    self.output_textbox.insert("end", f"ℹ [{host['label']}] Password SSH telah disalin ke clipboard.\n")
+                    self.output_textbox.see("end")
+                except Exception:
+                    pass
 
+        # ==========================================
+        # 1. PENANGANAN UNTUK MACOS (sys.platform == "darwin")
+        # ==========================================
+        if sys.platform == "darwin":
+            # Tambahkan penanganan kompatibilitas hostkey lama (+ssh-rsa,ssh-dss)
+            extra_opts = "-o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa"
+
+            # Susun perintah dasar SSH
+            if auth_type == "key" and key_file:
+                ssh_cmd = f"ssh -i '{key_file}' {extra_opts} -p {port} {username}@{hostname}"
+            else:
+                ssh_cmd = f"ssh {extra_opts} -p {port} {username}@{hostname}"
+
+            try:
+                # Gunakan AppleScript via osascript untuk membuka Terminal.app / iTerm
+                # Buka jendela Terminal baru dan jalankan perintah SSH
+                applescript = f'''
+                tell application "Terminal"
+                    activate
+                    do script "{ssh_cmd}"
+                end tell
+                '''
+                subprocess.Popen(["osascript", "-e", applescript])
+                self.output_textbox.insert("end", f"🚀 [{host['label']}] Membuka Terminal macOS: {ssh_cmd}\n")
+                self.output_textbox.see("end")
+                return
+            except Exception as e:
+                self.output_textbox.insert("end", f"Gagal membuka Terminal macOS ({e}), mencoba fallback...\n")
+
+        # ==========================================
+        # 2. PENANGANAN UNTUK WINDOWS (PuTTY / CMD)
+        # ==========================================
         # Cari PuTTY di sistem
         putty_exe = shutil.which("putty")
         if not putty_exe:
