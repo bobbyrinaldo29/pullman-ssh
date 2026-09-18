@@ -4,7 +4,8 @@ from ssh_client import SSHConnection
 class TerminalWindow(ctk.CTkToplevel):
     def __init__(self, parent, host_config):
         super().__init__(parent)
-        self.title(f"Git Pull - {host_config.get('name', host_config['hostname'])}")
+        host_label = host_config.get('label') or host_config.get('name') or host_config.get('hostname', 'Host')
+        self.title(f"Git Pull - {host_label}")
         self.geometry("700x480")
 
         # Event ketika jendela ditutup via tombol [X]

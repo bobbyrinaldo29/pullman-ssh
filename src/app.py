@@ -52,7 +52,14 @@ def application_data_path() -> Path:
     """Keep mutable data outside the read-only app bundle in packaged builds."""
     if not getattr(sys, "frozen", False):
         return Path.cwd()
-    data_path = Path.home() / "Library" / "Application Support" / APP_NAME
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        base_dir = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+    elif sys.platform == "darwin":
+        base_dir = Path.home() / "Library" / "Application Support"
+    else:
+        base_dir = Path.home() / ".local" / "share"
+    data_path = base_dir / APP_NAME
     data_path.mkdir(parents=True, exist_ok=True)
     return data_path
 
@@ -67,28 +74,34 @@ class TerbiusApp(ctk.CTk):
             str(data_path / ".master.key")
         )
 
+        self.selected_host_ids = set()
+        self.host_checkbox_vars = {}
+
         self.title(f"DO.MBA - Pull Manager v{APP_VERSION}")
         self.geometry("1080x680")
         self.minsize(900, 560)
-        self.configure(fg_color=COLORS["window"])
+        # Set AppUserModelID agar icon taskbar Windows muncul terpisah & berikon
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("domba.pullmanager.ssh.app")
+            except Exception:
+                pass
 
-        # --- SET ICON DI SINI ---
-        # Pastikan file 'app_icon' berada di folder yang sama atau tentukan path lengkapnya
+        # Pasang icon aplikasi (Window Titlebar & Taskbar)
         try:
-            # 1. Buka gambar menggunakan Pillow
-            pil_image = Image.open(resource_path("assets/icon_512x512.png"))
-            
-            # 2. Resize ke ukuran standar window icon (misal 512x512 agar tajam di Retina display)
-            resized_image = pil_image.resize((250, 250), Image.Resampling.LANCZOS)
-            
-            # 3. Simpan referensi objek ke self agar tidak di-garbage collect
-            self.icon_image = ImageTk.PhotoImage(resized_image)
-            
-            # 4. Pasang ke window
-            self.wm_iconphoto(True, self.icon_image)
+            ico_file = resource_path("assets/app_icon.ico")
+            png_file = resource_path("assets/icon_512x512.png")
 
+            if png_file.exists():
+                pil_image = Image.open(png_file)
+                self.icon_image = ImageTk.PhotoImage(pil_image.resize((256, 256), Image.Resampling.LANCZOS))
+                self.wm_iconphoto(True, self.icon_image)
+
+            if sys.platform == "win32" and ico_file.exists():
+                self.iconbitmap(default=str(ico_file))
         except Exception as e:
-            print(f"Gagal memuat ikon .png: {e}")
+            print(f"Gagal memuat ikon aplikasi: {e}")
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -105,7 +118,17 @@ class TerbiusApp(ctk.CTk):
 
         brand = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         brand.grid(row=0, column=0, padx=18, pady=(25, 30), sticky="w")
-        ctk.CTkLabel(brand, text="D", width=35, height=35, corner_radius=9, fg_color=COLORS["accent"], font=ctk.CTkFont(size=15, weight="bold")).pack(side="left", padx=(0, 9))
+        try:
+            logo_path = resource_path("assets/icon_512x512.png")
+            if logo_path.exists():
+                pil_logo = Image.open(logo_path)
+                self.brand_icon = ctk.CTkImage(light_image=pil_logo, dark_image=pil_logo, size=(35, 35))
+                ctk.CTkLabel(brand, text="", image=self.brand_icon).pack(side="left", padx=(0, 9))
+            else:
+                ctk.CTkLabel(brand, text="D", width=35, height=35, corner_radius=9, fg_color=COLORS["accent"], font=ctk.CTkFont(size=15, weight="bold")).pack(side="left", padx=(0, 9))
+        except Exception:
+            ctk.CTkLabel(brand, text="D", width=35, height=35, corner_radius=9, fg_color=COLORS["accent"], font=ctk.CTkFont(size=15, weight="bold")).pack(side="left", padx=(0, 9))
+
         brand_copy = ctk.CTkFrame(brand, fg_color="transparent")
         brand_copy.pack(side="left")
         ctk.CTkLabel(brand_copy, text="DO.MBA", text_color=COLORS["text"], font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w")
@@ -200,6 +223,23 @@ class TerbiusApp(ctk.CTk):
         )
         self.filter_group_opt.pack(side="left")
 
+        self.chk_all_var = ctk.BooleanVar(value=False)
+        self.chk_all = ctk.CTkCheckBox(
+            filter_frame,
+            text="Check All",
+            variable=self.chk_all_var,
+            width=22,
+            checkbox_width=18,
+            checkbox_height=18,
+            corner_radius=5,
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=self._toggle_check_all
+        )
+        self.chk_all.pack(side="left", padx=(14, 0))
+
         btn_new_host = ctk.CTkButton(header, text="+  New Host", width=112, height=34, corner_radius=8, fg_color=COLORS["surface"], hover_color=COLORS["surface_hover"], command=self._add_host_dialog)
         btn_new_host.grid(row=0, column=2, sticky="e", padx=(5, 0))
 
@@ -275,10 +315,53 @@ class TerbiusApp(ctk.CTk):
         self._render_hosts_list()
         self.after(50, lambda: self._bind_mousewheel(self.hosts_scroll))
 
+    def _toggle_check_all(self):
+        """Centang atau lepas centang semua host yang sedang tampil."""
+        is_checked = self.chk_all_var.get()
+        for host_id, var in self.host_checkbox_vars.items():
+            var.set(is_checked)
+            if is_checked:
+                self.selected_host_ids.add(host_id)
+            else:
+                self.selected_host_ids.discard(host_id)
+        self._update_run_button_text()
+
+    def _on_host_checked(self, host_id: int):
+        """Handler saat checkbox host individual diubah."""
+        var = self.host_checkbox_vars.get(host_id)
+        if var:
+            if var.get():
+                self.selected_host_ids.add(host_id)
+            else:
+                self.selected_host_ids.discard(host_id)
+
+        # Update status Check All jika semua tercentang
+        if self.host_checkbox_vars:
+            all_checked = all(v.get() for v in self.host_checkbox_vars.values())
+            self.chk_all_var.set(all_checked)
+        else:
+            self.chk_all_var.set(False)
+
+        self._update_run_button_text()
+
+    def _update_run_button_text(self):
+        """Perbarui label tombol run all / pull selected."""
+        count = len([hid for hid in self.selected_host_ids if hid in self.host_checkbox_vars])
+        selected_filter = self.filter_group_opt.get() if hasattr(self, 'filter_group_opt') else "All Groups"
+        if count > 0:
+            self.btn_run_all.configure(text=f"Pull Selected ({count})")
+        else:
+            if selected_filter == "All Groups":
+                self.btn_run_all.configure(text="Run All")
+            else:
+                self.btn_run_all.configure(text=f"Run All ({selected_filter})")
+
     def _render_hosts_list(self):
         """Merender daftar host sesuai filter grup dan kata kunci pencarian."""
         for widget in self.hosts_scroll.winfo_children():
             widget.destroy()
+
+        self.host_checkbox_vars.clear()
 
         all_hosts = self.db.get_all_hosts()
         selected_filter = self.filter_group_opt.get() if hasattr(self, 'filter_group_opt') else "All Groups"
@@ -286,18 +369,16 @@ class TerbiusApp(ctk.CTk):
 
         if selected_filter == "All Groups":
             hosts = all_hosts
-            run_btn_text = "Run All"
         else:
             hosts = [h for h in all_hosts if h.get("group_name") == selected_filter]
-            run_btn_text = f"Run All ({selected_filter})"
 
         # Filter berdasarkan search query
         if search_query:
             hosts = [h for h in hosts if search_query in h.get("label", "").lower()]
 
-        self.btn_run_all.configure(text=run_btn_text)
-
         if not hosts:
+            self.chk_all_var.set(False)
+            self._update_run_button_text()
             if not all_hosts:
                 msg = "Belum ada host tersimpan. Klik '+ New Host' untuk menambahkan."
             else:
@@ -314,6 +395,15 @@ class TerbiusApp(ctk.CTk):
         for host in hosts:
             self._create_host_card(host)
 
+        # Sinkronkan status Check All
+        if self.host_checkbox_vars:
+            all_checked = all(v.get() for v in self.host_checkbox_vars.values())
+            self.chk_all_var.set(all_checked)
+        else:
+            self.chk_all_var.set(False)
+
+        self._update_run_button_text()
+
     def _create_host_card(self, host: dict):
         card = ctk.CTkFrame(
             self.hosts_scroll, fg_color=COLORS["surface"], corner_radius=12,
@@ -321,8 +411,27 @@ class TerbiusApp(ctk.CTk):
         )
         card.pack(fill="x", padx=2, pady=5)
 
+        # 4. Checkbox untuk memilih host
+        is_selected = host['id'] in self.selected_host_ids
+        chk_var = ctk.BooleanVar(value=is_selected)
+        self.host_checkbox_vars[host['id']] = chk_var
+
+        chk = ctk.CTkCheckBox(
+            card,
+            text="",
+            variable=chk_var,
+            width=22,
+            checkbox_width=18,
+            checkbox_height=18,
+            corner_radius=5,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=lambda h_id=host['id']: self._on_host_checked(h_id)
+        )
+        chk.pack(side="left", padx=(14, 0))
+
         info_frame = ctk.CTkFrame(card, fg_color="transparent")
-        info_frame.pack(side="left", padx=18, pady=13)
+        info_frame.pack(side="left", padx=(10, 15), pady=13)
 
         # Baris Header: Label Host + Badge Group
         title_row = ctk.CTkFrame(info_frame, fg_color="transparent")
@@ -349,10 +458,12 @@ class TerbiusApp(ctk.CTk):
         lbl_target = ctk.CTkLabel(info_frame, text=target_str, text_color=COLORS["muted"], font=ctk.CTkFont(size=11), anchor="w")
         lbl_target.pack(anchor="w", pady=(3, 0))
 
+        # Tombol aksi (Pack side='right' sehingga urutan dari kiri ke kanan rapi)
+        # Tombol Delete
         btn_delete = ctk.CTkButton(
             card, 
             text="Delete", 
-            width=68, height=30, corner_radius=7,
+            width=58, height=30, corner_radius=7,
             fg_color="transparent", 
             border_width=1, 
             border_color="#71322E",
@@ -360,26 +471,54 @@ class TerbiusApp(ctk.CTk):
             hover_color="#3B2223",
             command=lambda: self._delete_host(host['id'])
         )
-        btn_delete.pack(side="right", padx=(5, 15), pady=10)
+        btn_delete.pack(side="right", padx=(4, 14), pady=10)
 
+        # Tombol Edit
         btn_edit = ctk.CTkButton(
             card,
             text="Edit",
-            width=62, height=30, corner_radius=7,
+            width=52, height=30, corner_radius=7,
             fg_color=COLORS["surface_hover"],
             hover_color=COLORS["line"],
             command=lambda h=host: self._edit_host_dialog(h)
         )
-        btn_edit.pack(side="right", padx=5, pady=10)
+        btn_edit.pack(side="right", padx=4, pady=10)
 
-        btn_connect = ctk.CTkButton(
+        # 3. Tombol Terminal (PuTTY / Command Prompt untuk akses manual)
+        btn_terminal = ctk.CTkButton(
+            card,
+            text="Terminal",
+            width=70, height=30, corner_radius=7,
+            fg_color=COLORS["surface_hover"],
+            hover_color=COLORS["line"],
+            command=lambda h=host: self._open_manual_terminal(h)
+        )
+        btn_terminal.pack(side="right", padx=4, pady=10)
+
+        # 2. Tombol Test Connection
+        btn_test = ctk.CTkButton(
+            card,
+            text="Test",
+            width=56, height=30, corner_radius=7,
+            fg_color="#18283E",
+            hover_color="#223B5D",
+            text_color="#60A5FA",
+            border_width=1,
+            border_color="#254A78"
+        )
+        btn_test.configure(command=lambda h=host, b=btn_test: self._test_host_connection(h, b))
+        btn_test.pack(side="right", padx=4, pady=10)
+
+        # 1. Tombol Pull (Menggantikan Connect, menjalankan git pull)
+        btn_pull = ctk.CTkButton(
             card, 
-            text="Connect", 
-            width=84, height=30, corner_radius=7,
+            text="Pull", 
+            width=62, height=30, corner_radius=7,
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            font=ctk.CTkFont(weight="bold"),
             command=lambda h=host: self._open_terminal(h)
         )
-        btn_connect.pack(side="right", padx=5, pady=10)
+        btn_pull.pack(side="right", padx=4, pady=10)
 
     def _delete_host(self, host_id: int):
         self.db.delete_host(host_id)
@@ -460,6 +599,149 @@ class TerbiusApp(ctk.CTk):
             terminal_host["git_pass"] = global_credential["password"]
         TerminalWindow(self, terminal_host)
 
+    def _test_host_connection(self, host: dict, btn_test: ctk.CTkButton):
+        """Tes koneksi SSH ke remote host tanpa menjalankan perintah git pull."""
+        original_text = btn_test.cget("text")
+        btn_test.configure(state="disabled", text="...")
+
+        def worker():
+            import time
+            import asyncssh
+            start_time = time.time()
+            success = False
+            error_msg = ""
+
+            try:
+                client_keys = None
+                if host.get('auth_type') == 'key' and host.get('key_filename'):
+                    client_keys = [host['key_filename']]
+
+                options = asyncssh.SSHClientConnectionOptions(
+                    username=host['username'],
+                    password=host.get('password') if host.get('auth_type') == 'password' else None,
+                    client_keys=client_keys,
+                    kex_algs=[
+                        'curve25519-sha256',
+                        'diffie-hellman-group14-sha1',
+                        'diffie-hellman-group1-sha1'
+                    ],
+                    server_host_key_algs=[
+                        'ssh-ed25519',
+                        'ecdsa-sha2-nistp256',
+                        'ssh-rsa',
+                        'ssh-dss'
+                    ],
+                    known_hosts=None
+                )
+
+                async def do_test():
+                    async with asyncssh.connect(
+                        host['hostname'],
+                        port=int(host.get('port', 22)),
+                        options=options,
+                        login_timeout=7
+                    ) as conn:
+                        res = await conn.run("echo ok", check=False)
+                        return res.exit_status == 0
+
+                success = asyncio.run(do_test())
+            except Exception as e:
+                error_msg = str(e)
+
+            elapsed = round((time.time() - start_time) * 1000)
+
+            def update_ui():
+                btn_test.configure(state="normal", text=original_text)
+                if success:
+                    self.output_textbox.insert("end", f"✓ [{host['label']}] Connection test SUCCESSFUL ({elapsed} ms) -> {host['hostname']}:{host.get('port', 22)}\n")
+                    self.output_textbox.see("end")
+                    messagebox.showinfo(
+                        "Connection Successful",
+                        f"Koneksi SSH ke '{host['label']}' BERHASIL!\n\n"
+                        f"Host: {host['hostname']}:{host.get('port', 22)}\n"
+                        f"User: {host['username']}\n"
+                        f"Waktu respon: {elapsed} ms"
+                    )
+                else:
+                    self.output_textbox.insert("end", f"✗ [{host['label']}] Connection test FAILED: {error_msg}\n")
+                    self.output_textbox.see("end")
+                    messagebox.showerror(
+                        "Connection Failed",
+                        f"Koneksi SSH ke '{host['label']}' GAGAL!\n\n"
+                        f"Host: {host['hostname']}:{host.get('port', 22)}\n"
+                        f"Error: {error_msg}"
+                    )
+
+            self.after(0, update_ui)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _open_manual_terminal(self, host: dict):
+        """Membuka sesi terminal interaktif (PuTTY atau Command Prompt SSH) untuk akses manual."""
+        import shutil
+        import subprocess
+
+        hostname = host.get('hostname', '')
+        port = str(host.get('port', 22))
+        username = host.get('username', '')
+        password = host.get('password', '')
+        key_file = host.get('key_filename', '')
+        auth_type = host.get('auth_type', 'password')
+
+        # Salin password ke clipboard bila ada agar user bisa langsung paste
+        if password:
+            try:
+                self.clipboard_clear()
+                self.clipboard_append(password)
+                self.output_textbox.insert("end", f"ℹ [{host['label']}] Password SSH telah disalin ke clipboard.\n")
+                self.output_textbox.see("end")
+            except Exception:
+                pass
+
+        # Cari PuTTY di sistem
+        putty_exe = shutil.which("putty")
+        if not putty_exe:
+            for candidate in [
+                r"C:\Program Files\PuTTY\putty.exe",
+                r"C:\Program Files (x86)\PuTTY\putty.exe",
+                os.path.expandvars(r"%LOCALAPPDATA%\Programs\PuTTY\putty.exe")
+            ]:
+                if os.path.exists(candidate):
+                    putty_exe = candidate
+                    break
+
+        # Jika PuTTY ada, buka PuTTY (mendukung auto login dengan -pw)
+        if putty_exe:
+            cmd = [putty_exe, "-ssh", "-P", port, "-l", username]
+            if auth_type == "password" and password:
+                cmd.extend(["-pw", password])
+            elif auth_type == "key" and key_file and key_file.lower().endswith(".ppk"):
+                cmd.extend(["-i", key_file])
+            cmd.append(hostname)
+
+            try:
+                subprocess.Popen(cmd)
+                self.output_textbox.insert("end", f"🚀 [{host['label']}] Membuka sesi SSH via PuTTY ({hostname}:{port})...\n")
+                self.output_textbox.see("end")
+                return
+            except Exception as e:
+                self.output_textbox.insert("end", f"Gagal membuka PuTTY ({e}), beralih ke Command Prompt...\n")
+
+        # Fallback ke Command Prompt Windows (OpenSSH bawaan)
+        title = f"SSH - {host['label']} ({hostname})"
+        if auth_type == "key" and key_file:
+            ssh_target = f'ssh -i "{key_file}" -p {port} {username}@{hostname}'
+        else:
+            ssh_target = f'ssh -p {port} {username}@{hostname}'
+
+        full_cmd = f'start "{title}" cmd /k "{ssh_target}"'
+        try:
+            subprocess.Popen(full_cmd, shell=True)
+            self.output_textbox.insert("end", f"🚀 [{host['label']}] Membuka Command Prompt SSH: {ssh_target}\n")
+            self.output_textbox.see("end")
+        except Exception as e:
+            messagebox.showerror("Terminal Error", f"Gagal membuka terminal: {e}")
+
     @staticmethod
     def _extract_git_summary(output: str) -> str:
         """Mengambil baris ringkasan dari output git pull (misal: 'X files changed...' atau 'Already up to date.')."""
@@ -482,18 +764,29 @@ class TerbiusApp(ctk.CTk):
         return output.strip() + "\n"
 
     def _run_all_hosts(self):
-        """Menjalankan git pull pada seluruh host yang sedang difilter di background thread tanpa freeze UI."""
+        """Menjalankan git pull pada seluruh host yang dipilih (atau seluruh host yang difilter jika tidak ada yang dicentang) di background thread tanpa freeze UI."""
         self.output_textbox.delete("1.0", "end")
         all_hosts = self.db.get_all_hosts()
         selected_filter = self.filter_group_opt.get() if hasattr(self, 'filter_group_opt') else "All Groups"
 
         if selected_filter == "All Groups":
-            hosts = all_hosts
+            filtered_hosts = all_hosts
         else:
-            hosts = [h for h in all_hosts if h.get("group_name") == selected_filter]
+            filtered_hosts = [h for h in all_hosts if h.get("group_name") == selected_filter]
+
+        search_query = self.search_var.get().strip().lower() if hasattr(self, 'search_var') else ""
+        if search_query:
+            filtered_hosts = [h for h in filtered_hosts if search_query in h.get("label", "").lower()]
+
+        # Jika ada host yang dicentang, jalankan HANYA pada host yang dicentang
+        selected_ids = [hid for hid, var in self.host_checkbox_vars.items() if var.get()]
+        if selected_ids:
+            hosts = [h for h in filtered_hosts if h['id'] in selected_ids]
+        else:
+            hosts = filtered_hosts
 
         if not hosts:
-            self.output_textbox.insert("end", f"No hosts configured for group '{selected_filter}'.\n")
+            self.output_textbox.insert("end", f"Tidak ada host yang dipilih di grup '{selected_filter}'.\n")
             return
 
         self.btn_run_all.configure(state="disabled")
