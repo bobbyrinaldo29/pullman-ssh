@@ -14,6 +14,7 @@ from ui.host_dialog import HostDialog
 from ui.export_dialog import ExportDialog
 from ui.import_dialog import ImportDialog
 from ui.git_credential_dialog import GitCredentialDialog
+from ui.db_blast_view import DBBlastView
 from update_service import check_for_update
 from ssh_client import SSHConnection
 from PIL import ImageTk, Image
@@ -108,6 +109,7 @@ class TerbiusApp(ctk.CTk):
 
         self._setup_sidebar()
         self._setup_main_content()
+        self.db_blast_frame = DBBlastView(self, self.db)
         self._refresh_hosts_list()
 
     def _setup_sidebar(self):
@@ -141,12 +143,19 @@ class TerbiusApp(ctk.CTk):
         )
         self.btn_hosts.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
 
+        self.btn_db_blast = ctk.CTkButton(
+            self.sidebar, text="DB Blast", anchor="w",
+            height=38, corner_radius=9, fg_color="transparent", hover_color=COLORS["surface_hover"], text_color=COLORS["text"],
+            command=self._show_db_blast_view
+        )
+        self.btn_db_blast.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
+
         btn_git_credential = ctk.CTkButton(
             self.sidebar, text="⌘  Git Credential", anchor="w",
             height=34, corner_radius=8, fg_color="transparent", hover_color=COLORS["surface_hover"],
             command=self._open_git_credential_dialog
         )
-        btn_git_credential.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
+        btn_git_credential.grid(row=3, column=0, padx=10, pady=5, sticky="ew")
 
         # Spacer keeps data actions aligned with the lower edge of the window.
         ctk.CTkLabel(self.sidebar, text="").grid(row=4, column=0)
@@ -291,12 +300,25 @@ class TerbiusApp(ctk.CTk):
     def _set_active_nav(self, active_btn):
         """Reset semua tombol nav ke transparan, lalu aktifkan yang dipilih."""
         self.btn_hosts.configure(fg_color="transparent")
+        if hasattr(self, 'btn_db_blast'):
+            self.btn_db_blast.configure(fg_color="transparent")
         active_btn.configure(fg_color=COLORS["accent"])
 
     def _show_hosts_view(self):
         """Tampilkan kembali tampilan Hosts dan refresh daftar."""
         self._set_active_nav(self.btn_hosts)
+        if hasattr(self, 'db_blast_frame'):
+            self.db_blast_frame.grid_remove()
+        self.main_frame.grid(row=0, column=1, sticky="nsew", padx=28, pady=24)
         self._refresh_hosts_list()
+
+    def _show_db_blast_view(self):
+        """Tampilkan tampilan DB Blast bergaya Navicat (Instant Switch)."""
+        self._set_active_nav(self.btn_db_blast)
+        self.main_frame.grid_remove()
+        self.db_blast_frame.grid(row=0, column=1, sticky="nsew", padx=28, pady=24)
+        if not getattr(self.db_blast_frame, '_is_loaded', False):
+            self.db_blast_frame._refresh_connections()
 
     def _bind_mousewheel(self, widget):
         """Rekursif bind event scroll trackpad/mouse ke semua child widget di CTkScrollableFrame."""

@@ -99,6 +99,28 @@ class DatabaseManager:
                     FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE SET NULL
                 );
             """)
+
+            # Tabel Database Connections untuk fitur DB Blast
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS db_connections (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    db_type TEXT DEFAULT 'MYSQL',
+                    host TEXT DEFAULT 'localhost',
+                    port INTEGER DEFAULT 3306,
+                    username TEXT DEFAULT 'root',
+                    password TEXT,              -- Encrypted
+                    database_name TEXT,
+                    use_ssh INTEGER DEFAULT 1,
+                    ssh_host TEXT,
+                    ssh_port INTEGER DEFAULT 22,
+                    ssh_username TEXT,
+                    ssh_password TEXT,          -- Encrypted
+                    ssh_key_filename TEXT,
+                    group_name TEXT DEFAULT 'Default',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
             conn.commit()
 
             # Migrasi skema ringan jika file database lama belum memiliki kolom repo_path atau git_branch
@@ -304,6 +326,188 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM hosts WHERE id = ?;", (host_id,))
             conn.commit()
+
+    # ==================== DB CONNECTIONS (DB BLAST) ====================
+
+    def get_all_db_connections(self, decrypt_passwords: bool = False) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM db_connections ORDER BY name ASC;")
+            rows = cursor.fetchall()
+            result = []
+            for row in rows:
+                item = dict(row)
+                if decrypt_passwords:
+                    item["password"] = self._decrypt(item.get("password"))
+                    item["ssh_password"] = self._decrypt(item.get("ssh_password"))
+                result.append(item)
+            return result
+
+    def get_db_connections_by_ids(self, ids: List[int]) -> List[Dict[str, Any]]:
+        if not ids:
+            return []
+        placeholders = ",".join("?" for _ in ids)
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT * FROM db_connections WHERE id IN ({placeholders}) ORDER BY name ASC;", ids)
+            rows = cursor.fetchall()
+            result = []
+            for row in rows:
+                item = dict(row)
+                item["password"] = self._decrypt(item.get("password"))
+                item["ssh_password"] = self._decrypt(item.get("ssh_password"))
+                result.append(item)
+            return result
+
+    def get_db_connection_by_id(self, conn_id: int) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM db_connections WHERE id = ?;", (conn_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            item = dict(row)
+            item["password"] = self._decrypt(item.get("password"))
+            item["ssh_password"] = self._decrypt(item.get("ssh_password"))
+            return item
+
+    def add_db_connection(
+        self,
+        name: str,
+        db_type: str = "MYSQL",
+        host: str = "localhost",
+        port: int = 3306,
+        username: str = "root",
+        password: Optional[str] = None,
+        database_name: Optional[str] = None,
+        use_ssh: bool = True,
+        ssh_host: Optional[str] = None,
+        ssh_port: int = 22,
+        ssh_username: Optional[str] = None,
+        ssh_password: Optional[str] = None,
+        ssh_key_filename: Optional[str] = None,
+        group_name: str = "Default"
+    ) -> int:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO db_connections (
+                    name, db_type, host, port, username, password,
+                    database_name, use_ssh, ssh_host, ssh_port,
+                    ssh_username, ssh_password, ssh_key_filename, group_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """, (
+                name,
+                db_type,
+                host,
+                int(port) if port else 3306,
+                username,
+                self._encrypt(password),
+                database_name,
+                1 if use_ssh else 0,
+                ssh_host,
+                int(ssh_port) if ssh_port else 22,
+                ssh_username,
+                self._encrypt(ssh_password),
+                ssh_key_filename,
+                group_name or "Default"
+            ))
+            conn.commit()
+            return cursor.lastrowid
+
+    def update_db_connection(
+        self,
+        conn_id: int,
+        name: str,
+        db_type: str = "MYSQL",
+        host: str = "localhost",
+        port: int = 3306,
+        username: str = "root",
+        password: Optional[str] = None,
+        database_name: Optional[str] = None,
+        use_ssh: bool = True,
+        ssh_host: Optional[str] = None,
+        ssh_port: int = 22,
+        ssh_username: Optional[str] = None,
+        ssh_password: Optional[str] = None,
+        ssh_key_filename: Optional[str] = None,
+        group_name: str = "Default"
+    ) -> None:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE db_connections SET
+                    name = ?,
+                    db_type = ?,
+                    host = ?,
+                    port = ?,
+                    username = ?,
+                    password = ?,
+                    database_name = ?,
+                    use_ssh = ?,
+                    ssh_host = ?,
+                    ssh_port = ?,
+                    ssh_username = ?,
+                    ssh_password = ?,
+                    ssh_key_filename = ?,
+                    group_name = ?
+                WHERE id = ?;
+            """, (
+                name,
+                db_type,
+                host,
+                int(port) if port else 3306,
+                username,
+                self._encrypt(password),
+                database_name,
+                1 if use_ssh else 0,
+                ssh_host,
+                int(ssh_port) if ssh_port else 22,
+                ssh_username,
+                self._encrypt(ssh_password),
+                ssh_key_filename,
+                group_name or "Default",
+                conn_id
+            ))
+            conn.commit()
+
+    def delete_db_connection(self, conn_id: int) -> None:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM db_connections WHERE id = ?;", (conn_id,))
+            conn.commit()
+
+    def bulk_import_db_connections(self, connections: List[Dict[str, Any]]) -> int:
+        count = 0
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            for c in connections:
+                name = c.get("name") or c.get("ConnectionName") or "Unnamed DB"
+                cursor.execute("""
+                    INSERT INTO db_connections (
+                        name, db_type, host, port, username, password,
+                        database_name, use_ssh, ssh_host, ssh_port,
+                        ssh_username, ssh_password, ssh_key_filename, group_name
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """, (
+                    name,
+                    c.get("db_type") or c.get("type") or "MYSQL",
+                    c.get("host") or "localhost",
+                    int(c.get("port") or 3306),
+                    c.get("username") or c.get("user") or "root",
+                    self._encrypt(c.get("password")),
+                    c.get("database") or c.get("database_name"),
+                    1 if c.get("use_ssh", True) else 0,
+                    c.get("ssh_host"),
+                    int(c.get("ssh_port") or 22),
+                    c.get("ssh_username") or c.get("ssh_user"),
+                    self._encrypt(c.get("ssh_password")),
+                    c.get("ssh_key") or c.get("ssh_key_filename"),
+                    c.get("group") or c.get("group_name") or "Default"
+                ))
+                count += 1
+            conn.commit()
+        return count
 
 
 # ==================== CONTOH PENGGUNAAN ====================
