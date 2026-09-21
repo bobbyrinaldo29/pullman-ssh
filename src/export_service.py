@@ -80,7 +80,7 @@ def export_data(
         encrypted_token = fernet.encrypt(payload_bytes).decode("utf-8")
 
         return {
-            "pullman_version": "1.0",
+            "pullman_version": "1.1",
             "encrypted": True,
             "kdf": "PBKDF2HMAC-SHA256",
             "iterations": PBKDF2_ITERATIONS,
@@ -89,7 +89,7 @@ def export_data(
         }
     else:
         return {
-            "pullman_version": "1.0",
+            "pullman_version": "1.1",
             "encrypted": False,
             "data": payload
         }
