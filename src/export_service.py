@@ -80,7 +80,7 @@ def export_data(
         encrypted_token = fernet.encrypt(payload_bytes).decode("utf-8")
 
         return {
-            "terbius_version": "1.0",
+            "pullman_version": "1.0",
             "encrypted": True,
             "kdf": "PBKDF2HMAC-SHA256",
             "iterations": PBKDF2_ITERATIONS,
@@ -89,7 +89,7 @@ def export_data(
         }
     else:
         return {
-            "terbius_version": "1.0",
+            "pullman_version": "1.0",
             "encrypted": False,
             "data": payload
         }
@@ -109,11 +109,11 @@ def inspect_export_file(file_path: str) -> Dict[str, Any]:
     with open(file_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    if not isinstance(data, dict) or "terbius_version" not in data:
-        raise ValueError("File bukan format export Terbius yang valid.")
+    if not isinstance(data, dict) or "pullman_version" not in data:
+        raise ValueError("File bukan format export Pullman yang valid.")
 
     return {
-        "version": data.get("terbius_version"),
+        "version": data.get("pullman_version"),
         "encrypted": data.get("encrypted", False),
         "kdf": data.get("kdf")
     }
@@ -121,14 +121,14 @@ def inspect_export_file(file_path: str) -> Dict[str, Any]:
 
 def load_export_file(file_path: str, passphrase: Optional[str] = None) -> Tuple[Dict[str, Any], bool]:
     """
-    Membaca dan mendekripsi file export Terbius.
+    Membaca dan mendekripsi file export Pullman.
     Mengembalikan (payload_dict, is_encrypted).
     payload_dict memiliki format {"groups": [...], "hosts": [...]}.
     """
     with open(file_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    if not isinstance(data, dict) or "terbius_version" not in data:
+    if not isinstance(data, dict) or "pullman_version" not in data:
         raise ValueError("Format file export tidak dikenali.")
 
     is_encrypted = data.get("encrypted", False)

@@ -210,45 +210,47 @@ class DBConnectionDialog(ctk.CTkToplevel):
         self.ssh_box = ctk.CTkFrame(self.scroll_frame, fg_color="#1D1E22", corner_radius=10, border_width=1, border_color="#32343B")
         self.ssh_box.pack(fill="x", pady=(0, 15), padx=2, ipady=8)
 
-        # SSH Host & Port
-        ssh_host_frame = ctk.CTkFrame(self.ssh_box, fg_color="transparent")
-        ssh_host_frame.pack(fill="x", padx=12, pady=(6, 6))
-        ssh_host_frame.grid_columnconfigure(0, weight=3)
-        ssh_host_frame.grid_columnconfigure(1, weight=1)
+        # SSH tunnel-nya diambil dari Host yang sudah terdaftar di Pull Blast (bukan diisi manual lagi).
+        # Satu Host = satu baris yang dipakai bersama Pull Blast & DB Blast, jadi:
+        # - Saat tambah baru: hanya Host yang BELUM punya info DB yang bisa dipilih.
+        # - Saat edit: Host-nya terkunci ke baris yang sedang diedit (tidak bisa dipindah).
+        self.pull_blast_hosts = self.db.get_all_hosts()
+        is_edit = self.conn_data is not None
+        if is_edit:
+            editing_host_id = self.conn_data.get("ssh_host_id") or self.conn_data.get("id")
+            selectable_hosts = [h for h in self.pull_blast_hosts if h["id"] == editing_host_id]
+        else:
+            selectable_hosts = [h for h in self.pull_blast_hosts if not h.get("db_host")]
 
-        lbl_ssh_host = ctk.CTkLabel(ssh_host_frame, text="SSH Host / IP:", font=ctk.CTkFont(size=12))
-        lbl_ssh_host.grid(row=0, column=0, sticky="w")
-        self.ent_ssh_host = ctk.CTkEntry(ssh_host_frame, placeholder_text="e.g. 104.234.180.117")
-        self.ent_ssh_host.grid(row=1, column=0, sticky="ew", padx=(0, 8))
+        self._host_choice_map: Dict[str, int] = {}
+        host_choices = []
+        for h in selectable_hosts:
+            choice = f"{h['label']} ({h['username']}@{h['hostname']}:{h['port']})"
+            self._host_choice_map[choice] = h["id"]
+            host_choices.append(choice)
 
-        lbl_ssh_port = ctk.CTkLabel(ssh_host_frame, text="SSH Port:", font=ctk.CTkFont(size=12))
-        lbl_ssh_port.grid(row=0, column=1, sticky="w")
-        self.ent_ssh_port = ctk.CTkEntry(ssh_host_frame, placeholder_text="22")
-        self.ent_ssh_port.insert(0, "22")
-        self.ent_ssh_port.grid(row=1, column=1, sticky="ew")
+        lbl_ssh_host_select = ctk.CTkLabel(self.ssh_box, text="SSH Host (dari Pull Blast):", font=ctk.CTkFont(size=12))
+        lbl_ssh_host_select.pack(anchor="w", padx=12, pady=(6, 2))
 
-        # SSH Username & Password
-        ssh_auth_frame = ctk.CTkFrame(self.ssh_box, fg_color="transparent")
-        ssh_auth_frame.pack(fill="x", padx=12, pady=(4, 6))
-        ssh_auth_frame.grid_columnconfigure(0, weight=1)
-        ssh_auth_frame.grid_columnconfigure(1, weight=1)
+        if host_choices:
+            self.opt_ssh_host = ctk.CTkOptionMenu(self.ssh_box, values=host_choices)
+            self.opt_ssh_host.set(host_choices[0])
+            if is_edit:
+                self.opt_ssh_host.configure(state="disabled")
+        else:
+            empty_msg = "(Host ini sudah tidak ada)" if is_edit else "(Semua Host sudah punya koneksi DB, atau belum ada Host)"
+            self.opt_ssh_host = ctk.CTkOptionMenu(self.ssh_box, values=[empty_msg], state="disabled")
+        self.opt_ssh_host.pack(fill="x", padx=12, pady=(0, 6))
 
-        lbl_ssh_user = ctk.CTkLabel(ssh_auth_frame, text="SSH Username:", font=ctk.CTkFont(size=12))
-        lbl_ssh_user.grid(row=0, column=0, sticky="w")
-        self.ent_ssh_username = ctk.CTkEntry(ssh_auth_frame, placeholder_text="root")
-        self.ent_ssh_username.insert(0, "root")
-        self.ent_ssh_username.grid(row=1, column=0, sticky="ew", padx=(0, 6))
-
-        lbl_ssh_pass = ctk.CTkLabel(ssh_auth_frame, text="SSH Password:", font=ctk.CTkFont(size=12))
-        lbl_ssh_pass.grid(row=0, column=1, sticky="w")
-        self.ent_ssh_password = ctk.CTkEntry(ssh_auth_frame, placeholder_text="SSH password", show="•")
-        self.ent_ssh_password.grid(row=1, column=1, sticky="ew", padx=(6, 0))
-
-        # SSH Private Key (Optional)
-        lbl_ssh_key = ctk.CTkLabel(self.ssh_box, text="SSH Private Key Path (Optional):", font=ctk.CTkFont(size=12))
-        lbl_ssh_key.pack(anchor="w", padx=12)
-        self.ent_ssh_key = ctk.CTkEntry(self.ssh_box, placeholder_text="e.g. C:/Users/.../.ssh/id_rsa")
-        self.ent_ssh_key.pack(fill="x", padx=12, pady=(2, 6))
+        lbl_ssh_hint = ctk.CTkLabel(
+            self.ssh_box,
+            text="Belum ada Host yang sesuai? Tambahkan dulu di menu Pull Blast, lalu buka form ini lagi.",
+            text_color="gray",
+            font=ctk.CTkFont(size=10),
+            wraplength=460,
+            justify="left"
+        )
+        lbl_ssh_hint.pack(anchor="w", padx=12, pady=(0, 8))
 
         # Bind mousewheel scroll agar bisa di-scroll dengan mulus di mana saja
         self.after(50, lambda: self._bind_mousewheel(self.scroll_frame))
@@ -294,17 +296,12 @@ class DBConnectionDialog(ctk.CTkToplevel):
         self.use_ssh_var.set(use_ssh)
         self._toggle_ssh_fields()
 
-        if d.get("ssh_host"):
-            self.ent_ssh_host.insert(0, d["ssh_host"])
-        self.ent_ssh_port.delete(0, "end")
-        self.ent_ssh_port.insert(0, str(d.get("ssh_port", 22)))
-        if d.get("ssh_username"):
-            self.ent_ssh_username.delete(0, "end")
-            self.ent_ssh_username.insert(0, d["ssh_username"])
-        if d.get("ssh_password"):
-            self.ent_ssh_password.insert(0, d["ssh_password"])
-        if d.get("ssh_key_filename"):
-            self.ent_ssh_key.insert(0, d["ssh_key_filename"])
+        ssh_host_id = d.get("ssh_host_id")
+        if ssh_host_id:
+            for choice, hid in self._host_choice_map.items():
+                if hid == ssh_host_id:
+                    self.opt_ssh_host.set(choice)
+                    break
 
     def _get_form_dict(self) -> Optional[Dict[str, Any]]:
         name = self.ent_name.get().strip()
@@ -316,11 +313,6 @@ class DBConnectionDialog(ctk.CTkToplevel):
         username = self.ent_username.get().strip() or "root"
         password = self.ent_password.get()
         use_ssh = self.use_ssh_var.get()
-        ssh_host = self.ent_ssh_host.get().strip()
-        ssh_port_str = self.ent_ssh_port.get().strip()
-        ssh_user = self.ent_ssh_username.get().strip() or "root"
-        ssh_pass = self.ent_ssh_password.get()
-        ssh_key = self.ent_ssh_key.get().strip() or None
 
         if not name:
             self.lbl_error.configure(text="Connection name is required.")
@@ -332,15 +324,12 @@ class DBConnectionDialog(ctk.CTkToplevel):
             self.lbl_error.configure(text="Port must be a valid integer.")
             return None
 
-        try:
-            ssh_port = int(ssh_port_str) if ssh_port_str else 22
-        except ValueError:
-            self.lbl_error.configure(text="SSH Port must be a valid integer.")
-            return None
-
-        if use_ssh and not ssh_host:
-            self.lbl_error.configure(text="SSH Host is required when SSH Tunnel is enabled.")
-            return None
+        ssh_host_id = None
+        if use_ssh:
+            ssh_host_id = self._host_choice_map.get(self.opt_ssh_host.get())
+            if not ssh_host_id:
+                self.lbl_error.configure(text="Tidak ada Host yang bisa dipilih. Tambahkan Host baru dulu di menu Pull Blast (Host yang sudah punya koneksi DB tidak bisa dipakai lagi).")
+                return None
 
         return {
             "name": name,
@@ -352,12 +341,21 @@ class DBConnectionDialog(ctk.CTkToplevel):
             "username": username,
             "password": password,
             "use_ssh": 1 if use_ssh else 0,
-            "ssh_host": ssh_host,
-            "ssh_port": ssh_port,
-            "ssh_username": ssh_user,
-            "ssh_password": ssh_pass,
-            "ssh_key_filename": ssh_key,
+            "ssh_host_id": ssh_host_id,
         }
+
+    def _build_test_conn_info(self, form_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Lengkapi form_data dengan info SSH aktual (dari Host Pull Blast) untuk keperluan Test Connection saja."""
+        info = dict(form_data)
+        if form_data.get("use_ssh") and form_data.get("ssh_host_id"):
+            host = self.db.get_host_by_id(form_data["ssh_host_id"])
+            if host:
+                info["ssh_host"] = host["hostname"]
+                info["ssh_port"] = host["port"]
+                info["ssh_username"] = host["username"]
+                info["ssh_password"] = host.get("password")
+                info["ssh_key_filename"] = host.get("key_private_key_path")
+        return info
 
     def _test_connection(self):
         form_data = self._get_form_dict()
@@ -368,7 +366,7 @@ class DBConnectionDialog(ctk.CTkToplevel):
         self.lbl_error.configure(text="")
 
         def worker():
-            res = run_db_query(form_data, "SELECT VERSION();", timeout=10)
+            res = run_db_query(self._build_test_conn_info(form_data), "SELECT VERSION();", timeout=10)
 
             def update():
                 self.btn_test.configure(state="normal", text="⚡ Test Connection")
@@ -404,11 +402,7 @@ class DBConnectionDialog(ctk.CTkToplevel):
                     password=form_data["password"],
                     database_name=form_data["database_name"],
                     use_ssh=bool(form_data["use_ssh"]),
-                    ssh_host=form_data["ssh_host"],
-                    ssh_port=form_data["ssh_port"],
-                    ssh_username=form_data["ssh_username"],
-                    ssh_password=form_data["ssh_password"],
-                    ssh_key_filename=form_data["ssh_key_filename"],
+                    ssh_host_id=form_data["ssh_host_id"],
                     group_name=form_data["group_name"]
                 )
             else:
@@ -421,11 +415,7 @@ class DBConnectionDialog(ctk.CTkToplevel):
                     password=form_data["password"],
                     database_name=form_data["database_name"],
                     use_ssh=bool(form_data["use_ssh"]),
-                    ssh_host=form_data["ssh_host"],
-                    ssh_port=form_data["ssh_port"],
-                    ssh_username=form_data["ssh_username"],
-                    ssh_password=form_data["ssh_password"],
-                    ssh_key_filename=form_data["ssh_key_filename"],
+                    ssh_host_id=form_data["ssh_host_id"],
                     group_name=form_data["group_name"]
                 )
 

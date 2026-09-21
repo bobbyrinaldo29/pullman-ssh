@@ -4,7 +4,7 @@ import threading
 import time
 from datetime import datetime
 from tkinter import filedialog, messagebox
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 
 import customtkinter as ctk
 
@@ -47,10 +47,11 @@ class DBBlastView(ctk.CTkFrame):
     - Dioptimalkan dengan widget caching & show/hide virtualisasi agar pencarian super cepat (<2ms).
     """
 
-    def __init__(self, parent: ctk.CTk, db_manager: Any):
+    def __init__(self, parent: ctk.CTk, db_manager: Any, on_data_changed: Optional[Callable[[], None]] = None):
         super().__init__(parent, fg_color="transparent")
         self.parent = parent
         self.db = db_manager
+        self._on_data_changed = on_data_changed
 
         self.selected_db_ids: Set[int] = set()
         self.connection_cards: Dict[int, Dict[str, Any]] = {}
@@ -145,7 +146,17 @@ class DBBlastView(ctk.CTkFrame):
             font=ctk.CTkFont(size=12),
             command=self._export_db_connections
         )
-        btn_export.pack(side="left")
+        btn_export.pack(side="left", padx=(0, 5))
+
+        btn_refresh = ctk.CTkButton(
+            btn_header_group,
+            text="↻",
+            width=34, height=30, corner_radius=7,
+            fg_color="#2A2C33", hover_color="#383B44",
+            font=ctk.CTkFont(size=12),
+            command=self._refresh_connections
+        )
+        btn_refresh.pack(side="left")
 
         # 2. Filter & Search Bar
         filter_bar = ctk.CTkFrame(self.left_panel, fg_color="transparent")
@@ -686,11 +697,20 @@ class DBBlastView(ctk.CTkFrame):
     # =========================================================================
     # DIALOGS & CRUD
     # =========================================================================
+    def _notify_data_changed(self):
+        """Beritahu view lain (Pull Blast) bahwa data host berubah, karena satu tabel dipakai bersama."""
+        if self._on_data_changed:
+            self._on_data_changed()
+
+    def _refresh_and_notify(self):
+        self._refresh_connections()
+        self._notify_data_changed()
+
     def _open_new_db_dialog(self):
         DBConnectionDialog(
             parent=self.parent,
             db_manager=self.db,
-            on_save_callback=self._refresh_connections
+            on_save_callback=self._refresh_and_notify
         )
 
     def _open_edit_db_dialog(self, conn_id: int):
@@ -701,11 +721,11 @@ class DBBlastView(ctk.CTkFrame):
             parent=self.parent,
             db_manager=self.db,
             connection_data=conn,
-            on_save_callback=self._refresh_connections
+            on_save_callback=self._refresh_and_notify
         )
 
     def _delete_conn(self, conn_id: int, name: str):
-        if messagebox.askyesno("Hapus Database", f"Yakin ingin menghapus koneksi '{name}'?"):
+        if messagebox.askyesno("Hapus Database", f"Yakin ingin menghapus koneksi '{name}'? Host SSH terkait di Pull Blast akan ikut terhapus."):
             self.db.delete_db_connection(conn_id)
             self.selected_db_ids.discard(conn_id)
             item = self.connection_cards.pop(conn_id, None)
@@ -714,6 +734,7 @@ class DBBlastView(ctk.CTkFrame):
             self._sync_check_all_state()
             self._update_blast_button_label()
             self.lbl_db_title.configure(text=f"Databases ({len(self.connection_cards)})")
+            self._notify_data_changed()
 
     # =========================================================================
     # IMPORT & EXPORT CONNECTIONS (JS / JSON / NCX)
@@ -739,7 +760,7 @@ class DBBlastView(ctk.CTkFrame):
                 return
 
             count = self.db.bulk_import_db_connections(conns)
-            self._refresh_connections()
+            self._refresh_and_notify()
             messagebox.showinfo(
                 "Import Berhasil",
                 f"Berhasil mengimpor {count} koneksi database dari:\n{os.path.basename(file_path)}"

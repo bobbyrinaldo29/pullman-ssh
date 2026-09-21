@@ -154,7 +154,7 @@ class ExportDialog(ctk.CTkToplevel):
             parent=self,
             title="Save Export File",
             defaultextension=".json",
-            filetypes=[("Terbius Export (*.json)", "*.json"), ("All Files (*.*)", "*.*")]
+            filetypes=[("Pullman Export (*.json)", "*.json"), ("All Files (*.*)", "*.*")]
         )
 
         if not file_path:

@@ -5,7 +5,7 @@ from cryptography.fernet import Fernet
 
 
 class DatabaseManager:
-    def __init__(self, db_path: str = "terbius.db", key_path: str = ".master.key"):
+    def __init__(self, db_path: str = "pullman.db", key_path: str = ".master.key"):
         self.db_path = db_path
         self.key_path = key_path
         self.fernet = self._load_or_generate_key()
@@ -78,7 +78,8 @@ class DatabaseManager:
                 );
             """)
 
-            # Tabel Hosts (Dilengkapi repo_path dan git_branch)
+            # Tabel Hosts (satu baris = satu server SSH). Kolom db_* opsional: kalau terisi,
+            # host ini SEKALIGUS dipakai sebagai koneksi DB Blast (SSH + DB dalam satu baris yang sama).
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS hosts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,37 +95,23 @@ class DatabaseManager:
                     git_pass TEXT,             -- Encrypted Git Password / Personal Access Token
                     key_id INTEGER,
                     group_id INTEGER,
+                    db_type TEXT,              -- Diisi jika host ini juga dipakai di DB Blast
+                    db_host TEXT,
+                    db_port INTEGER DEFAULT 3306,
+                    db_username TEXT,
+                    db_password TEXT,          -- Encrypted
+                    db_database_name TEXT,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (key_id) REFERENCES ssh_keys(id) ON DELETE SET NULL,
                     FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE SET NULL
-                );
-            """)
-
-            # Tabel Database Connections untuk fitur DB Blast
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS db_connections (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL,
-                    db_type TEXT DEFAULT 'MYSQL',
-                    host TEXT DEFAULT 'localhost',
-                    port INTEGER DEFAULT 3306,
-                    username TEXT DEFAULT 'root',
-                    password TEXT,              -- Encrypted
-                    database_name TEXT,
-                    use_ssh INTEGER DEFAULT 1,
-                    ssh_host TEXT,
-                    ssh_port INTEGER DEFAULT 22,
-                    ssh_username TEXT,
-                    ssh_password TEXT,          -- Encrypted
-                    ssh_key_filename TEXT,
-                    group_name TEXT DEFAULT 'Default',
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
             """)
             conn.commit()
 
             # Migrasi skema ringan jika file database lama belum memiliki kolom repo_path atau git_branch
             self._ensure_repo_path_column(cursor)
+            self._ensure_db_blast_merge(cursor)
+            conn.commit()
 
     def _ensure_repo_path_column(self, cursor: sqlite3.Cursor) -> None:
         cursor.execute("PRAGMA table_info(hosts);")
@@ -137,6 +124,150 @@ class DatabaseManager:
             cursor.execute("ALTER TABLE hosts ADD COLUMN git_user TEXT;")
         if "git_pass" not in columns:
             cursor.execute("ALTER TABLE hosts ADD COLUMN git_pass TEXT;")
+
+    def _ensure_db_blast_merge(self, cursor: sqlite3.Cursor) -> None:
+        """Pastikan kolom db_* ada di tabel hosts, lalu gabungkan (dan hapus) tabel db_connections lama
+        yang berasal dari skema sebelumnya (baik yang masih punya ssh_* sendiri, maupun yang sudah pakai
+        ssh_host_id), sehingga satu host = satu baris yang dipakai bersama oleh Pull Blast dan DB Blast."""
+        cursor.execute("PRAGMA table_info(hosts);")
+        host_columns = [row["name"] for row in cursor.fetchall()]
+        for col, ddl in (
+            ("db_type", "ALTER TABLE hosts ADD COLUMN db_type TEXT;"),
+            ("db_host", "ALTER TABLE hosts ADD COLUMN db_host TEXT;"),
+            ("db_port", "ALTER TABLE hosts ADD COLUMN db_port INTEGER DEFAULT 3306;"),
+            ("db_username", "ALTER TABLE hosts ADD COLUMN db_username TEXT;"),
+            ("db_password", "ALTER TABLE hosts ADD COLUMN db_password TEXT;"),
+            ("db_database_name", "ALTER TABLE hosts ADD COLUMN db_database_name TEXT;"),
+        ):
+            if col not in host_columns:
+                cursor.execute(ddl)
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='db_connections';")
+        if not cursor.fetchone():
+            return
+
+        cursor.execute("PRAGMA table_info(db_connections);")
+        db_conn_columns = [row["name"] for row in cursor.fetchall()]
+        cursor.execute("SELECT * FROM db_connections;")
+        rows = cursor.fetchall()
+
+        for row in rows:
+            r = dict(row)
+            # Skema lama (dua kemungkinan): sudah punya ssh_host_id, atau masih simpan ssh_* sendiri.
+            host_id = r.get("ssh_host_id")
+            if not host_id and "ssh_host" in db_conn_columns and r.get("ssh_host"):
+                host_id = self._find_or_create_host_row(
+                    cursor,
+                    hostname=r["ssh_host"],
+                    port=r.get("ssh_port") or 22,
+                    username=r.get("ssh_username") or "root",
+                    password=self._decrypt(r["ssh_password"]) if r.get("ssh_password") else None,
+                    key_filename=r.get("ssh_key_filename"),
+                    label=r.get("name"),
+                )
+            if not host_id:
+                # Koneksi DB langsung tanpa SSH tunnel: tetap dibuatkan Host agar datanya tidak hilang,
+                # menggunakan alamat DB-nya sendiri sebagai target host.
+                host_id = self._find_or_create_host_row(
+                    cursor,
+                    hostname=r.get("host") or "localhost",
+                    port=22,
+                    username=r.get("username") or "root",
+                    password=None,
+                    key_filename=None,
+                    label=r.get("name"),
+                )
+
+            cursor.execute("""
+                UPDATE hosts SET
+                    db_type = ?, db_host = ?, db_port = ?, db_username = ?, db_password = ?, db_database_name = ?
+                WHERE id = ?;
+            """, (
+                r.get("db_type") or "MYSQL",
+                r.get("host") or "localhost",
+                int(r.get("port") or 3306),
+                r.get("username") or "root",
+                r.get("password"),  # sudah dalam bentuk terenkripsi, langsung dipindah apa adanya
+                r.get("database_name"),
+                host_id,
+            ))
+
+        cursor.execute("DROP TABLE db_connections;")
+
+    def _find_or_create_host_row(
+        self,
+        cursor: sqlite3.Cursor,
+        hostname: str,
+        port: Optional[int],
+        username: str,
+        password: Optional[str] = None,
+        key_filename: Optional[str] = None,
+        label: Optional[str] = None,
+    ) -> int:
+        """Cari Host Pull Blast yang cocok (hostname+port+username); jika tidak ada, buat baru di tabel hosts."""
+        clean_port = int(port) if port else 22
+        cursor.execute(
+            "SELECT id FROM hosts WHERE LOWER(hostname) = LOWER(?) AND port = ? AND LOWER(username) = LOWER(?);",
+            (hostname, clean_port, username)
+        )
+        row = cursor.fetchone()
+        if row:
+            return row["id"]
+
+        auth_type = "password" if password else "key"
+        key_id = None
+        if auth_type == "key" and key_filename:
+            cursor.execute(
+                "INSERT INTO ssh_keys (title, private_key_path) VALUES (?, ?);",
+                (label or f"{username}@{hostname}", key_filename)
+            )
+            key_id = cursor.lastrowid
+
+        clean_label = label or f"{hostname} (from DB Blast)"
+        cursor.execute("""
+            INSERT INTO hosts (label, hostname, port, username, auth_type, password, key_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?);
+        """, (
+            clean_label, hostname, clean_port, username, auth_type,
+            self._encrypt(password) if password else None, key_id
+        ))
+        return cursor.lastrowid
+
+    def find_or_create_ssh_host(
+        self,
+        hostname: str,
+        port: Optional[int] = 22,
+        username: str = "root",
+        password: Optional[str] = None,
+        key_filename: Optional[str] = None,
+        label: Optional[str] = None,
+    ) -> int:
+        """API publik: cari/buat Host Pull Blast yang cocok, dipakai saat import koneksi DB Blast."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            host_id = self._find_or_create_host_row(cursor, hostname, port, username, password, key_filename, label)
+            conn.commit()
+            return host_id
+
+    def get_host_by_id(self, host_id: int) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT h.*, g.name as group_name, k.title as key_title, k.private_key_path as key_private_key_path
+                FROM hosts h
+                LEFT JOIN groups g ON h.group_id = g.id
+                LEFT JOIN ssh_keys k ON h.key_id = k.id
+                WHERE h.id = ?;
+            """, (host_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            item = dict(row)
+            if item.get("password"):
+                item["password"] = self._decrypt(item["password"])
+            if item.get("git_pass"):
+                item["git_pass"] = self._decrypt(item["git_pass"])
+            return item
 
     # ==================== GROUPS API ====================
 
@@ -328,20 +459,61 @@ class DatabaseManager:
             conn.commit()
 
     # ==================== DB CONNECTIONS (DB BLAST) ====================
+    # Sejak penggabungan skema, DB Blast tidak punya tabel sendiri lagi: DB Blast menampilkan baris
+    # `hosts` yang kolom db_host-nya terisi, memakai SSH + info DB dari baris yang SAMA dengan Pull Blast.
+    # Menghapus/mengedit dari salah satu menu otomatis tercermin di menu lainnya karena satu baris yang sama.
+
+    def _query_db_blast_hosts(self, cursor: sqlite3.Cursor, extra_where: str = "", params: tuple = ()) -> List[Dict[str, Any]]:
+        cursor.execute(f"""
+            SELECT h.*, g.name as group_name, k.private_key_path as key_private_key_path
+            FROM hosts h
+            LEFT JOIN groups g ON h.group_id = g.id
+            LEFT JOIN ssh_keys k ON h.key_id = k.id
+            WHERE h.db_host IS NOT NULL AND h.db_host != '' {extra_where}
+            ORDER BY h.label ASC;
+        """, params)
+        rows = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            if item.get("password"):
+                item["password"] = self._decrypt(item["password"])
+            rows.append(item)
+        return rows
+
+    def _host_row_to_db_connection(self, host: Dict[str, Any], decrypt_passwords: bool) -> Dict[str, Any]:
+        """Bentuk satu baris hosts (yang punya db_host terisi) jadi dict ala 'db_connections' lama,
+        supaya kode UI DB Blast yang sudah ada tetap bisa dipakai tanpa perubahan."""
+        item = {
+            "id": host["id"],
+            "name": host["label"],
+            "db_type": host.get("db_type") or "MYSQL",
+            "host": host.get("db_host") or "localhost",
+            "port": host.get("db_port") or 3306,
+            "username": host.get("db_username") or "root",
+            "password": None,
+            "database_name": host.get("db_database_name"),
+            "use_ssh": 1,
+            "ssh_host_id": host["id"],
+            "group_name": host.get("group_name") or "Default",
+            "ssh_host": host["hostname"],
+            "ssh_port": host["port"],
+            "ssh_username": host["username"],
+            "ssh_password": None,
+            "ssh_key_filename": None,
+            "ssh_host_label": host["label"],
+        }
+        if decrypt_passwords:
+            item["password"] = self._decrypt(host.get("db_password"))
+            item["ssh_password"] = host.get("password")  # get_all_hosts/_query_db_blast_hosts sudah mendekripsi
+            if host.get("auth_type") == "key":
+                item["ssh_key_filename"] = host.get("key_private_key_path")
+        return item
 
     def get_all_db_connections(self, decrypt_passwords: bool = False) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM db_connections ORDER BY name ASC;")
-            rows = cursor.fetchall()
-            result = []
-            for row in rows:
-                item = dict(row)
-                if decrypt_passwords:
-                    item["password"] = self._decrypt(item.get("password"))
-                    item["ssh_password"] = self._decrypt(item.get("ssh_password"))
-                result.append(item)
-            return result
+            hosts = self._query_db_blast_hosts(cursor)
+            return [self._host_row_to_db_connection(h, decrypt_passwords) for h in hosts]
 
     def get_db_connections_by_ids(self, ids: List[int]) -> List[Dict[str, Any]]:
         if not ids:
@@ -349,27 +521,58 @@ class DatabaseManager:
         placeholders = ",".join("?" for _ in ids)
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(f"SELECT * FROM db_connections WHERE id IN ({placeholders}) ORDER BY name ASC;", ids)
-            rows = cursor.fetchall()
-            result = []
-            for row in rows:
-                item = dict(row)
-                item["password"] = self._decrypt(item.get("password"))
-                item["ssh_password"] = self._decrypt(item.get("ssh_password"))
-                result.append(item)
-            return result
+            hosts = self._query_db_blast_hosts(cursor, f"AND h.id IN ({placeholders})", tuple(ids))
+            return [self._host_row_to_db_connection(h, True) for h in hosts]
 
     def get_db_connection_by_id(self, conn_id: int) -> Optional[Dict[str, Any]]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM db_connections WHERE id = ?;", (conn_id,))
-            row = cursor.fetchone()
-            if not row:
+            hosts = self._query_db_blast_hosts(cursor, "AND h.id = ?", (conn_id,))
+            if not hosts:
                 return None
-            item = dict(row)
-            item["password"] = self._decrypt(item.get("password"))
-            item["ssh_password"] = self._decrypt(item.get("ssh_password"))
-            return item
+            return self._host_row_to_db_connection(hosts[0], True)
+
+    def _resolve_group_id(self, cursor: sqlite3.Cursor, group_name: Optional[str]) -> Optional[int]:
+        if not group_name or not group_name.strip():
+            return None
+        clean = group_name.strip()
+        cursor.execute("SELECT id FROM groups WHERE LOWER(name) = LOWER(?);", (clean,))
+        row = cursor.fetchone()
+        if row:
+            return row["id"]
+        cursor.execute("INSERT INTO groups (name) VALUES (?);", (clean,))
+        return cursor.lastrowid
+
+    def set_host_db_info(
+        self,
+        host_id: int,
+        db_type: str = "MYSQL",
+        host: str = "localhost",
+        port: int = 3306,
+        username: str = "root",
+        password: Optional[str] = None,
+        database_name: Optional[str] = None,
+        group_name: Optional[str] = None,
+    ) -> None:
+        """Tempelkan (atau perbarui) info koneksi database pada Host Pull Blast yang sudah ada.
+        Ini adalah satu-satunya cara DB Blast 'menyimpan' koneksi: menulis ke baris hosts yang sama."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            group_id = self._resolve_group_id(cursor, group_name)
+            if group_id is not None:
+                cursor.execute("""
+                    UPDATE hosts SET
+                        db_type = ?, db_host = ?, db_port = ?, db_username = ?, db_password = ?,
+                        db_database_name = ?, group_id = ?
+                    WHERE id = ?;
+                """, (db_type, host, int(port) if port else 3306, username, self._encrypt(password), database_name, group_id, host_id))
+            else:
+                cursor.execute("""
+                    UPDATE hosts SET
+                        db_type = ?, db_host = ?, db_port = ?, db_username = ?, db_password = ?, db_database_name = ?
+                    WHERE id = ?;
+                """, (db_type, host, int(port) if port else 3306, username, self._encrypt(password), database_name, host_id))
+            conn.commit()
 
     def add_db_connection(
         self,
@@ -381,39 +584,13 @@ class DatabaseManager:
         password: Optional[str] = None,
         database_name: Optional[str] = None,
         use_ssh: bool = True,
-        ssh_host: Optional[str] = None,
-        ssh_port: int = 22,
-        ssh_username: Optional[str] = None,
-        ssh_password: Optional[str] = None,
-        ssh_key_filename: Optional[str] = None,
+        ssh_host_id: Optional[int] = None,
         group_name: str = "Default"
     ) -> int:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO db_connections (
-                    name, db_type, host, port, username, password,
-                    database_name, use_ssh, ssh_host, ssh_port,
-                    ssh_username, ssh_password, ssh_key_filename, group_name
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-            """, (
-                name,
-                db_type,
-                host,
-                int(port) if port else 3306,
-                username,
-                self._encrypt(password),
-                database_name,
-                1 if use_ssh else 0,
-                ssh_host,
-                int(ssh_port) if ssh_port else 22,
-                ssh_username,
-                self._encrypt(ssh_password),
-                ssh_key_filename,
-                group_name or "Default"
-            ))
-            conn.commit()
-            return cursor.lastrowid
+        if not ssh_host_id:
+            raise ValueError("ssh_host_id wajib diisi: DB Blast sekarang menempel pada Host Pull Blast yang sudah ada.")
+        self.set_host_db_info(ssh_host_id, db_type, host, port, username, password, database_name, group_name)
+        return ssh_host_id
 
     def update_db_connection(
         self,
@@ -426,84 +603,64 @@ class DatabaseManager:
         password: Optional[str] = None,
         database_name: Optional[str] = None,
         use_ssh: bool = True,
-        ssh_host: Optional[str] = None,
-        ssh_port: int = 22,
-        ssh_username: Optional[str] = None,
-        ssh_password: Optional[str] = None,
-        ssh_key_filename: Optional[str] = None,
+        ssh_host_id: Optional[int] = None,
         group_name: str = "Default"
     ) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE db_connections SET
-                    name = ?,
-                    db_type = ?,
-                    host = ?,
-                    port = ?,
-                    username = ?,
-                    password = ?,
-                    database_name = ?,
-                    use_ssh = ?,
-                    ssh_host = ?,
-                    ssh_port = ?,
-                    ssh_username = ?,
-                    ssh_password = ?,
-                    ssh_key_filename = ?,
-                    group_name = ?
-                WHERE id = ?;
-            """, (
-                name,
-                db_type,
-                host,
-                int(port) if port else 3306,
-                username,
-                self._encrypt(password),
-                database_name,
-                1 if use_ssh else 0,
-                ssh_host,
-                int(ssh_port) if ssh_port else 22,
-                ssh_username,
-                self._encrypt(ssh_password),
-                ssh_key_filename,
-                group_name or "Default",
-                conn_id
-            ))
-            conn.commit()
+        self.set_host_db_info(conn_id, db_type, host, port, username, password, database_name, group_name)
 
     def delete_db_connection(self, conn_id: int) -> None:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM db_connections WHERE id = ?;", (conn_id,))
-            conn.commit()
+        """Menghapus entri DB Blast = menghapus Host Pull Blast yang sama (satu tabel, satu baris)."""
+        self.delete_host(conn_id)
 
     def bulk_import_db_connections(self, connections: List[Dict[str, Any]]) -> int:
+        """Import koneksi DB (Navicat/DBeaver/generik). SSH & DB-nya disimpan ke satu baris Host yang sama
+        (dicari/dibuatkan lewat _find_or_create_host_row bila belum ada)."""
         count = 0
         with self._get_connection() as conn:
             cursor = conn.cursor()
             for c in connections:
                 name = c.get("name") or c.get("ConnectionName") or "Unnamed DB"
+                ssh_host = c.get("ssh_host")
+                has_ssh = bool(c.get("use_ssh", True)) and bool(ssh_host)
+
+                if has_ssh:
+                    host_id = self._find_or_create_host_row(
+                        cursor,
+                        hostname=ssh_host,
+                        port=c.get("ssh_port") or 22,
+                        username=c.get("ssh_username") or c.get("ssh_user") or "root",
+                        password=c.get("ssh_password"),
+                        key_filename=c.get("ssh_key") or c.get("ssh_key_filename"),
+                        label=name,
+                    )
+                else:
+                    # Tidak ada SSH tunnel di data import: tetap dibuatkan Host agar datanya tersimpan,
+                    # memakai alamat DB-nya sendiri sebagai target host.
+                    host_id = self._find_or_create_host_row(
+                        cursor,
+                        hostname=c.get("host") or "localhost",
+                        port=22,
+                        username=c.get("username") or c.get("user") or "root",
+                        password=None,
+                        key_filename=None,
+                        label=name,
+                    )
+
+                group_id = self._resolve_group_id(cursor, c.get("group") or c.get("group_name") or "Default")
                 cursor.execute("""
-                    INSERT INTO db_connections (
-                        name, db_type, host, port, username, password,
-                        database_name, use_ssh, ssh_host, ssh_port,
-                        ssh_username, ssh_password, ssh_key_filename, group_name
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    UPDATE hosts SET
+                        db_type = ?, db_host = ?, db_port = ?, db_username = ?, db_password = ?,
+                        db_database_name = ?, group_id = ?
+                    WHERE id = ?;
                 """, (
-                    name,
                     c.get("db_type") or c.get("type") or "MYSQL",
                     c.get("host") or "localhost",
                     int(c.get("port") or 3306),
                     c.get("username") or c.get("user") or "root",
                     self._encrypt(c.get("password")),
                     c.get("database") or c.get("database_name"),
-                    1 if c.get("use_ssh", True) else 0,
-                    c.get("ssh_host"),
-                    int(c.get("ssh_port") or 22),
-                    c.get("ssh_username") or c.get("ssh_user"),
-                    self._encrypt(c.get("ssh_password")),
-                    c.get("ssh_key") or c.get("ssh_key_filename"),
-                    c.get("group") or c.get("group_name") or "Default"
+                    group_id,
+                    host_id,
                 ))
                 count += 1
             conn.commit()
@@ -512,7 +669,7 @@ class DatabaseManager:
 
 # ==================== CONTOH PENGGUNAAN ====================
 if __name__ == "__main__":
-    db = DatabaseManager("terbius_test.db")
+    db = DatabaseManager("pullman_test.db")
 
     prod_group_id = db.add_group("Production Staging")
 

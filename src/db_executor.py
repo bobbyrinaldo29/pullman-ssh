@@ -10,22 +10,28 @@ import asyncssh
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
-# Navicat 12 key / iv for AES decryption
+# Navicat 12+ key / iv for AES decryption (reverse-engineered, key != iv).
 _NAVICAT12_KEY = b'libcckeylibcckey'
-_NAVICAT12_IV = b'libcckeylibcckey'
+_NAVICAT12_IV = b'libcciv libcciv '
 
 
 def decrypt_navicat_password(hex_str: Optional[str]) -> str:
-    """Mendekripsi password terenkripsi dari file connections.ncx Navicat."""
+    """Mendekripsi password terenkripsi dari file connections.ncx Navicat (skema AES Navicat 12+)."""
     if not hex_str:
         return ""
-    # Coba dekripsi Navicat 12 AES
     try:
         data = bytes.fromhex(hex_str.strip())
         cipher = Cipher(algorithms.AES(_NAVICAT12_KEY), modes.CBC(_NAVICAT12_IV), backend=default_backend())
         dec = cipher.decryptor()
-        pt = dec.update(data) + dec.finalize()
-        cleaned = pt.rstrip(b'\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\x0c\r\x0e\x0f\x10').decode('utf-8', errors='ignore').strip()
+        padded = dec.update(data) + dec.finalize()
+
+        # Proper PKCS7 unpad, alih-alih sekadar rstrip byte kontrol.
+        if padded:
+            pad_len = padded[-1]
+            if 0 < pad_len <= 16:
+                padded = padded[:-pad_len]
+
+        cleaned = padded.decode('utf-8', errors='ignore').strip()
         if cleaned and all(32 <= ord(c) <= 126 for c in cleaned):
             return cleaned
     except Exception:

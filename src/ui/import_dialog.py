@@ -35,7 +35,7 @@ class ImportDialog(ctk.CTkToplevel):
 
         lbl_sub = ctk.CTkLabel(
             main_frame,
-            text="Select a Terbius JSON export file to import hosts and groups.",
+            text="Select a Pullman JSON export file to import hosts and groups.",
             text_color="gray",
             font=ctk.CTkFont(size=12)
         )
@@ -141,8 +141,8 @@ class ImportDialog(ctk.CTkToplevel):
     def _browse_file(self):
         file_path = filedialog.askopenfilename(
             parent=self,
-            title="Select Terbius Export File",
-            filetypes=[("Terbius Export (*.json)", "*.json"), ("All Files (*.*)", "*.*")]
+            title="Select Pullman Export File",
+            filetypes=[("Pullman Export (*.json)", "*.json"), ("All Files (*.*)", "*.*")]
         )
         if not file_path:
             return
