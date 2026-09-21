@@ -1,0 +1,6 @@
+asyncssh==2.24.0
+cryptography==50.0.1
+customtkinter==6.0.0
+darkdetect==0.8.0
+Pillow==12.3.0
+PyMySQL==1.2.3

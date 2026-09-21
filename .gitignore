@@ -3,14 +3,8 @@ bin/*
 include/*
 lib/*
 venv/*
-src/__pycache__/app.cpython-314.pyc
-src/__pycache__/database.cpython-314.pyc
-src/__pycache__/export_service.cpython-314.pyc
-src/__pycache__/ssh_client.cpython-314.pyc
-src/ui/__pycache__/export_dialog.cpython-314.pyc
-src/ui/__pycache__/host_dialog.cpython-314.pyc
-src/ui/__pycache__/import_dialog.cpython-314.pyc
-src/ui/__pycache__/terminal_window.cpython-314.pyc
+src/__pycache__/*
+src/ui/__pycache__/*
 pyvenv.cfg
 .master.key
 dist/*
