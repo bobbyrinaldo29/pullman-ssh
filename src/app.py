@@ -49,17 +49,17 @@ class PullmanApp(ctk.CTk):
         # Pull Blast dan DB Blast berbagi satu tabel host yang sama, jadi masing-masing memberi tahu
         # yang lain ketika datanya berubah (tambah/edit/hapus), agar keduanya selalu tersinkron.
         self.hosts_view = HostsView(self, self.db, on_data_changed=self._notify_db_blast_changed)
-        self.db_blast_frame = DBBlastView(self, self.db, on_data_changed=self._notify_hosts_changed)
+        self.db_blast_frame = None
 
         self._show_hosts_view()
 
     def _notify_db_blast_changed(self):
-        if hasattr(self, "db_blast_frame"):
-            self.db_blast_frame._refresh_connections()
+        if getattr(self, "db_blast_frame", None) is not None:
+            self.db_blast_frame.mark_needs_refresh()
 
     def _notify_hosts_changed(self):
         if hasattr(self, "hosts_view"):
-            self.hosts_view.refresh()
+            self.hosts_view.mark_needs_refresh()
 
     def _set_windows_app_id(self):
         """Set AppUserModelID agar icon taskbar Windows muncul terpisah & berikon."""
@@ -93,18 +93,25 @@ class PullmanApp(ctk.CTk):
         GitCredentialDialog(parent=self, db_manager=self.db)
 
     def _show_hosts_view(self):
-        """Tampilkan kembali tampilan Hosts dan refresh daftar."""
+        """Tampilkan kembali tampilan Hosts."""
         self.sidebar.set_active("hosts")
-        self.db_blast_frame.grid_remove()
+        if self.db_blast_frame is not None:
+            self.db_blast_frame.grid_remove()
         self.hosts_view.grid(row=0, column=1, sticky="nsew", padx=28, pady=24)
-        self.hosts_view.refresh()
+        if getattr(self.hosts_view, "_needs_refresh", False):
+            self.hosts_view.refresh()
 
     def _show_db_blast_view(self):
-        """Tampilkan tampilan DB Blast bergaya Navicat, selalu me-refresh agar data terbaru dari Pull Blast ikut terlihat."""
+        """Tampilkan tampilan DB Blast bergaya Navicat (instan)."""
         self.sidebar.set_active("db_blast")
         self.hosts_view.grid_remove()
-        self.db_blast_frame.grid(row=0, column=1, sticky="nsew", padx=28, pady=24)
-        self.db_blast_frame._refresh_connections()
+        if self.db_blast_frame is None:
+            self.db_blast_frame = DBBlastView(self, self.db, on_data_changed=self._notify_hosts_changed)
+            self.db_blast_frame.grid(row=0, column=1, sticky="nsew", padx=28, pady=24)
+        else:
+            self.db_blast_frame.grid(row=0, column=1, sticky="nsew", padx=28, pady=24)
+            if getattr(self.db_blast_frame, "_needs_refresh", False):
+                self.db_blast_frame._refresh_connections()
 
 
 if __name__ == "__main__":

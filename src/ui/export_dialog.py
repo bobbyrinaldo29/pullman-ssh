@@ -161,7 +161,7 @@ class ExportDialog(ctk.CTkToplevel):
             return
 
         try:
-            hosts = self.db.get_all_hosts()
+            hosts = self.db.get_all_hosts(decrypt_passwords=True)
             groups = self.db.get_groups()
 
             export_dict = export_data(

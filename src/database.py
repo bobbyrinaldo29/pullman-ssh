@@ -267,6 +267,8 @@ class DatabaseManager:
                 item["password"] = self._decrypt(item["password"])
             if item.get("git_pass"):
                 item["git_pass"] = self._decrypt(item["git_pass"])
+            if item.get("key_private_key_path"):
+                item["key_filename"] = item["key_private_key_path"]
             return item
 
     # ==================== GROUPS API ====================
@@ -393,11 +395,11 @@ class DatabaseManager:
     def get_hosts(self) -> List[Dict[str, Any]]:
         return self.get_all_hosts()
 
-    def get_all_hosts(self) -> List[Dict[str, Any]]:
+    def get_all_hosts(self, decrypt_passwords: bool = False) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT h.*, g.name as group_name, k.title as key_title
+                SELECT h.*, g.name as group_name, k.title as key_title, k.private_key_path as key_private_key_path
                 FROM hosts h
                 LEFT JOIN groups g ON h.group_id = g.id
                 LEFT JOIN ssh_keys k ON h.key_id = k.id
@@ -406,10 +408,13 @@ class DatabaseManager:
             hosts = []
             for row in cursor.fetchall():
                 item = dict(row)
-                if item["password"]:
-                    item["password"] = self._decrypt(item["password"])
-                if item["git_pass"]:
-                    item["git_pass"] = self._decrypt(item["git_pass"])
+                if decrypt_passwords:
+                    if item.get("password"):
+                        item["password"] = self._decrypt(item["password"])
+                    if item.get("git_pass"):
+                        item["git_pass"] = self._decrypt(item["git_pass"])
+                if item.get("key_private_key_path"):
+                    item["key_filename"] = item["key_private_key_path"]
                 hosts.append(item)
             return hosts
 
@@ -463,7 +468,7 @@ class DatabaseManager:
     # `hosts` yang kolom db_host-nya terisi, memakai SSH + info DB dari baris yang SAMA dengan Pull Blast.
     # Menghapus/mengedit dari salah satu menu otomatis tercermin di menu lainnya karena satu baris yang sama.
 
-    def _query_db_blast_hosts(self, cursor: sqlite3.Cursor, extra_where: str = "", params: tuple = ()) -> List[Dict[str, Any]]:
+    def _query_db_blast_hosts(self, cursor: sqlite3.Cursor, extra_where: str = "", params: tuple = (), decrypt_passwords: bool = False) -> List[Dict[str, Any]]:
         cursor.execute(f"""
             SELECT h.*, g.name as group_name, k.private_key_path as key_private_key_path
             FROM hosts h
@@ -475,7 +480,7 @@ class DatabaseManager:
         rows = []
         for row in cursor.fetchall():
             item = dict(row)
-            if item.get("password"):
+            if decrypt_passwords and item.get("password"):
                 item["password"] = self._decrypt(item["password"])
             rows.append(item)
         return rows
@@ -512,7 +517,7 @@ class DatabaseManager:
     def get_all_db_connections(self, decrypt_passwords: bool = False) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            hosts = self._query_db_blast_hosts(cursor)
+            hosts = self._query_db_blast_hosts(cursor, decrypt_passwords=decrypt_passwords)
             return [self._host_row_to_db_connection(h, decrypt_passwords) for h in hosts]
 
     def get_db_connections_by_ids(self, ids: List[int]) -> List[Dict[str, Any]]:
@@ -521,13 +526,13 @@ class DatabaseManager:
         placeholders = ",".join("?" for _ in ids)
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            hosts = self._query_db_blast_hosts(cursor, f"AND h.id IN ({placeholders})", tuple(ids))
+            hosts = self._query_db_blast_hosts(cursor, f"AND h.id IN ({placeholders})", tuple(ids), decrypt_passwords=True)
             return [self._host_row_to_db_connection(h, True) for h in hosts]
 
     def get_db_connection_by_id(self, conn_id: int) -> Optional[Dict[str, Any]]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            hosts = self._query_db_blast_hosts(cursor, "AND h.id = ?", (conn_id,))
+            hosts = self._query_db_blast_hosts(cursor, "AND h.id = ?", (conn_id,), decrypt_passwords=True)
             if not hosts:
                 return None
             return self._host_row_to_db_connection(hosts[0], True)
@@ -553,25 +558,43 @@ class DatabaseManager:
         password: Optional[str] = None,
         database_name: Optional[str] = None,
         group_name: Optional[str] = None,
+        name: Optional[str] = None,
     ) -> None:
         """Tempelkan (atau perbarui) info koneksi database pada Host Pull Blast yang sudah ada.
         Ini adalah satu-satunya cara DB Blast 'menyimpan' koneksi: menulis ke baris hosts yang sama."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             group_id = self._resolve_group_id(cursor, group_name)
+            clean_name = name.strip() if name and name.strip() else None
+
+            updates = [
+                "db_type = ?",
+                "db_host = ?",
+                "db_port = ?",
+                "db_username = ?",
+                "db_password = ?",
+                "db_database_name = ?",
+            ]
+            params: List[Any] = [
+                db_type,
+                host,
+                int(port) if port else 3306,
+                username,
+                self._encrypt(password),
+                database_name,
+            ]
+
+            if clean_name is not None:
+                updates.append("label = ?")
+                params.append(clean_name)
+
             if group_id is not None:
-                cursor.execute("""
-                    UPDATE hosts SET
-                        db_type = ?, db_host = ?, db_port = ?, db_username = ?, db_password = ?,
-                        db_database_name = ?, group_id = ?
-                    WHERE id = ?;
-                """, (db_type, host, int(port) if port else 3306, username, self._encrypt(password), database_name, group_id, host_id))
-            else:
-                cursor.execute("""
-                    UPDATE hosts SET
-                        db_type = ?, db_host = ?, db_port = ?, db_username = ?, db_password = ?, db_database_name = ?
-                    WHERE id = ?;
-                """, (db_type, host, int(port) if port else 3306, username, self._encrypt(password), database_name, host_id))
+                updates.append("group_id = ?")
+                params.append(group_id)
+
+            params.append(host_id)
+            query = f"UPDATE hosts SET {', '.join(updates)} WHERE id = ?;"
+            cursor.execute(query, tuple(params))
             conn.commit()
 
     def add_db_connection(
@@ -587,9 +610,22 @@ class DatabaseManager:
         ssh_host_id: Optional[int] = None,
         group_name: str = "Default"
     ) -> int:
+        clean_name = name.strip() if name and name.strip() else "Unnamed DB"
         if not ssh_host_id:
-            raise ValueError("ssh_host_id wajib diisi: DB Blast sekarang menempel pada Host Pull Blast yang sudah ada.")
-        self.set_host_db_info(ssh_host_id, db_type, host, port, username, password, database_name, group_name)
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                ssh_host_id = self._find_or_create_host_row(
+                    cursor,
+                    hostname=host or "localhost",
+                    port=22,
+                    username=username or "root",
+                    password=None,
+                    key_filename=None,
+                    label=clean_name,
+                )
+                conn.commit()
+
+        self.set_host_db_info(ssh_host_id, db_type, host, port, username, password, database_name, group_name, name=clean_name)
         return ssh_host_id
 
     def update_db_connection(
@@ -606,7 +642,7 @@ class DatabaseManager:
         ssh_host_id: Optional[int] = None,
         group_name: str = "Default"
     ) -> None:
-        self.set_host_db_info(conn_id, db_type, host, port, username, password, database_name, group_name)
+        self.set_host_db_info(conn_id, db_type, host, port, username, password, database_name, group_name, name=name)
 
     def delete_db_connection(self, conn_id: int) -> None:
         """Menghapus entri DB Blast = menghapus Host Pull Blast yang sama (satu tabel, satu baris)."""
