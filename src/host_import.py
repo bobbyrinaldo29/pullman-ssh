@@ -30,31 +30,66 @@ def _decrypt_dbeaver_credentials(data: bytes) -> Dict[str, Any]:
 
 def _dbeaver_connection_to_dict(conn_id: str, conn: Dict[str, Any], creds_for_conn: Dict[str, Any]) -> Dict[str, Any]:
     cfg = conn.get("configuration") or {}
-    handlers = conn.get("handlers") or {}
+    # DBeaver menyimpan handlers di cfg["handlers"] atau conn["handlers"]
+    handlers = cfg.get("handlers") or conn.get("handlers") or conn.get("network-handlers") or cfg.get("network-handlers") or {}
 
     ssh_handler = {}
     for handler_name, handler_val in handlers.items():
-        if isinstance(handler_val, dict) and "ssh" in handler_name.lower():
-            ssh_handler = handler_val
-            break
+        if isinstance(handler_val, dict):
+            h_type = str(handler_val.get("type", "")).upper()
+            if "ssh" in str(handler_name).lower() or h_type == "TUNNEL" or "ssh" in h_type.lower():
+                ssh_handler = handler_val
+                break
 
     db_password = ""
     ssh_password = ""
     for cred_key, cred_val in (creds_for_conn or {}).items():
-        if not isinstance(cred_val, dict):
-            continue
-        pwd = cred_val.get("password") or ""
-        if "ssh" in cred_key.lower():
-            ssh_password = ssh_password or pwd
-        else:
-            db_password = db_password or pwd
+        cred_key_str = str(cred_key).lower()
+        if isinstance(cred_val, dict):
+            pwd = (
+                cred_val.get("user-password")
+                or cred_val.get("password")
+                or cred_val.get("userPassword")
+                or ""
+            )
+            if any(k in cred_key_str for k in ["ssh", "tunnel", "network"]):
+                ssh_password = ssh_password or pwd
+            else:
+                db_password = db_password or pwd
+        elif isinstance(cred_val, str) and cred_val:
+            if any(k in cred_key_str for k in ["ssh", "tunnel", "network"]):
+                ssh_password = ssh_password or cred_val
+            elif any(k in cred_key_str for k in ["password", "user-password", "userpassword"]):
+                db_password = db_password or cred_val
 
-    use_ssh = bool(ssh_handler) and str(ssh_handler.get("enabled", True)).lower() != "false"
+    ssh_props = ssh_handler.get("properties") if isinstance(ssh_handler.get("properties"), dict) else {}
+    ssh_host = (
+        ssh_props.get("host")
+        or ssh_props.get("hostname")
+        or ssh_handler.get("host")
+        or ssh_handler.get("hostname")
+        or ""
+    )
+    ssh_port = int(
+        ssh_props.get("port")
+        or ssh_handler.get("port")
+        or 22
+    )
+    ssh_user = (
+        ssh_props.get("user")
+        or ssh_props.get("userName")
+        or ssh_props.get("username")
+        or ssh_handler.get("user")
+        or ssh_handler.get("userName")
+        or ssh_handler.get("username")
+        or "root"
+    )
+
+    use_ssh = bool(ssh_handler) and str(ssh_handler.get("enabled", True)).lower() not in ("false", "0") and bool(ssh_host)
 
     ssh_key_filename = ""
-    ssh_props = ssh_handler.get("properties") if isinstance(ssh_handler.get("properties"), dict) else {}
     for prop_key, prop_val in (ssh_props or {}).items():
-        if "key" in prop_key.lower() and isinstance(prop_val, str) and prop_val:
+        if any(k in str(prop_key).lower() for k in ["keypath", "keyfile", "privatekey", "key"]) and isinstance(prop_val, str) and prop_val:
             ssh_key_filename = prop_val
             break
 
@@ -67,9 +102,9 @@ def _dbeaver_connection_to_dict(conn_id: str, conn: Dict[str, Any], creds_for_co
         "password": db_password,
         "database_name": cfg.get("database") or "",
         "use_ssh": 1 if use_ssh else 0,
-        "ssh_host": (ssh_handler.get("host") or "") if use_ssh else "",
-        "ssh_port": int(ssh_handler.get("port") or 22) if use_ssh else 22,
-        "ssh_username": ((ssh_handler.get("userName") or ssh_handler.get("user") or "") if use_ssh else ""),
+        "ssh_host": ssh_host if use_ssh else "",
+        "ssh_port": ssh_port if use_ssh else 22,
+        "ssh_username": ssh_user if use_ssh else "",
         "ssh_password": ssh_password if use_ssh else "",
         "ssh_key_filename": ssh_key_filename if use_ssh else "",
         "group_name": conn.get("folder") or "Default",
@@ -130,41 +165,72 @@ def _load_dbeaver_connections(data_sources_path: Path) -> List[Dict[str, Any]]:
 
 
 def connections_to_hosts(connections: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
-    """Konversi koneksi database (Navicat/DBeaver) yang punya SSH Tunnel aktif jadi kandidat Host Pull Blast."""
+    """Konversi koneksi database (Navicat/DBeaver) jadi kandidat Host Pull Blast.
+    Mendukung koneksi dengan SSH Tunnel maupun Direct Remote Server."""
     hosts = []
     skipped_no_ssh = 0
     skipped_key_only = 0
 
+    LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
     for conn in connections:
-        if not conn.get("use_ssh") or not conn.get("ssh_host"):
-            skipped_no_ssh += 1
-            continue
+        has_ssh_tunnel = bool(conn.get("use_ssh")) and bool(conn.get("ssh_host"))
+        db_host = (conn.get("host") or "").strip()
+        is_remote_db = db_host and db_host.lower() not in LOCAL_HOSTS
 
-        if not conn.get("ssh_password"):
-            if conn.get("ssh_key_filename"):
-                skipped_key_only += 1
+        if has_ssh_tunnel:
+            # Mode 1: Koneksi Database dengan SSH Tunnel
+            target_hostname = conn["ssh_host"]
+            target_port = int(conn.get("ssh_port") or 22)
+            target_username = conn.get("ssh_username") or "root"
+            target_password = conn.get("ssh_password") or ""
+            key_file = conn.get("ssh_key_filename") or ""
+
+            if not target_password and key_file:
+                auth_type = "key"
             else:
-                skipped_no_ssh += 1
-            continue
+                auth_type = "password"
 
-        hosts.append({
-            "label": conn.get("name") or conn["ssh_host"],
-            "hostname": conn["ssh_host"],
-            "port": int(conn.get("ssh_port") or 22),
-            "username": conn.get("ssh_username") or "root",
-            "auth_type": "password",
-            "password": conn.get("ssh_password"),
-            "repo_path": "/var/www/html",
-            "git_branch": None,
-            "group_name": conn.get("group_name") or "Default",
-            # Info DB (dari Navicat/DBeaver) ditempel di baris Host yang sama, dipakai oleh DB Blast.
-            "db_type": conn.get("db_type") or "MYSQL",
-            "db_host": conn.get("host") or "localhost",
-            "db_port": int(conn.get("port") or 3306),
-            "db_username": conn.get("username") or "root",
-            "db_password": conn.get("password") or "",
-            "db_database_name": conn.get("database_name") or "",
-        })
+            hosts.append({
+                "label": conn.get("name") or target_hostname,
+                "hostname": target_hostname,
+                "port": target_port,
+                "username": target_username,
+                "auth_type": auth_type,
+                "password": target_password,
+                "key_filename": key_file,
+                "repo_path": "/var/www/html",
+                "git_branch": None,
+                "group_name": conn.get("group_name") or "Default",
+                "db_type": conn.get("db_type") or "MYSQL",
+                "db_host": conn.get("host") or "localhost",
+                "db_port": int(conn.get("port") or 3306),
+                "db_username": conn.get("username") or "root",
+                "db_password": conn.get("password") or "",
+                "db_database_name": conn.get("database_name") or "",
+            })
+        elif is_remote_db:
+            # Mode 2: Direct Remote Database Server (Host target adalah IP/hostname DB itu sendiri)
+            hosts.append({
+                "label": conn.get("name") or db_host,
+                "hostname": db_host,
+                "port": 22,
+                "username": conn.get("username") or "root",
+                "auth_type": "password",
+                "password": conn.get("password") or "",
+                "key_filename": "",
+                "repo_path": "/var/www/html",
+                "git_branch": None,
+                "group_name": conn.get("group_name") or "Default",
+                "db_type": conn.get("db_type") or "MYSQL",
+                "db_host": "localhost",
+                "db_port": int(conn.get("port") or 3306),
+                "db_username": conn.get("username") or "root",
+                "db_password": conn.get("password") or "",
+                "db_database_name": conn.get("database_name") or "",
+            })
+        else:
+            skipped_no_ssh += 1
 
     return hosts, {"skipped_no_ssh": skipped_no_ssh, "skipped_key_only": skipped_key_only}
 

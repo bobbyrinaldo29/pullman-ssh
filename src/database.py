@@ -78,6 +78,15 @@ class DatabaseManager:
                 );
             """)
 
+            # Tabel App Settings (Key-Value untuk konfigurasi/state seperti last_update_check)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+
             # Tabel Hosts (satu baris = satu server SSH). Kolom db_* opsional: kalau terisi,
             # host ini SEKALIGUS dipakai sebagai koneksi DB Blast (SSH + DB dalam satu baris yang sama).
             cursor.execute("""
@@ -291,6 +300,16 @@ class DatabaseManager:
             cursor.execute("SELECT * FROM groups ORDER BY name ASC;")
             return [dict(row) for row in cursor.fetchall()]
 
+    def move_hosts_to_group(self, host_ids: List[int], group_id: Optional[int]) -> None:
+        """Pindahkan satu atau lebih host ke grup tertentu."""
+        if not host_ids:
+            return
+        placeholders = ",".join("?" for _ in host_ids)
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"UPDATE hosts SET group_id = ? WHERE id IN ({placeholders});", [group_id] + list(host_ids))
+            conn.commit()
+
     # ==================== SSH KEYS API ====================
 
     def add_ssh_key(
@@ -456,6 +475,68 @@ class DatabaseManager:
                 WHERE id = ?;
             """, (label, hostname, port, username, auth_type, encrypted_password, clean_repo_path, clean_git_branch, git_user, encrypted_git_pass, key_id, group_id, host_id))
             conn.commit()
+
+    def bulk_update_hosts(self, host_ids: List[int], updates: Dict[str, Any]) -> int:
+        """Memperbarui properti tertentu pada sekumpulan host sekaligus."""
+        if not host_ids or not updates:
+            return 0
+
+        set_clauses = []
+        params = []
+
+        if "group_id" in updates:
+            set_clauses.append("group_id = ?")
+            params.append(updates["group_id"])
+
+        if "git_branch" in updates:
+            set_clauses.append("git_branch = ?")
+            branch_val = updates["git_branch"].strip() if updates["git_branch"] else None
+            params.append(branch_val)
+
+        if "repo_path" in updates:
+            set_clauses.append("repo_path = ?")
+            path_val = updates["repo_path"].strip() if updates["repo_path"] else "/var/www/html"
+            params.append(path_val)
+
+        if "username" in updates:
+            set_clauses.append("username = ?")
+            params.append(updates["username"].strip() if updates["username"] else "root")
+
+        if "port" in updates:
+            set_clauses.append("port = ?")
+            params.append(int(updates["port"]))
+
+        if "auth_type" in updates:
+            auth_t = updates["auth_type"]
+            set_clauses.append("auth_type = ?")
+            params.append(auth_t)
+            if auth_t == "password" and "password" in updates:
+                set_clauses.append("password = ?")
+                params.append(self._encrypt(updates["password"]) if updates["password"] else None)
+            elif auth_t == "key" and "key_id" in updates:
+                set_clauses.append("key_id = ?")
+                params.append(updates["key_id"])
+
+        if "git_user" in updates:
+            set_clauses.append("git_user = ?")
+            params.append(updates["git_user"].strip() if updates["git_user"] else None)
+
+        if "git_pass" in updates:
+            set_clauses.append("git_pass = ?")
+            params.append(self._encrypt(updates["git_pass"]) if updates["git_pass"] else None)
+
+        if not set_clauses:
+            return 0
+
+        placeholders = ",".join("?" for _ in host_ids)
+        sql = f"UPDATE hosts SET {', '.join(set_clauses)} WHERE id IN ({placeholders});"
+        params.extend(host_ids)
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql, params)
+            conn.commit()
+            return cursor.rowcount
 
     def delete_host(self, host_id: int) -> None:
         with self._get_connection() as conn:
@@ -701,6 +782,75 @@ class DatabaseManager:
                 count += 1
             conn.commit()
         return count
+
+    def bulk_update_db_connections(self, conn_ids: List[int], updates: Dict[str, Any]) -> int:
+        """Memperbarui properti koneksi DB Blast tertentu pada sekumpulan host sekaligus."""
+        if not conn_ids or not updates:
+            return 0
+
+        set_clauses = []
+        params = []
+
+        if "group_id" in updates:
+            set_clauses.append("group_id = ?")
+            params.append(updates["group_id"])
+
+        if "db_type" in updates:
+            set_clauses.append("db_type = ?")
+            params.append(updates["db_type"])
+
+        if "db_host" in updates:
+            set_clauses.append("db_host = ?")
+            params.append(updates["db_host"].strip() if updates["db_host"] else "localhost")
+
+        if "db_port" in updates:
+            set_clauses.append("db_port = ?")
+            params.append(int(updates["db_port"]))
+
+        if "db_username" in updates:
+            set_clauses.append("db_username = ?")
+            params.append(updates["db_username"].strip() if updates["db_username"] else "root")
+
+        if "db_password" in updates:
+            set_clauses.append("db_password = ?")
+            params.append(self._encrypt(updates["db_password"]) if updates["db_password"] else None)
+
+        if "db_database_name" in updates:
+            set_clauses.append("db_database_name = ?")
+            params.append(updates["db_database_name"].strip() if updates["db_database_name"] else None)
+
+        if not set_clauses:
+            return 0
+
+        placeholders = ",".join("?" for _ in conn_ids)
+        sql = f"UPDATE hosts SET {', '.join(set_clauses)} WHERE id IN ({placeholders});"
+        params.extend(conn_ids)
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql, params)
+            conn.commit()
+            return cursor.rowcount
+    def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Ambil nilai konfigurasi / setting aplikasi berdasarkan key."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM app_settings WHERE key = ?;", (key,))
+            row = cursor.fetchone()
+            return row["value"] if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        """Simpan atau perbarui nilai konfigurasi / setting aplikasi."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO app_settings (key, value, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = CURRENT_TIMESTAMP;
+            """, (key, value))
+            conn.commit()
 
 
 # ==================== CONTOH PENGGUNAAN ====================

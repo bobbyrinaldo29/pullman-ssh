@@ -1,12 +1,13 @@
 import customtkinter as ctk
+from theme import COLORS
 from ssh_client import SSHConnection
 
 class TerminalWindow(ctk.CTkToplevel):
     def __init__(self, parent, host_config):
-        super().__init__(parent)
+        super().__init__(parent, fg_color=COLORS["window"])
         host_label = host_config.get('label') or host_config.get('name') or host_config.get('hostname', 'Host')
         self.title(f"Git Pull - {host_label}")
-        self.geometry("700x480")
+        self.geometry("720x480")
 
         # Event ketika jendela ditutup via tombol [X]
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -16,19 +17,24 @@ class TerminalWindow(ctk.CTkToplevel):
             self, 
             text=" Status: Connecting...", 
             anchor="w", 
-            text_color="#3B82F6",
+            text_color=COLORS["accent_text"],
             font=("Helvetica", 12, "bold")
         )
-        self.status_label.pack(fill="x", padx=10, pady=(10, 0))
+        self.status_label.pack(fill="x", padx=14, pady=(12, 0))
 
         # Text Box Log Output
         self.textbox = ctk.CTkTextbox(
             self, 
-            font=("Courier", 12), 
+            font=("Menlo", 12), 
             wrap="none",
-            activate_scrollbars=True
+            activate_scrollbars=True,
+            corner_radius=8,
+            border_width=1,
+            border_color=COLORS["line"],
+            fg_color=COLORS["console_bg"],
+            text_color=COLORS["console_text"]
         )
-        self.textbox.pack(fill="both", expand=True, padx=10, pady=10)
+        self.textbox.pack(fill="both", expand=True, padx=14, pady=12)
 
         # Inisialisasi SSH Connection
         self.ssh = SSHConnection(
@@ -57,7 +63,7 @@ class TerminalWindow(ctk.CTkToplevel):
         """Callback saat eksekusi git pull di server selesai."""
         self.status_label.configure(
             text=" Status: Process Completed", 
-            text_color="#10B981"
+            text_color=COLORS["success"]
         )
 
     def _on_close(self):

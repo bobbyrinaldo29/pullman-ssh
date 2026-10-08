@@ -10,3 +10,4 @@ pyvenv.cfg
 dist/*
 build/*
 pullManager.db
+src/pullManager.db

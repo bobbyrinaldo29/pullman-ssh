@@ -9,29 +9,15 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 import customtkinter as ctk
 
+from theme import COLORS
+from icons import get_icon
 from db_executor import (
     export_connections_to_file,
     import_connections_from_file,
     run_db_query,
 )
+from ui.bulk_db_dialog import BulkDbDialog
 from ui.db_dialog import DBConnectionDialog
-
-COLORS = {
-    "window": "#111214",
-    "sidebar": "#1A1B1F",
-    "surface": "#202126",
-    "surface_hover": "#2A2C33",
-    "line": "#32343B",
-    "text": "#F5F5F7",
-    "muted": "#9699A3",
-    "accent": "#0A84FF",
-    "accent_hover": "#0072E5",
-    "success": "#30D158",
-    "danger": "#FF453A",
-    "warning": "#FFD60A",
-    "badge_bg": "#12355F",
-    "badge_text": "#8DC6FF",
-}
 
 DEFAULT_SQL = """-- DO.MBA DB Blast - SQL Query Editor
 -- Tulis query SQL di sini (contoh: SELECT, SHOW, UPDATE, etc.)
@@ -130,9 +116,12 @@ class DBBlastView(ctk.CTkFrame):
 
         btn_new = ctk.CTkButton(
             btn_header_group,
-            text="+ New",
-            width=62, height=30, corner_radius=7,
+            text=" New",
+            image=get_icon("plus", (14, 14), "#FFFFFF"),
+            compound="left",
+            width=68, height=30, corner_radius=7,
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            text_color="#FFFFFF",
             font=ctk.CTkFont(size=12, weight="bold"),
             command=self._open_new_db_dialog
         )
@@ -140,9 +129,13 @@ class DBBlastView(ctk.CTkFrame):
 
         btn_import = ctk.CTkButton(
             btn_header_group,
-            text="⬇ Import",
-            width=70, height=30, corner_radius=7,
-            fg_color="#2A2C33", hover_color="#383B44",
+            text=" Import",
+            image=get_icon("download", (13, 13), COLORS["text"]),
+            compound="left",
+            width=78, height=30, corner_radius=7,
+            fg_color=COLORS["surface"], hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"],
+            border_width=1, border_color=COLORS["line"],
             font=ctk.CTkFont(size=12),
             command=self._import_db_connections
         )
@@ -150,9 +143,13 @@ class DBBlastView(ctk.CTkFrame):
 
         btn_export = ctk.CTkButton(
             btn_header_group,
-            text="⬆ Export",
-            width=70, height=30, corner_radius=7,
-            fg_color="#2A2C33", hover_color="#383B44",
+            text=" Export",
+            image=get_icon("upload", (13, 13), COLORS["text"]),
+            compound="left",
+            width=78, height=30, corner_radius=7,
+            fg_color=COLORS["surface"], hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"],
+            border_width=1, border_color=COLORS["line"],
             font=ctk.CTkFont(size=12),
             command=self._export_db_connections
         )
@@ -160,10 +157,11 @@ class DBBlastView(ctk.CTkFrame):
 
         btn_refresh = ctk.CTkButton(
             btn_header_group,
-            text="↻",
+            text="",
+            image=get_icon("refresh-cw", (14, 14), COLORS["text"]),
             width=34, height=30, corner_radius=7,
-            fg_color="#2A2C33", hover_color="#383B44",
-            font=ctk.CTkFont(size=12),
+            fg_color=COLORS["surface"], hover_color=COLORS["surface_hover"],
+            border_width=1, border_color=COLORS["line"],
             command=self._refresh_connections
         )
         btn_refresh.pack(side="left")
@@ -174,11 +172,11 @@ class DBBlastView(ctk.CTkFrame):
         filter_bar.grid_columnconfigure(0, weight=1)
 
         # Search Box
-        search_box = ctk.CTkFrame(filter_bar, fg_color="#18191D", corner_radius=8, border_width=1, border_color=COLORS["line"])
+        search_box = ctk.CTkFrame(filter_bar, fg_color=COLORS["input_bg"], corner_radius=8, border_width=1, border_color=COLORS["line"])
         search_box.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         search_box.grid_columnconfigure(1, weight=1)
 
-        lbl_icon = ctk.CTkLabel(search_box, text="⌕", text_color=COLORS["muted"], font=ctk.CTkFont(size=16))
+        lbl_icon = ctk.CTkLabel(search_box, text="", image=get_icon("search", (15, 15), COLORS["muted"]))
         lbl_icon.grid(row=0, column=0, padx=(8, 4))
 
         self.search_var = ctk.StringVar()
@@ -192,38 +190,29 @@ class DBBlastView(ctk.CTkFrame):
         )
         self.ent_search.grid(row=0, column=1, sticky="ew")
 
-        # Row 2: Check All & Group Filter
+        # Row 2: Group Filter
         ctrl_row = ctk.CTkFrame(filter_bar, fg_color="transparent")
         ctrl_row.grid(row=1, column=0, sticky="ew")
-        ctrl_row.grid_columnconfigure(1, weight=1)
+        ctrl_row.grid_columnconfigure(0, weight=1)
 
-        self.chk_all_var = ctk.BooleanVar(value=False)
-        self.chk_all = ctk.CTkCheckBox(
-            ctrl_row,
-            text="Check All",
-            variable=self.chk_all_var,
-            width=20, checkbox_width=17, checkbox_height=17,
-            corner_radius=5,
-            text_color=COLORS["text"],
-            font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
-            command=self._toggle_check_all
-        )
-        self.chk_all.pack(side="left")
+        lbl_grp = ctk.CTkLabel(ctrl_row, text="Group Filter:", text_color=COLORS["muted"], font=ctk.CTkFont(size=12))
+        lbl_grp.pack(side="left")
 
         self.opt_group = ctk.CTkOptionMenu(
             ctrl_row,
             values=["All Groups"],
             width=140, height=28,
             corner_radius=6,
-            fg_color="#2A2C33",
-            button_color="#383B44",
+            fg_color=COLORS["surface"],
+            text_color=COLORS["text"],
+            button_color=COLORS["surface_hover"],
+            button_hover_color=COLORS["line"],
             command=lambda _: self._apply_filter()
         )
         self.opt_group.pack(side="right")
 
         # 3. Navicat Style High-Performance Connection Table Explorer (<10ms load)
-        table_container = tk.Frame(self.left_panel, bg="#18191D", highlightthickness=1, highlightbackground=COLORS["line"])
+        table_container = tk.Frame(self.left_panel, bg=COLORS["input_bg"], highlightthickness=1, highlightbackground=COLORS["line"])
         table_container.grid(row=2, column=0, sticky="nsew", padx=16, pady=(0, 8))
         table_container.grid_columnconfigure(0, weight=1)
         table_container.grid_rowconfigure(0, weight=1)
@@ -232,24 +221,24 @@ class DBBlastView(ctk.CTkFrame):
         style.theme_use("default")
         style.configure(
             "Navicat.Treeview",
-            background="#18191D",
-            foreground="#F5F5F7",
-            fieldbackground="#18191D",
+            background=COLORS["input_bg"],
+            foreground=COLORS["text"],
+            fieldbackground=COLORS["input_bg"],
             rowheight=28,
             font=("Segoe UI", 9),
             borderwidth=0
         )
         style.configure(
             "Navicat.Treeview.Heading",
-            background="#242529",
-            foreground="#9699A3",
+            background=COLORS["surface"],
+            foreground=COLORS["muted"],
             relief="flat",
             font=("Segoe UI", 9, "bold"),
             borderwidth=0
         )
         style.map(
             "Navicat.Treeview",
-            background=[("selected", "#0A84FF")],
+            background=[("selected", COLORS["accent"])],
             foreground=[("selected", "#FFFFFF")]
         )
 
@@ -260,7 +249,7 @@ class DBBlastView(ctk.CTkFrame):
             style="Navicat.Treeview",
             selectmode="browse"
         )
-        self.tree.heading("chk", text="[✓]", anchor="center")
+        self.tree.heading("chk", text="[✓]", anchor="center", command=self._toggle_check_all)
         self.tree.heading("name", text="Database Name", anchor="w")
         self.tree.heading("type", text="Type", anchor="center")
         self.tree.heading("host", text="Target Host", anchor="w")
@@ -296,34 +285,52 @@ class DBBlastView(ctk.CTkFrame):
         action_bar.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
         self.btn_action_run = ctk.CTkButton(
-            action_bar, text="⚡ Run Single", height=28, corner_radius=6,
+            action_bar,
+            text=" Run Single",
+            image=get_icon("play", (13, 13), "#FFFFFF"),
+            compound="left",
+            height=28, corner_radius=6,
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            text_color="#FFFFFF",
             font=ctk.CTkFont(size=11, weight="bold"),
             command=self._run_query_on_selected_row
         )
         self.btn_action_run.grid(row=0, column=0, padx=2, sticky="ew")
 
         self.btn_action_test = ctk.CTkButton(
-            action_bar, text="🧪 Test", height=28, corner_radius=6,
-            fg_color="#18283E", hover_color="#223B5D",
-            text_color="#60A5FA", border_width=1, border_color="#254A78",
+            action_bar,
+            text=" Test",
+            image=get_icon("activity", (13, 13), COLORS["accent_text"]),
+            compound="left",
+            height=28, corner_radius=6,
+            fg_color=COLORS["accent_subtle"], hover_color="#263750",
+            text_color=COLORS["accent_text"], border_width=1, border_color=COLORS["accent_border"],
             font=ctk.CTkFont(size=11),
             command=self._test_selected_row
         )
         self.btn_action_test.grid(row=0, column=1, padx=2, sticky="ew")
 
         self.btn_action_edit = ctk.CTkButton(
-            action_bar, text="✏️ Edit", height=28, corner_radius=6,
-            fg_color="#2A2C33", hover_color="#383B44",
+            action_bar,
+            text=" Edit",
+            image=get_icon("pencil", (13, 13), COLORS["text_secondary"]),
+            compound="left",
+            height=28, corner_radius=6,
+            fg_color=COLORS["surface"], hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text_secondary"], border_width=1, border_color=COLORS["line"],
             font=ctk.CTkFont(size=11),
             command=self._edit_selected_row
         )
         self.btn_action_edit.grid(row=0, column=2, padx=2, sticky="ew")
 
         self.btn_action_del = ctk.CTkButton(
-            action_bar, text="🗑️ Delete", height=28, corner_radius=6,
-            fg_color="transparent", border_width=1, border_color="#71322E",
-            text_color=COLORS["danger"], hover_color="#3B2223",
+            action_bar,
+            text=" Delete",
+            image=get_icon("trash", (13, 13), COLORS["danger_text"]),
+            compound="left",
+            height=28, corner_radius=6,
+            fg_color=COLORS["danger_subtle"], border_width=1, border_color=COLORS["danger_border"],
+            text_color=COLORS["danger_text"], hover_color=COLORS["danger_hover"],
             font=ctk.CTkFont(size=11),
             command=self._delete_selected_row
         )
@@ -341,85 +348,116 @@ class DBBlastView(ctk.CTkFrame):
         self.right_panel.grid_rowconfigure(2, weight=4)  # Results Tabview
         self.right_panel.grid_columnconfigure(0, weight=1)
 
-        # 1. Query Action Toolbar
+        # 1. Query Action Toolbar (2 Baris agar layout stabil & tidak terpotong saat select server)
         toolbar = ctk.CTkFrame(self.right_panel, fg_color=COLORS["surface"], corner_radius=10, border_width=1, border_color=COLORS["line"])
-        toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 10), ipady=4)
+        toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         toolbar.grid_columnconfigure(0, weight=1)
 
-        left_tools = ctk.CTkFrame(toolbar, fg_color="transparent")
-        left_tools.pack(side="left", padx=10, pady=6)
+        # Baris 1: Blast Execution Button & Status Target
+        row1 = ctk.CTkFrame(toolbar, fg_color="transparent")
+        row1.pack(fill="x", padx=12, pady=(10, 6))
 
         self.btn_run_blast = ctk.CTkButton(
-            left_tools,
-            text="⚡ Run Blast",
-            height=34, corner_radius=8,
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            row1,
+            text=" Run Blast",
+            image=get_icon("zap", (14, 14), "#FFFFFF"),
+            compound="left",
+            width=140,
+            height=34,
+            corner_radius=8,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color="#FFFFFF",
             font=ctk.CTkFont(size=13, weight="bold"),
             command=self._run_blast
         )
-        self.btn_run_blast.pack(side="left", padx=(0, 10))
-
-        btn_import_sql = ctk.CTkButton(
-            left_tools,
-            text="📂 Open SQL",
-            width=90, height=34, corner_radius=8,
-            fg_color="#2A2C33", hover_color="#383B44",
-            command=self._import_sql_file
-        )
-        btn_import_sql.pack(side="left", padx=(0, 6))
-
-        btn_export_sql = ctk.CTkButton(
-            left_tools,
-            text="💾 Save SQL",
-            width=90, height=34, corner_radius=8,
-            fg_color="#2A2C33", hover_color="#383B44",
-            command=self._export_sql_file
-        )
-        btn_export_sql.pack(side="left", padx=(0, 6))
-
-        btn_clear_sql = ctk.CTkButton(
-            left_tools,
-            text="🧹 Clear Editor",
-            width=95, height=34, corner_radius=8,
-            fg_color="transparent", border_width=1, border_color=COLORS["line"],
-            hover_color=COLORS["surface_hover"],
-            command=self._clear_sql_editor
-        )
-        btn_clear_sql.pack(side="left")
-
-        right_tools = ctk.CTkFrame(toolbar, fg_color="transparent")
-        right_tools.pack(side="right", padx=10, pady=6)
+        self.btn_run_blast.pack(side="left")
 
         self.lbl_blast_status = ctk.CTkLabel(
-            right_tools,
-            text="0 selected",
-            text_color=COLORS["muted"],
+            row1,
+            text="All databases will run",
+            text_color=COLORS["accent_text"],
             font=ctk.CTkFont(size=12, weight="bold")
         )
-        self.lbl_blast_status.pack(side="right", padx=5)
+        self.lbl_blast_status.pack(side="right", padx=4)
+
+        # Divider pemisah antar baris
+        divider = ctk.CTkFrame(toolbar, fg_color=COLORS["line"], height=1)
+        divider.pack(fill="x", padx=12, pady=3)
+
+        # Baris 2: Editor Title & Utility Buttons (Open, Save, Clear)
+        row2 = ctk.CTkFrame(toolbar, fg_color="transparent")
+        row2.pack(fill="x", padx=12, pady=(4, 10))
+
+        lbl_editor_title = ctk.CTkLabel(
+            row2,
+            text=" Query Editor (SQL)",
+            image=get_icon("file-code", (14, 14), COLORS["text"]),
+            compound="left",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS["text"]
+        )
+        lbl_editor_title.pack(side="left")
+
+        btn_clear_sql = ctk.CTkButton(
+            row2,
+            text=" Clear",
+            image=get_icon("trash", (12, 12), COLORS["muted"]),
+            compound="left",
+            width=76,
+            height=28,
+            corner_radius=6,
+            fg_color="transparent",
+            border_width=1,
+            border_color=COLORS["line"],
+            text_color=COLORS["muted"],
+            hover_color=COLORS["surface_hover"],
+            font=ctk.CTkFont(size=11),
+            command=self._clear_sql_editor
+        )
+        btn_clear_sql.pack(side="right", padx=(6, 0))
+
+        btn_export_sql = ctk.CTkButton(
+            row2,
+            text=" Save SQL",
+            image=get_icon("file-code", (12, 12), COLORS["text_secondary"]),
+            compound="left",
+            width=92,
+            height=28,
+            corner_radius=6,
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text_secondary"],
+            border_width=1,
+            border_color=COLORS["line"],
+            font=ctk.CTkFont(size=11),
+            command=self._export_sql_file
+        )
+        btn_export_sql.pack(side="right", padx=(6, 0))
+
+        btn_import_sql = ctk.CTkButton(
+            row2,
+            text=" Open SQL",
+            image=get_icon("folder", (12, 12), COLORS["text_secondary"]),
+            compound="left",
+            width=92,
+            height=28,
+            corner_radius=6,
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text_secondary"],
+            border_width=1,
+            border_color=COLORS["line"],
+            font=ctk.CTkFont(size=11),
+            command=self._import_sql_file
+        )
+        btn_import_sql.pack(side="right")
 
         # 2. SQL Editor Frame
         editor_frame = ctk.CTkFrame(self.right_panel, fg_color=COLORS["surface"], corner_radius=10, border_width=1, border_color=COLORS["line"])
         editor_frame.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
-        editor_frame.grid_rowconfigure(1, weight=1)
+        editor_frame.grid_rowconfigure(0, weight=1)
         editor_frame.grid_columnconfigure(0, weight=1)
-
-        editor_header = ctk.CTkFrame(editor_frame, fg_color="transparent")
-        editor_header.grid(row=0, column=0, sticky="ew", padx=12, pady=(8, 4))
-
-        ctk.CTkLabel(
-            editor_header,
-            text="Query Editor (SQL)",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=COLORS["text"]
-        ).pack(side="left")
-
-        ctk.CTkLabel(
-            editor_header,
-            text="Tekan '⚡ Run Blast' untuk mengeksekusi ke database terpilih",
-            font=ctk.CTkFont(size=11),
-            text_color=COLORS["muted"]
-        ).pack(side="right")
 
         self.txt_sql = ctk.CTkTextbox(
             editor_frame,
@@ -427,112 +465,322 @@ class DBBlastView(ctk.CTkFrame):
             wrap="none",
             corner_radius=8,
             border_width=0,
-            fg_color="#17181C",
-            text_color="#E0E2EC",
+            fg_color=COLORS["input_bg"],
+            text_color=COLORS["text"],
             undo=True
         )
-        self.txt_sql.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        self.txt_sql.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
         self.txt_sql.insert("1.0", DEFAULT_SQL)
 
-        # 3. Navicat Style Bottom Tabview (Execution Log & Query Results)
-        self.tabview = ctk.CTkTabview(
+        # 3. Navicat Style Bottom Tab Panel with Lucide Icons (Execution Log & Query Results)
+        # 3. Navicat Style Bottom Tab Panel with Lucide Icons (Execution Log & Query Results)
+        self.bottom_panel = ctk.CTkFrame(
             self.right_panel,
             corner_radius=10,
             border_width=1,
             border_color=COLORS["line"],
-            fg_color=COLORS["surface"],
-            segmented_button_selected_color=COLORS["accent"],
-            segmented_button_selected_hover_color=COLORS["accent_hover"]
+            fg_color=COLORS["surface"]
         )
-        self.tabview.grid(row=2, column=0, sticky="nsew", pady=0)
+        self.bottom_panel.grid(row=2, column=0, sticky="nsew", pady=0)
+        self.bottom_panel.grid_columnconfigure(0, weight=1)
+        self.bottom_panel.grid_rowconfigure(2, weight=1)  # row 2 = content textbox
 
-        # Tab 1: Execution Log (Streaming console output)
-        self.tab_log = self.tabview.add("📋 Execution Log")
-        self.tab_log.grid_columnconfigure(0, weight=1)
-        self.tab_log.grid_rowconfigure(1, weight=1)
+        # -------------------------------------------------------------
+        # BARIS 1: Tab Header Bar (Pill Switcher)
+        # -------------------------------------------------------------
+        self.tab_header = ctk.CTkFrame(self.bottom_panel, fg_color="transparent")
+        self.tab_header.grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 6))
 
-        log_toolbar = ctk.CTkFrame(self.tab_log, fg_color="transparent")
-        log_toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        pill_container = ctk.CTkFrame(
+            self.tab_header,
+            fg_color=COLORS["window"],
+            corner_radius=8,
+            border_width=1,
+            border_color=COLORS["line"],
+            height=34
+        )
+        pill_container.pack(side="left")
+
+        self.btn_tab_log = ctk.CTkButton(
+            pill_container,
+            text=" Execution Log",
+            image=get_icon("file-text", (13, 13), "#FFFFFF"),
+            compound="left",
+            width=128,
+            height=28,
+            corner_radius=6,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=lambda: self._set_active_tab("log")
+        )
+        self.btn_tab_log.pack(side="left", padx=3, pady=3)
+
+        self.btn_tab_result = ctk.CTkButton(
+            pill_container,
+            text=" Query Results",
+            image=get_icon("table", (13, 13), COLORS["text_secondary"]),
+            compound="left",
+            width=128,
+            height=28,
+            corner_radius=6,
+            fg_color="transparent",
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text_secondary"],
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=lambda: self._set_active_tab("results")
+        )
+        self.btn_tab_result.pack(side="left", padx=(0, 3), pady=3)
+
+        # -------------------------------------------------------------
+        # BARIS 2: Dedicated Sub-Toolbar Bar (Tinggi konsisten di kedua tab)
+        # -------------------------------------------------------------
+        self.sub_toolbar = ctk.CTkFrame(self.bottom_panel, fg_color="transparent", height=32)
+        self.sub_toolbar.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 6))
+
+        # Sub-toolbar Tab 1: Execution Log
+        self.bar_log = ctk.CTkFrame(self.sub_toolbar, fg_color="transparent")
+        lbl_log_title = ctk.CTkLabel(
+            self.bar_log,
+            text="Streaming Console Output",
+            text_color=COLORS["muted"],
+            font=ctk.CTkFont(size=11)
+        )
+        lbl_log_title.pack(side="left", padx=(2, 0))
 
         btn_clear_log = ctk.CTkButton(
-            log_toolbar,
-            text="Clear Log",
-            width=75, height=26, corner_radius=6,
-            fg_color="#2A2C33", hover_color="#383B44",
+            self.bar_log,
+            text=" Clear Log",
+            image=get_icon("trash", (12, 12), COLORS["muted"]),
+            compound="left",
+            width=84, height=26, corner_radius=6,
+            fg_color=COLORS["surface"], hover_color=COLORS["surface_hover"],
+            text_color=COLORS["muted"],
+            border_width=1, border_color=COLORS["line"],
             font=ctk.CTkFont(size=11),
             command=self._clear_execution_log
         )
         btn_clear_log.pack(side="right")
 
-        self.txt_log = ctk.CTkTextbox(
-            self.tab_log,
-            font=("Consolas", 12),
-            wrap="none",
-            corner_radius=8,
-            border_width=1,
-            border_color=COLORS["line"],
-            fg_color="#17181C",
-            text_color="#D1D5DB"
-        )
-        self.txt_log.grid(row=1, column=0, sticky="nsew")
+        # Sub-toolbar Tab 2: Query Results
+        self.bar_result = ctk.CTkFrame(self.sub_toolbar, fg_color="transparent")
 
-        # Tab 2: Query Results (Formatted Table viewer)
-        self.tab_result = self.tabview.add("📊 Query Results")
-        self.tab_result.grid_columnconfigure(0, weight=1)
-        self.tab_result.grid_rowconfigure(1, weight=1)
-
-        result_ctrl = ctk.CTkFrame(self.tab_result, fg_color="transparent")
-        result_ctrl.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-
-        lbl_pick = ctk.CTkLabel(result_ctrl, text="Pilih Database:", font=ctk.CTkFont(size=12))
+        lbl_pick = ctk.CTkLabel(self.bar_result, text="Pilih Database:", text_color=COLORS["text"], font=ctk.CTkFont(size=12))
         lbl_pick.pack(side="left", padx=(0, 8))
 
         self.opt_result_db = ctk.CTkOptionMenu(
-            result_ctrl,
+            self.bar_result,
             values=["(No Results Yet)"],
-            width=260, height=28,
+            width=280, height=28,
             corner_radius=6,
-            fg_color="#2A2C33",
-            button_color="#383B44",
+            fg_color=COLORS["surface"],
+            text_color=COLORS["text"],
+            button_color=COLORS["surface_hover"],
+            button_hover_color=COLORS["line"],
             command=self._on_result_db_selected
         )
         self.opt_result_db.pack(side="left")
 
-        self.lbl_result_meta = ctk.CTkLabel(result_ctrl, text="", text_color=COLORS["muted"], font=ctk.CTkFont(size=11))
-        self.lbl_result_meta.pack(side="right")
+        btn_copy_res = ctk.CTkButton(
+            self.bar_result,
+            text=" Copy Result",
+            image=get_icon("copy", (12, 12), COLORS["text_secondary"]),
+            compound="left",
+            width=100, height=28,
+            corner_radius=6,
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text_secondary"],
+            border_width=1,
+            border_color=COLORS["line"],
+            font=ctk.CTkFont(size=11),
+            command=self._copy_query_result
+        )
+        btn_copy_res.pack(side="left", padx=(8, 0))
 
-        self.txt_result = ctk.CTkTextbox(
-            self.tab_result,
+        # -------------------------------------------------------------
+        # BARIS 3: Textbox Content (row=2)
+        # -------------------------------------------------------------
+        self.txt_log = ctk.CTkTextbox(
+            self.bottom_panel,
             font=("Consolas", 12),
             wrap="none",
             corner_radius=8,
             border_width=1,
             border_color=COLORS["line"],
-            fg_color="#17181C",
-            text_color="#93C5FD"
+            fg_color=COLORS["console_bg"],
+            text_color=COLORS["console_text"]
         )
-        self.txt_result.grid(row=1, column=0, sticky="nsew")
+
+        self.txt_result = ctk.CTkTextbox(
+            self.bottom_panel,
+            font=("Consolas", 12),
+            wrap="none",
+            corner_radius=8,
+            border_width=1,
+            border_color=COLORS["line"],
+            fg_color=COLORS["console_bg"],
+            text_color=COLORS["accent_text"]
+        )
+
+        # -------------------------------------------------------------
+        # BARIS 4: Status Bar Footer (row=3 di bawah Textbox)
+        # -------------------------------------------------------------
+        self.footer_bar = ctk.CTkFrame(self.bottom_panel, fg_color="transparent", height=20)
+        self.footer_bar.grid(row=3, column=0, sticky="ew", padx=14, pady=(0, 8))
+
+        self.lbl_result_meta = ctk.CTkLabel(
+            self.footer_bar,
+            text="",
+            text_color=COLORS["muted"],
+            font=ctk.CTkFont(size=11, weight="bold")
+        )
+
+        # Compatibility wrapper for any self.tabview.set calls
+        self.tabview = type("TabviewCompat", (), {"set": lambda _, t: self._set_active_tab(t)})()
+
+        # Set default active tab
+        self._set_active_tab("log")
+
+    def _set_active_tab(self, tab_name: str):
+        """Beralih antara tab Execution Log dan Query Results secara seamless tanpa pergeseran layout."""
+        is_log = tab_name in ("log", "📋 Execution Log", "Execution Log")
+        if is_log:
+            self.bar_result.pack_forget()
+            self.bar_log.pack(fill="x", expand=True)
+            self.lbl_result_meta.pack_forget()
+
+            self.txt_result.grid_remove()
+            self.txt_log.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 6))
+
+            self.btn_tab_log.configure(
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+                text_color="#FFFFFF",
+                image=get_icon("file-text", (13, 13), "#FFFFFF")
+            )
+            self.btn_tab_result.configure(
+                fg_color="transparent",
+                hover_color=COLORS["surface_hover"],
+                text_color=COLORS["text_secondary"],
+                image=get_icon("table", (13, 13), COLORS["text_secondary"])
+            )
+        else:
+            self.bar_log.pack_forget()
+            self.bar_result.pack(fill="x", expand=True)
+            self.lbl_result_meta.pack(side="left")
+
+            self.txt_log.grid_remove()
+            self.txt_result.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 6))
+
+            self.btn_tab_result.configure(
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+                text_color="#FFFFFF",
+                image=get_icon("table", (13, 13), "#FFFFFF")
+            )
+            self.btn_tab_log.configure(
+                fg_color="transparent",
+                hover_color=COLORS["surface_hover"],
+                text_color=COLORS["text_secondary"],
+                image=get_icon("file-text", (13, 13), COLORS["text_secondary"])
+            )
 
     # =========================================================================
     # CONTEXT MENU & SELECTION HANDLING
     # =========================================================================
     def _create_tree_context_menu(self):
-        self.context_menu = tk.Menu(self, tearoff=0, bg="#202126", fg="#F5F5F7", activebackground="#0A84FF", activeforeground="#FFFFFF", bd=1)
-        self.context_menu.add_command(label="⚡ Run Query on This DB", command=self._run_query_on_selected_row)
-        self.context_menu.add_command(label="🧪 Test Connection", command=self._test_selected_row)
-        self.context_menu.add_separator()
-        self.context_menu.add_command(label="✏️ Edit Connection", command=self._edit_selected_row)
-        self.context_menu.add_command(label="🗑️ Delete Connection", command=self._delete_selected_row)
+        self.context_menu = tk.Menu(
+            self,
+            tearoff=0,
+            bg=COLORS["surface"],
+            fg=COLORS["text"],
+            activebackground=COLORS["accent"],
+            activeforeground="#FFFFFF",
+            bd=1
+        )
 
     def _show_tree_context_menu(self, event):
         item = self.tree.identify_row(event.y)
-        if item:
+        if not item:
+            return
+
+        # Jika item yang diklik belum terpilih, pilih item tersebut
+        if not self.tree.selection() or item not in self.tree.selection():
             self.tree.selection_set(item)
             self._on_tree_select_change()
-            try:
-                self.context_menu.tk_popup(event.x_root, event.y_root)
-            finally:
-                self.context_menu.grab_release()
+
+        clicked_id = int(item)
+        if clicked_id in self.selected_db_ids and len(self.selected_db_ids) > 1:
+            target_ids = list(self.selected_db_ids)
+            label_suffix = f" ({len(target_ids)} checked)"
+        else:
+            target_ids = [clicked_id]
+            label_suffix = ""
+
+        # Rebuild context menu dinamis
+        self.context_menu.delete(0, "end")
+        self.context_menu.add_command(label="⚡ Run Query on This DB", command=self._run_query_on_selected_row)
+        self.context_menu.add_command(label="🧪 Test Connection", command=self._test_selected_row)
+        self.context_menu.add_separator()
+
+        # Submenu: Move to Group
+        group_menu = tk.Menu(
+            self.context_menu,
+            tearoff=0,
+            bg=COLORS["surface"],
+            fg=COLORS["text"],
+            activebackground=COLORS["accent"],
+            activeforeground="#FFFFFF",
+            bd=1
+        )
+        groups = self.db.get_groups()
+        for g in groups:
+            group_menu.add_command(
+                label=f"📁  {g['name']}",
+                command=lambda gid=g["id"]: self._move_target_dbs_to_group(target_ids, gid)
+            )
+        if groups:
+            group_menu.add_separator()
+        group_menu.add_command(
+            label="🚫  (None / Default)",
+            command=lambda: self._move_target_dbs_to_group(target_ids, None)
+        )
+        group_menu.add_command(
+            label="➕  Create New Group...",
+            command=lambda: self._prompt_new_group_and_move(target_ids)
+        )
+
+        self.context_menu.add_cascade(label=f"📁 Move to Group{label_suffix}", menu=group_menu)
+        self.context_menu.add_separator()
+        if len(target_ids) > 1:
+            self.context_menu.add_command(
+                label=f"✏️ Bulk Edit ({len(target_ids)} DBs)...",
+                command=lambda: self._open_bulk_edit_dialog(target_ids)
+            )
+        else:
+            self.context_menu.add_command(label="✏️ Edit Connection", command=self._edit_selected_row)
+        self.context_menu.add_command(label="🗑️ Delete Connection", command=self._delete_selected_row)
+
+        try:
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.context_menu.grab_release()
+
+    def _move_target_dbs_to_group(self, target_ids: List[int], group_id: Optional[int]):
+        """Pindahkan database terpilih ke group tertentu."""
+        self.db.move_hosts_to_group(target_ids, group_id)
+        self._refresh_connections()
+        self._notify_data_changed()
+
+    def _prompt_new_group_and_move(self, target_ids: List[int]):
+        """Minta nama group baru, buat group, lalu pindahkan koneksi database terpilih."""
+        dialog = ctk.CTkInputDialog(text="Enter new group name:", title="New Group")
+        group_name = dialog.get_input()
+        if group_name and group_name.strip():
+            new_group_id = self.db.add_group(group_name.strip())
+            self._move_target_dbs_to_group(target_ids, new_group_id)
 
     def _on_tree_click(self, event):
         item_id = self.tree.identify_row(event.y)
@@ -573,11 +821,78 @@ class DBBlastView(ctk.CTkFrame):
     def _on_tree_select_change(self, event=None):
         sel = self.tree.selection()
         has_sel = bool(sel)
-        st = "normal" if has_sel else "disabled"
-        self.btn_action_run.configure(state=st)
-        self.btn_action_test.configure(state=st)
-        self.btn_action_edit.configure(state=st)
-        self.btn_action_del.configure(state=st)
+
+        if has_sel:
+            self.btn_action_run.configure(
+                state="normal",
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+                text_color="#FFFFFF",
+                border_width=0,
+                image=get_icon("play", (13, 13), "#FFFFFF")
+            )
+            self.btn_action_test.configure(
+                state="normal",
+                fg_color=COLORS["surface"],
+                hover_color=COLORS["surface_hover"],
+                text_color=COLORS["text"],
+                border_width=1,
+                border_color=COLORS["line"],
+                image=get_icon("activity", (13, 13), COLORS["accent_text"])
+            )
+            edit_text = f" Bulk Edit ({len(self.selected_db_ids)})" if len(self.selected_db_ids) > 1 else " Edit"
+            self.btn_action_edit.configure(
+                text=edit_text,
+                state="normal",
+                fg_color=COLORS["surface"],
+                hover_color=COLORS["surface_hover"],
+                text_color=COLORS["text_secondary"],
+                border_width=1,
+                border_color=COLORS["line"],
+                image=get_icon("pencil", (13, 13), COLORS["text_secondary"])
+            )
+            self.btn_action_del.configure(
+                state="normal",
+                fg_color=COLORS["danger_subtle"],
+                hover_color=COLORS["danger_hover"],
+                text_color=COLORS["danger_text"],
+                border_width=1,
+                border_color=COLORS["danger_border"],
+                image=get_icon("trash", (13, 13), COLORS["danger_text"])
+            )
+        else:
+            self.btn_action_run.configure(
+                state="disabled",
+                fg_color=COLORS["surface"],
+                border_width=1,
+                border_color=COLORS["line"],
+                text_color_disabled=COLORS["subtle"],
+                image=get_icon("play", (13, 13), COLORS["subtle"])
+            )
+            self.btn_action_test.configure(
+                state="disabled",
+                fg_color=COLORS["surface"],
+                border_width=1,
+                border_color=COLORS["line"],
+                text_color_disabled=COLORS["subtle"],
+                image=get_icon("activity", (13, 13), COLORS["subtle"])
+            )
+            self.btn_action_edit.configure(
+                state="disabled",
+                fg_color=COLORS["surface"],
+                border_width=1,
+                border_color=COLORS["line"],
+                text_color_disabled=COLORS["subtle"],
+                image=get_icon("pencil", (13, 13), COLORS["subtle"])
+            )
+            self.btn_action_del.configure(
+                state="disabled",
+                fg_color=COLORS["surface"],
+                border_width=1,
+                border_color=COLORS["line"],
+                text_color_disabled=COLORS["subtle"],
+                image=get_icon("trash", (13, 13), COLORS["subtle"])
+            )
 
     def _run_query_on_selected_row(self):
         sel = self.tree.selection()
@@ -590,9 +905,24 @@ class DBBlastView(ctk.CTkFrame):
             self._test_single_conn(int(sel[0]))
 
     def _edit_selected_row(self):
+        checked_ids = list(self.selected_db_ids)
+        if len(checked_ids) > 1:
+            self._open_bulk_edit_dialog(checked_ids)
+            return
         sel = self.tree.selection()
         if sel:
             self._open_edit_db_dialog(int(sel[0]))
+
+    def _open_bulk_edit_dialog(self, conn_ids: List[int]):
+        """Buka dialog bulk edit untuk daftar koneksi database yang dipilih."""
+        if not conn_ids:
+            return
+        BulkDbDialog(
+            parent=self.parent,
+            db_manager=self.db,
+            conn_ids=conn_ids,
+            on_save_callback=self._refresh_and_notify
+        )
 
     def _delete_selected_row(self):
         sel = self.tree.selection()
@@ -697,17 +1027,22 @@ class DBBlastView(ctk.CTkFrame):
         filtered = getattr(self, "_current_filtered_conns", [])
         if filtered:
             all_chk = all(c["id"] in self.selected_db_ids for c in filtered)
-            self.chk_all_var.set(all_chk)
+            chk_icon = "[✓]" if all_chk else "[ ]"
         else:
-            self.chk_all_var.set(False)
+            chk_icon = "[ ]"
+        self.tree.heading("chk", text=chk_icon)
 
     def _toggle_check_all(self):
-        is_chk = self.chk_all_var.get()
         filtered = getattr(self, "_current_filtered_conns", [])
+        if not filtered:
+            return
+        all_chk = all(c["id"] in self.selected_db_ids for c in filtered)
+        should_check = not all_chk
+
         for c in filtered:
             c_id = c["id"]
             str_id = str(c_id)
-            if is_chk:
+            if should_check:
                 self.selected_db_ids.add(c_id)
                 chk_str = "[✓]"
             else:
@@ -718,6 +1053,7 @@ class DBBlastView(ctk.CTkFrame):
                 vals[0] = chk_str
                 self.tree.item(str_id, values=vals)
 
+        self._sync_check_all_state()
         self._update_blast_button_label()
 
     def _update_blast_button_label(self):
@@ -726,10 +1062,10 @@ class DBBlastView(ctk.CTkFrame):
         selected_visible = len([c["id"] for c in filtered if c["id"] in self.selected_db_ids])
 
         if selected_visible > 0:
-            self.btn_run_blast.configure(text=f"⚡ Run Blast ({selected_visible})")
+            self.btn_run_blast.configure(text=f" Run Blast ({selected_visible})", image=get_icon("zap", (14, 14), "#FFFFFF"))
             self.lbl_blast_status.configure(text=f"{selected_visible} of {total_visible} selected")
         else:
-            self.btn_run_blast.configure(text="⚡ Run Blast (All)")
+            self.btn_run_blast.configure(text=" Run Blast (All)", image=get_icon("zap", (14, 14), "#FFFFFF"))
             self.lbl_blast_status.configure(text=f"All {total_visible} will run")
 
     def _update_tree_status(self, conn_id: int, text: str):
@@ -950,7 +1286,7 @@ class DBBlastView(ctk.CTkFrame):
             return
 
         name = conn.get("name") or f"DB-{conn_id}"
-        self.tabview.set("📋 Execution Log")
+        self._set_active_tab("log")
         self._log_message(f"\n[{datetime.now().strftime('%H:%M:%S')}] === Running Query on [{name}] ===\n")
         self._log_message(f"Query: {query[:120]}...\n")
 
@@ -1007,8 +1343,9 @@ class DBBlastView(ctk.CTkFrame):
             return
 
         self.is_running_blast = True
+        self.query_results_cache.clear()
         self.btn_run_blast.configure(state="disabled", text="⏳ Blasting...")
-        self.tabview.set("📋 Execution Log")
+        self._set_active_tab("log")
 
         self._log_message("\n" + "=" * 60 + "\n")
         self._log_message(f"[{datetime.now().strftime('%H:%M:%S')}] ⚡ STARTING DB BLAST ON {len(targets)} DATABASE(S)\n")
@@ -1077,6 +1414,15 @@ class DBBlastView(ctk.CTkFrame):
                 self._log_message(f"Total: {len(targets)} | Berhasil: {success_count} | Gagal: {failed_count}\n")
                 self._log_message("=" * 60 + "\n")
 
+                # Default ke All Databases view
+                if len(targets) > 1:
+                    self.opt_result_db.set("All Databases (Combined)")
+                    self._on_result_db_selected("All Databases (Combined)")
+                elif targets:
+                    first_name = targets[0].get("name") or f"DB-{targets[0]['id']}"
+                    self.opt_result_db.set(first_name)
+                    self._on_result_db_selected(first_name)
+
                 messagebox.showinfo(
                     "DB Blast Finished",
                     f"DB Blast selesai dieksekusi!\n\n"
@@ -1093,27 +1439,83 @@ class DBBlastView(ctk.CTkFrame):
     # =========================================================================
     # QUERY RESULTS TAB HANDLING
     # =========================================================================
+    def _copy_query_result(self):
+        text = self.txt_result.get("1.0", "end-1c")
+        if text.strip():
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            messagebox.showinfo("Copied", "Hasil query berhasil disalin ke clipboard.")
+
     def _cache_result(self, db_name: str, result: Dict[str, Any]):
         self.query_results_cache[db_name] = result
 
-        # Perbarui dropdown daftar hasil
+        # Perbarui dropdown daftar hasil dengan opsi All Databases di awal
         db_keys = list(self.query_results_cache.keys())
         if db_keys:
-            self.opt_result_db.configure(values=db_keys)
+            options = ["All Databases (Combined)"] + db_keys if len(db_keys) > 1 else db_keys
+            self.opt_result_db.configure(values=options)
             current = self.opt_result_db.get()
-            if current not in db_keys or current == "(No Results Yet)":
-                self.opt_result_db.set(db_keys[0])
-                self._on_result_db_selected(db_keys[0])
+            if current not in options or current == "(No Results Yet)":
+                default_choice = "All Databases (Combined)" if len(db_keys) > 1 else db_keys[0]
+                self.opt_result_db.set(default_choice)
+                self._on_result_db_selected(default_choice)
+            else:
+                self._on_result_db_selected(current)
 
     def _on_result_db_selected(self, selected_name: str):
-        res = self.query_results_cache.get(selected_name)
-        if not res:
-            self.txt_result.delete("1.0", "end")
-            self.txt_result.insert("1.0", "Belum ada hasil untuk database ini.")
+        self.txt_result.delete("1.0", "end")
+
+        if not self.query_results_cache:
+            self.txt_result.insert("1.0", "Belum ada hasil query.")
             self.lbl_result_meta.configure(text="")
             return
 
-        self.txt_result.delete("1.0", "end")
+        if selected_name == "All Databases (Combined)" or (selected_name not in self.query_results_cache and len(self.query_results_cache) > 1):
+            total = len(self.query_results_cache)
+            success_count = sum(1 for r in self.query_results_cache.values() if r.get("success"))
+            failed_count = total - success_count
+            total_elapsed = sum(r.get("elapsed_ms", 0) for r in self.query_results_cache.values())
+
+            lines = []
+            lines.append("=" * 80)
+            lines.append(f"ALL DATABASES QUERY RESULTS ({total} Databases)")
+            lines.append(f"✓ Success: {success_count}  |  ✗ Failed: {failed_count}  |  ⏱ Total Time: {total_elapsed} ms")
+            lines.append("=" * 80)
+            lines.append("")
+
+            for name, res in self.query_results_cache.items():
+                is_ok = res.get("success", False)
+                elapsed = res.get("elapsed_ms", 0)
+                status_icon = "✓" if is_ok else "✗"
+                status_label = "SUCCESS" if is_ok else "FAILED"
+
+                lines.append("━" * 80)
+                lines.append(f"[{status_icon}] DATABASE: {name}  ({status_label} • {elapsed} ms)")
+                lines.append("━" * 80)
+
+                if is_ok:
+                    out = res.get("output", "")
+                    lines.append(out.strip() if out else "Query OK (0 rows affected)")
+                else:
+                    err = res.get("error", "Unknown error")
+                    lines.append(f"ERROR:\n{err.strip()}")
+                lines.append("\n")
+
+            combined_text = "\n".join(lines)
+            self.txt_result.insert("1.0", combined_text)
+            self.lbl_result_meta.configure(
+                text=f"Total: {total} DBs  •  ✓ {success_count} OK  •  ✗ {failed_count} Failed",
+                text_color=COLORS["success"] if failed_count == 0 else COLORS["danger"]
+            )
+            return
+
+        # Single DB Result
+        res = self.query_results_cache.get(selected_name)
+        if not res:
+            self.txt_result.insert("1.0", f"Belum ada hasil untuk database '{selected_name}'.")
+            self.lbl_result_meta.configure(text="")
+            return
+
         if res.get("success"):
             self.txt_result.insert("1.0", res.get("output", "Query OK (0 rows affected)"))
             self.lbl_result_meta.configure(

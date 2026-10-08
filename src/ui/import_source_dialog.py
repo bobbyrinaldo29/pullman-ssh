@@ -1,5 +1,6 @@
 from typing import Callable
 import customtkinter as ctk
+from theme import COLORS
 
 
 class ImportSourceDialog(ctk.CTkToplevel):
@@ -8,15 +9,15 @@ class ImportSourceDialog(ctk.CTkToplevel):
     SOURCES = [
         ("pullman", "Pullman Backup (.json)", "File backup/export bawaan aplikasi ini, berisi host & grup (bisa terenkripsi)."),
         ("navicat", "Navicat", "Ambil host dari SSH Tunnel yang tersimpan pada file export koneksi Navicat (.ncx)."),
-        # ("dbeaver", "DBeaver", "Ambil host dari SSH Tunnel yang tersimpan pada konfigurasi workspace DBeaver."),
+        ("dbeaver", "DBeaver", "Ambil host dari SSH Tunnel yang tersimpan pada project archive DBeaver (.dbp) atau data-sources.json."),
     ]
 
     def __init__(self, parent: ctk.CTk, on_select: Callable[[str], None]):
-        super().__init__(parent)
+        super().__init__(parent, fg_color=COLORS["window"])
         self.on_select = on_select
 
         self.title("Import Hosts")
-        self.geometry("440x420")
+        self.geometry("460x470")
         self.resizable(False, False)
 
         self.transient(parent)
@@ -31,13 +32,13 @@ class ImportSourceDialog(ctk.CTkToplevel):
         main.pack(fill="both", expand=True, padx=24, pady=20)
 
         ctk.CTkLabel(
-            main, text="Import dari mana?", font=ctk.CTkFont(size=16, weight="bold")
+            main, text="Import dari mana?", text_color=COLORS["text"], font=ctk.CTkFont(size=16, weight="bold")
         ).pack(anchor="w", pady=(0, 2))
         
         ctk.CTkLabel(
             main,
             text="Pilih sumber data host SSH yang ingin diimpor.",
-            text_color="gray",
+            text_color=COLORS["muted"],
             font=ctk.CTkFont(size=12)
         ).pack(anchor="w", pady=(0, 14))
 
@@ -55,40 +56,48 @@ class ImportSourceDialog(ctk.CTkToplevel):
         ctk.CTkButton(
             btn_frame, 
             text="Cancel", 
-            fg_color="transparent", 
+            fg_color=COLORS["surface"], 
             border_width=1,
-            text_color=("gray10", "gray90"), 
+            border_color=COLORS["line"],
+            text_color=COLORS["text_secondary"], 
+            hover_color=COLORS["surface_hover"],
             command=self._close
         ).pack(side="left", expand=True, fill="x", padx=(0, 6))
 
         ctk.CTkButton(
             btn_frame, 
             text="Next", 
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(weight="bold"),
             command=self._confirm
         ).pack(side="right", expand=True, fill="x", padx=(6, 0))
 
     def _build_option_row(self, parent, key: str, title: str, desc: str):
-        row = ctk.CTkFrame(parent, corner_radius=8)
+        row = ctk.CTkFrame(parent, fg_color=COLORS["surface"], corner_radius=8, border_width=1, border_color=COLORS["line"])
         row.pack(fill="x", pady=4)
 
         radio = ctk.CTkRadioButton(
             row, 
             text="", 
             variable=self.choice_var, 
-            value=key
+            value=key,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"]
         )
         radio.pack(side="left", padx=(12, 6), pady=12)
 
         text_col = ctk.CTkFrame(row, fg_color="transparent")
         text_col.pack(side="left", fill="x", expand=True, pady=8, padx=(0, 12))
         
-        lbl_title = ctk.CTkLabel(text_col, text=title, font=ctk.CTkFont(size=13, weight="bold"), anchor="w")
+        lbl_title = ctk.CTkLabel(text_col, text=title, text_color=COLORS["text"], font=ctk.CTkFont(size=13, weight="bold"), anchor="w")
         lbl_title.pack(anchor="w", fill="x")
         
         lbl_desc = ctk.CTkLabel(
             text_col, 
             text=desc, 
-            text_color="gray", 
+            text_color=COLORS["muted"], 
             font=ctk.CTkFont(size=11),
             anchor="w", 
             justify="left", 

@@ -1,5 +1,6 @@
 import customtkinter as ctk
 from typing import Optional, Callable, Dict, Any
+from theme import COLORS
 
 
 class HostDialog(ctk.CTkToplevel):
@@ -10,7 +11,7 @@ class HostDialog(ctk.CTkToplevel):
         host_data: Optional[Dict[str, Any]] = None,
         on_save_callback: Optional[Callable[[], None]] = None
     ):
-        super().__init__(parent)
+        super().__init__(parent, fg_color=COLORS["window"])
 
         self.db = db_manager
         self.host_data = host_data
@@ -59,11 +60,11 @@ class HostDialog(ctk.CTkToplevel):
 
     def _setup_ui(self):
         # 1. FIXED BOTTOM ACTION BAR
-        bottom_bar = ctk.CTkFrame(self, fg_color="#18191D", corner_radius=0, border_width=1, border_color="#32343B")
+        bottom_bar = ctk.CTkFrame(self, fg_color=COLORS["surface"], corner_radius=0, border_width=1, border_color=COLORS["line"])
         bottom_bar.pack(side="bottom", fill="x", padx=0, pady=0)
 
         # Label Error
-        self.lbl_error = ctk.CTkLabel(bottom_bar, text="", text_color="#FF453A", font=ctk.CTkFont(size=11))
+        self.lbl_error = ctk.CTkLabel(bottom_bar, text="", text_color=COLORS["danger"], font=ctk.CTkFont(size=11))
         self.lbl_error.pack(anchor="w", padx=20, pady=(6, 2))
 
         btn_frame = ctk.CTkFrame(bottom_bar, fg_color="transparent")
@@ -73,11 +74,11 @@ class HostDialog(ctk.CTkToplevel):
             btn_frame,
             text="Cancel",
             height=34,
-            fg_color="transparent",
+            fg_color=COLORS["surface"],
             border_width=1,
-            border_color="#32343B",
-            text_color="gray80",
-            hover_color="#2A2C33",
+            border_color=COLORS["line"],
+            text_color=COLORS["text_secondary"],
+            hover_color=COLORS["surface_hover"],
             command=self.destroy
         )
         btn_cancel.pack(side="left", expand=True, fill="x", padx=(0, 5))
@@ -86,8 +87,9 @@ class HostDialog(ctk.CTkToplevel):
             btn_frame,
             text="Save Host",
             height=34,
-            fg_color="#0A84FF",
-            hover_color="#0072E5",
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color="#FFFFFF",
             font=ctk.CTkFont(weight="bold"),
             command=self._save_host
         )
@@ -98,7 +100,7 @@ class HostDialog(ctk.CTkToplevel):
         top_header.pack(side="top", fill="x", padx=20, pady=(16, 6))
 
         title_text = "Edit Host Configuration" if self.host_data else "New Host Configuration"
-        lbl_title = ctk.CTkLabel(top_header, text=title_text, font=ctk.CTkFont(size=18, weight="bold"))
+        lbl_title = ctk.CTkLabel(top_header, text=title_text, text_color=COLORS["text"], font=ctk.CTkFont(size=18, weight="bold"))
         lbl_title.pack(anchor="w")
 
         # 3. SCROLLABLE FORM BODY

@@ -12,6 +12,8 @@ import customtkinter as ctk
 
 import pull_service
 from theme import COLORS
+from icons import get_icon
+from ui.bulk_host_dialog import BulkHostDialog
 from ui.db_tool_import_dialog import DbToolImportDialog
 from ui.export_dialog import ExportDialog
 from ui.host_dialog import HostDialog
@@ -135,7 +137,7 @@ class HostsView(ctk.CTkFrame):
             header,
             text="Servers",
             text_color=COLORS["text"],
-            font=ctk.CTkFont(size=26, weight="bold")
+            font=ctk.CTkFont(size=24, weight="bold")
         )
         self.lbl_title.grid(row=0, column=0, sticky="w")
 
@@ -143,8 +145,8 @@ class HostsView(ctk.CTkFrame):
         filter_frame = ctk.CTkFrame(header, fg_color="transparent")
         filter_frame.grid(row=0, column=1, sticky="e", padx=(0, 10))
 
-        lbl_filter = ctk.CTkLabel(filter_frame, text="Group", text_color=COLORS["muted"], font=ctk.CTkFont(size=12))
-        lbl_filter.pack(side="left", padx=(0, 5))
+        lbl_filter = ctk.CTkLabel(filter_frame, text="Group:", text_color=COLORS["muted"], font=ctk.CTkFont(size=12))
+        lbl_filter.pack(side="left", padx=(0, 6))
 
         self.filter_group_opt = ctk.CTkOptionMenu(
             filter_frame,
@@ -153,73 +155,69 @@ class HostsView(ctk.CTkFrame):
             height=34,
             corner_radius=8,
             fg_color=COLORS["surface"],
+            text_color=COLORS["text"],
             button_color=COLORS["surface_hover"],
             button_hover_color=COLORS["line"],
             command=lambda _: self._apply_filter()
         )
         self.filter_group_opt.pack(side="left")
 
-        self.chk_all_var = ctk.BooleanVar(value=False)
-        self.chk_all = ctk.CTkCheckBox(
-            filter_frame,
-            text="Check All",
-            variable=self.chk_all_var,
-            width=22,
-            checkbox_width=18,
-            checkbox_height=18,
-            corner_radius=5,
-            text_color=COLORS["text"],
-            font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
-            command=self._toggle_check_all
-        )
-        self.chk_all.pack(side="left", padx=(14, 0))
-
         btn_refresh = ctk.CTkButton(
             header,
-            text="↻",
+            text="",
+            image=get_icon("refresh-cw", (14, 14), COLORS["text"]),
             width=34,
             height=34,
             corner_radius=8,
             fg_color=COLORS["surface"],
             hover_color=COLORS["surface_hover"],
+            border_width=1,
+            border_color=COLORS["line"],
             command=self.refresh
         )
         btn_refresh.grid(row=0, column=2, sticky="e", padx=(5, 0))
 
         btn_new_host = ctk.CTkButton(
             header,
-            text="+  New Host",
+            text=" New Host",
+            image=get_icon("plus", (14, 14), COLORS["text"]),
+            compound="left",
             width=112,
             height=34,
             corner_radius=8,
             fg_color=COLORS["surface"],
             hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"],
+            border_width=1,
+            border_color=COLORS["line"],
+            font=ctk.CTkFont(size=12, weight="bold"),
             command=self._add_host_dialog
         )
         btn_new_host.grid(row=0, column=3, sticky="e", padx=(5, 0))
 
         self.btn_run_all = ctk.CTkButton(
             header,
-            text="⚡ Run All",
+            text=" Run All",
+            image=get_icon("zap", (14, 14), "#FFFFFF"),
+            compound="left",
             width=120,
             height=34,
             corner_radius=8,
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
-            font=ctk.CTkFont(weight="bold"),
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(size=12, weight="bold"),
             command=self._run_all_hosts
         )
         self.btn_run_all.grid(row=0, column=4, sticky="e", padx=(5, 0))
 
         # 2. SEARCH BAR
-        search_frame = ctk.CTkFrame(self, fg_color=COLORS["surface"], corner_radius=10)
+        search_frame = ctk.CTkFrame(self, fg_color=COLORS["surface"], corner_radius=10, border_width=1, border_color=COLORS["line"])
         search_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         search_frame.grid_columnconfigure(1, weight=1)
 
-        lbl_search = ctk.CTkLabel(search_frame, text="⌕", text_color=COLORS["muted"], font=ctk.CTkFont(size=20))
-        lbl_search.grid(row=0, column=0, padx=(10, 6))
+        lbl_search = ctk.CTkLabel(search_frame, text="", image=get_icon("search", (15, 15), COLORS["muted"]))
+        lbl_search.grid(row=0, column=0, padx=(12, 6))
 
         self.search_var = ctk.StringVar()
         self.search_var.trace_add("write", self._on_search_changed)
@@ -238,7 +236,7 @@ class HostsView(ctk.CTkFrame):
         self.search_entry.grid(row=0, column=1, sticky="ew", padx=(0, 10))
 
         # 3. HIGH-PERFORMANCE SERVERS TABLE (TTK TREEVIEW - SUB-5MS)
-        table_container = tk.Frame(self, bg="#18191D", highlightthickness=1, highlightbackground=COLORS["line"])
+        table_container = tk.Frame(self, bg=COLORS["input_bg"], highlightthickness=1, highlightbackground=COLORS["line"])
         table_container.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
         table_container.grid_columnconfigure(0, weight=1)
         table_container.grid_rowconfigure(0, weight=1)
@@ -247,24 +245,24 @@ class HostsView(ctk.CTkFrame):
         style.theme_use("default")
         style.configure(
             "Pullman.Treeview",
-            background="#18191D",
-            foreground="#F5F5F7",
-            fieldbackground="#18191D",
-            rowheight=28,
+            background=COLORS["input_bg"],
+            foreground=COLORS["text"],
+            fieldbackground=COLORS["input_bg"],
+            rowheight=29,
             font=("Segoe UI", 9),
             borderwidth=0
         )
         style.configure(
             "Pullman.Treeview.Heading",
-            background="#242529",
-            foreground="#9699A3",
+            background=COLORS["surface"],
+            foreground=COLORS["muted"],
             relief="flat",
             font=("Segoe UI", 9, "bold"),
             borderwidth=0
         )
         style.map(
             "Pullman.Treeview",
-            background=[("selected", "#0A84FF")],
+            background=[("selected", COLORS["accent"])],
             foreground=[("selected", "#FFFFFF")]
         )
 
@@ -275,7 +273,7 @@ class HostsView(ctk.CTkFrame):
             style="Pullman.Treeview",
             selectmode="browse"
         )
-        self.tree.heading("chk", text="[✓]", anchor="center")
+        self.tree.heading("chk", text="[✓]", anchor="center", command=self._toggle_check_all)
         self.tree.heading("label", text="Server Name", anchor="w")
         self.tree.heading("group", text="Group", anchor="center")
         self.tree.heading("target", text="SSH Target", anchor="w")
@@ -306,120 +304,161 @@ class HostsView(ctk.CTkFrame):
 
         self._create_tree_context_menu()
 
-        # 4. ACTION TOOLBAR FOR SELECTED ROW
+        # 4. ACTION TOOLBAR & CONSOLE CONTROLS
         action_bar = ctk.CTkFrame(self, fg_color="transparent")
-        action_bar.grid(row=3, column=0, sticky="ew", pady=(0, 10))
-        action_bar.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+        action_bar.grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        action_bar.grid_columnconfigure(0, weight=1)
+
+        left_actions = ctk.CTkFrame(action_bar, fg_color="transparent")
+        left_actions.pack(side="left")
 
         self.btn_action_pull = ctk.CTkButton(
-            action_bar,
-            text="⚡ Pull Single",
+            left_actions,
+            text=" Pull Single",
+            image=get_icon("play", (13, 13), "#FFFFFF"),
+            compound="left",
+            width=105,
             height=30,
             corner_radius=7,
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
+            text_color="#FFFFFF",
             font=ctk.CTkFont(size=11, weight="bold"),
             command=self._run_single_host
         )
-        self.btn_action_pull.grid(row=0, column=0, padx=3, sticky="ew")
+        self.btn_action_pull.pack(side="left", padx=(0, 6))
 
         self.btn_action_test = ctk.CTkButton(
-            action_bar,
-            text="🧪 Test Connection",
+            left_actions,
+            text=" Test Connection",
+            image=get_icon("activity", (13, 13), COLORS["accent_text"]),
+            compound="left",
+            width=135,
             height=30,
             corner_radius=7,
-            fg_color="#18283E",
-            hover_color="#223B5D",
-            text_color="#60A5FA",
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"],
             border_width=1,
-            border_color="#254A78",
+            border_color=COLORS["line"],
             font=ctk.CTkFont(size=11),
             command=self._test_selected_host
         )
-        self.btn_action_test.grid(row=0, column=1, padx=3, sticky="ew")
+        self.btn_action_test.pack(side="left", padx=(0, 6))
 
         self.btn_action_term = ctk.CTkButton(
-            action_bar,
-            text="💻 Terminal",
+            left_actions,
+            text=" Terminal",
+            image=get_icon("terminal", (13, 13), COLORS["text_secondary"]),
+            compound="left",
+            width=92,
             height=30,
             corner_radius=7,
-            fg_color="#2A2C33",
-            hover_color="#383B44",
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text_secondary"],
+            border_width=1,
+            border_color=COLORS["line"],
             font=ctk.CTkFont(size=11),
             command=self._terminal_selected_host
         )
-        self.btn_action_term.grid(row=0, column=2, padx=3, sticky="ew")
+        self.btn_action_term.pack(side="left", padx=(0, 6))
 
         self.btn_action_edit = ctk.CTkButton(
-            action_bar,
-            text="✏️ Edit",
+            left_actions,
+            text=" Edit",
+            image=get_icon("pencil", (13, 13), COLORS["text_secondary"]),
+            compound="left",
+            width=72,
             height=30,
             corner_radius=7,
-            fg_color="#2A2C33",
-            hover_color="#383B44",
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text_secondary"],
+            border_width=1,
+            border_color=COLORS["line"],
             font=ctk.CTkFont(size=11),
             command=self._edit_selected_host
         )
-        self.btn_action_edit.grid(row=0, column=3, padx=3, sticky="ew")
+        self.btn_action_edit.pack(side="left", padx=(0, 6))
 
         self.btn_action_del = ctk.CTkButton(
-            action_bar,
-            text="🗑️ Delete",
+            left_actions,
+            text=" Delete",
+            image=get_icon("trash", (13, 13), COLORS["danger_text"]),
+            compound="left",
+            width=80,
             height=30,
             corner_radius=7,
-            fg_color="transparent",
+            fg_color=COLORS["danger_subtle"],
             border_width=1,
-            border_color="#71322E",
-            text_color=COLORS["danger"],
-            hover_color="#3B2223",
+            border_color=COLORS["danger_border"],
+            text_color=COLORS["danger_text"],
+            hover_color=COLORS["danger_hover"],
             font=ctk.CTkFont(size=11),
             command=self._delete_selected_host
         )
-        self.btn_action_del.grid(row=0, column=4, padx=3, sticky="ew")
+        self.btn_action_del.pack(side="left")
+
+        right_actions = ctk.CTkFrame(action_bar, fg_color="transparent")
+        right_actions.pack(side="right")
+
+        btn_clear_log = ctk.CTkButton(
+            right_actions,
+            text=" Clear Log",
+            image=get_icon("trash", (12, 12), COLORS["muted"]),
+            compound="left",
+            width=88,
+            height=30,
+            corner_radius=7,
+            fg_color=COLORS["surface"],
+            border_width=1,
+            border_color=COLORS["line"],
+            text_color=COLORS["muted"],
+            hover_color=COLORS["surface_hover"],
+            font=ctk.CTkFont(size=11),
+            command=self._clear_output
+        )
+        btn_clear_log.pack(side="right")
 
         self._on_tree_select_change()
 
         # 5. EXECUTION OUTPUT CONSOLE
-        output_frame = ctk.CTkFrame(self, fg_color="transparent")
+        output_frame = ctk.CTkFrame(self, fg_color=COLORS["surface"], corner_radius=10, border_width=1, border_color=COLORS["line"])
         output_frame.grid(row=4, column=0, sticky="nsew", pady=0)
         output_frame.grid_columnconfigure(0, weight=1)
         output_frame.grid_rowconfigure(1, weight=1)
 
         output_header = ctk.CTkFrame(output_frame, fg_color="transparent")
-        output_header.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+        output_header.grid(row=0, column=0, sticky="ew", padx=12, pady=(8, 4))
 
         ctk.CTkLabel(
             output_header,
-            text="📋 Execution Output",
+            text=" Execution Output",
+            image=get_icon("terminal", (14, 14), COLORS["text"]),
+            compound="left",
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=COLORS["text"]
         ).pack(side="left")
 
-        ctk.CTkButton(
+        self.lbl_selected_hint = ctk.CTkLabel(
             output_header,
-            text="🧹 Clear Log",
-            width=80,
-            height=24,
-            corner_radius=6,
-            fg_color="transparent",
-            border_width=1,
-            border_color=COLORS["line"],
-            hover_color=COLORS["surface_hover"],
-            font=ctk.CTkFont(size=10),
-            command=self._clear_output
-        ).pack(side="right")
+            text="Pilih baris host untuk mengaktifkan aksi individual",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["muted"]
+        )
+        self.lbl_selected_hint.pack(side="right")
 
         self.output_textbox = ctk.CTkTextbox(
             output_frame,
             font=("Menlo", 12),
             wrap="none",
-            corner_radius=10,
-            border_width=1,
-            border_color=COLORS["line"],
-            fg_color="#17181C",
-            text_color="#D1D5DB"
+            corner_radius=8,
+            border_width=0,
+            fg_color=COLORS["console_bg"],
+            text_color=COLORS["console_text"]
         )
-        self.output_textbox.grid(row=1, column=0, sticky="nsew")
+        self.output_textbox.grid(row=1, column=0, sticky="nsew", padx=4, pady=(0, 4))
 
     # ------------------------------------------------------------------
     # Filtering & Debounce
@@ -503,28 +542,94 @@ class HostsView(ctk.CTkFrame):
         self.context_menu = tk.Menu(
             self,
             tearoff=0,
-            bg="#202126",
-            fg="#F5F5F7",
-            activebackground="#0A84FF",
+            bg=COLORS["surface"],
+            fg=COLORS["text"],
+            activebackground=COLORS["accent"],
             activeforeground="#FFFFFF",
             bd=1
         )
+
+    def _show_tree_context_menu(self, event):
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+
+        # Jika item yang diklik belum terpilih, pilih item tersebut
+        if not self.tree.selection() or item not in self.tree.selection():
+            self.tree.selection_set(item)
+            self._on_tree_select_change()
+
+        # Tentukan target host yang akan dipindahkan
+        clicked_id = int(item)
+        if clicked_id in self.selected_host_ids and len(self.selected_host_ids) > 1:
+            target_ids = list(self.selected_host_ids)
+            label_suffix = f" ({len(target_ids)} checked)"
+        else:
+            target_ids = [clicked_id]
+            label_suffix = ""
+
+        # Rebuild context menu dinamis
+        self.context_menu.delete(0, "end")
         self.context_menu.add_command(label="⚡ Run Git Pull (Terminal)", command=self._run_single_host)
         self.context_menu.add_command(label="🧪 Test SSH Connection", command=self._test_selected_host)
         self.context_menu.add_command(label="💻 Open SSH Terminal (PuTTY/CMD)", command=self._terminal_selected_host)
         self.context_menu.add_separator()
-        self.context_menu.add_command(label="✏️ Edit Host", command=self._edit_selected_host)
+
+        # Submenu: Move to Group
+        group_menu = tk.Menu(
+            self.context_menu,
+            tearoff=0,
+            bg=COLORS["surface"],
+            fg=COLORS["text"],
+            activebackground=COLORS["accent"],
+            activeforeground="#FFFFFF",
+            bd=1
+        )
+        groups = self.db.get_groups()
+        for g in groups:
+            group_menu.add_command(
+                label=f"📁  {g['name']}",
+                command=lambda gid=g["id"]: self._move_target_hosts_to_group(target_ids, gid)
+            )
+        if groups:
+            group_menu.add_separator()
+        group_menu.add_command(
+            label="🚫  (None / Default)",
+            command=lambda: self._move_target_hosts_to_group(target_ids, None)
+        )
+        group_menu.add_command(
+            label="➕  Create New Group...",
+            command=lambda: self._prompt_new_group_and_move(target_ids)
+        )
+
+        self.context_menu.add_cascade(label=f"📁 Move to Group{label_suffix}", menu=group_menu)
+        self.context_menu.add_separator()
+        if len(target_ids) > 1:
+            self.context_menu.add_command(
+                label=f"✏️ Bulk Edit ({len(target_ids)} Hosts)...",
+                command=lambda: self._open_bulk_edit_dialog(target_ids)
+            )
+        else:
+            self.context_menu.add_command(label="✏️ Edit Host", command=self._edit_selected_host)
         self.context_menu.add_command(label="🗑️ Delete Host", command=self._delete_selected_host)
 
-    def _show_tree_context_menu(self, event):
-        item = self.tree.identify_row(event.y)
-        if item:
-            self.tree.selection_set(item)
-            self._on_tree_select_change()
-            try:
-                self.context_menu.tk_popup(event.x_root, event.y_root)
-            finally:
-                self.context_menu.grab_release()
+        try:
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.context_menu.grab_release()
+
+    def _move_target_hosts_to_group(self, target_ids: List[int], group_id: Optional[int]):
+        """Pindahkan daftar host target ke group tertentu."""
+        self.db.move_hosts_to_group(target_ids, group_id)
+        self._refresh_and_notify()
+
+    def _prompt_new_group_and_move(self, target_ids: List[int]):
+        """Minta input nama group baru, buat group, lalu pindahkan host target."""
+        dialog = ctk.CTkInputDialog(text="Enter new group name:", title="New Group")
+        group_name = dialog.get_input()
+        if group_name and group_name.strip():
+            new_group_id = self.db.add_group(group_name.strip())
+            self._move_target_hosts_to_group(target_ids, new_group_id)
 
     def _on_tree_click(self, event):
         item_id = self.tree.identify_row(event.y)
@@ -563,11 +668,15 @@ class HostsView(ctk.CTkFrame):
         self._update_run_button_text()
 
     def _toggle_check_all(self):
-        is_chk = self.chk_all_var.get()
+        if not self._current_filtered_hosts:
+            return
+        all_chk = all(h["id"] in self.selected_host_ids for h in self._current_filtered_hosts)
+        should_check = not all_chk
+
         for h in self._current_filtered_hosts:
             h_id = h["id"]
             str_id = str(h_id)
-            if is_chk:
+            if should_check:
                 self.selected_host_ids.add(h_id)
                 chk_str = "[✓]"
             else:
@@ -579,35 +688,126 @@ class HostsView(ctk.CTkFrame):
                     vals[0] = chk_str
                     self.tree.item(str_id, values=vals)
 
+        self._sync_check_all_state()
         self._update_run_button_text()
 
     def _sync_check_all_state(self):
         if self._current_filtered_hosts:
             all_chk = all(h["id"] in self.selected_host_ids for h in self._current_filtered_hosts)
-            self.chk_all_var.set(all_chk)
+            chk_icon = "[✓]" if all_chk else "[ ]"
         else:
-            self.chk_all_var.set(False)
+            chk_icon = "[ ]"
+        self.tree.heading("chk", text=chk_icon)
 
     def _update_run_button_text(self):
         count = len([h["id"] for h in self._current_filtered_hosts if h["id"] in self.selected_host_ids])
         selected_filter = self.filter_group_opt.get()
         if count > 0:
-            self.btn_run_all.configure(text=f"⚡ Pull Selected ({count})")
+            self.btn_run_all.configure(text=f" Pull Selected ({count})", image=get_icon("zap", (14, 14), "#FFFFFF"))
         else:
             if selected_filter == "All Groups":
-                self.btn_run_all.configure(text="⚡ Run All")
+                self.btn_run_all.configure(text=" Run All", image=get_icon("zap", (14, 14), "#FFFFFF"))
             else:
-                self.btn_run_all.configure(text=f"⚡ Run All ({selected_filter})")
+                self.btn_run_all.configure(text=f" Run All ({selected_filter})", image=get_icon("zap", (14, 14), "#FFFFFF"))
 
     def _on_tree_select_change(self, event=None):
         sel = self.tree.selection()
         has_sel = bool(sel)
-        st = "normal" if has_sel else "disabled"
-        self.btn_action_pull.configure(state=st)
-        self.btn_action_test.configure(state=st)
-        self.btn_action_term.configure(state=st)
-        self.btn_action_edit.configure(state=st)
-        self.btn_action_del.configure(state=st)
+
+        if has_sel:
+            self.btn_action_pull.configure(
+                state="normal",
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+                text_color="#FFFFFF",
+                border_width=0,
+                image=get_icon("play", (13, 13), "#FFFFFF")
+            )
+            self.btn_action_test.configure(
+                state="normal",
+                fg_color=COLORS["surface"],
+                hover_color=COLORS["surface_hover"],
+                text_color=COLORS["text"],
+                border_width=1,
+                border_color=COLORS["line"],
+                image=get_icon("activity", (13, 13), COLORS["accent_text"])
+            )
+            self.btn_action_term.configure(
+                state="normal",
+                fg_color=COLORS["surface"],
+                hover_color=COLORS["surface_hover"],
+                text_color=COLORS["text_secondary"],
+                border_width=1,
+                border_color=COLORS["line"],
+                image=get_icon("terminal", (13, 13), COLORS["text_secondary"])
+            )
+            edit_text = f" Bulk Edit ({len(self.selected_host_ids)})" if len(self.selected_host_ids) > 1 else " Edit"
+            self.btn_action_edit.configure(
+                text=edit_text,
+                state="normal",
+                fg_color=COLORS["surface"],
+                hover_color=COLORS["surface_hover"],
+                text_color=COLORS["text_secondary"],
+                border_width=1,
+                border_color=COLORS["line"],
+                image=get_icon("pencil", (13, 13), COLORS["text_secondary"])
+            )
+            self.btn_action_del.configure(
+                state="normal",
+                fg_color=COLORS["danger_subtle"],
+                hover_color=COLORS["danger_hover"],
+                text_color=COLORS["danger_text"],
+                border_width=1,
+                border_color=COLORS["danger_border"],
+                image=get_icon("trash", (13, 13), COLORS["danger_text"])
+            )
+            if hasattr(self, "lbl_selected_hint"):
+                h = self._get_selected_host()
+                name = h.get("label", "") if h else ""
+                self.lbl_selected_hint.configure(text=f"Server: {name}" if name else "")
+        else:
+            self.btn_action_pull.configure(
+                state="disabled",
+                fg_color=COLORS["surface"],
+                border_width=1,
+                border_color=COLORS["line"],
+                text_color_disabled=COLORS["subtle"],
+                image=get_icon("play", (13, 13), COLORS["subtle"])
+            )
+            self.btn_action_test.configure(
+                state="disabled",
+                fg_color=COLORS["surface"],
+                border_width=1,
+                border_color=COLORS["line"],
+                text_color_disabled=COLORS["subtle"],
+                image=get_icon("activity", (13, 13), COLORS["subtle"])
+            )
+            self.btn_action_term.configure(
+                state="disabled",
+                fg_color=COLORS["surface"],
+                border_width=1,
+                border_color=COLORS["line"],
+                text_color_disabled=COLORS["subtle"],
+                image=get_icon("terminal", (13, 13), COLORS["subtle"])
+            )
+            self.btn_action_edit.configure(
+                state="disabled",
+                fg_color=COLORS["surface"],
+                border_width=1,
+                border_color=COLORS["line"],
+                text_color_disabled=COLORS["subtle"],
+                image=get_icon("pencil", (13, 13), COLORS["subtle"])
+            )
+            self.btn_action_del.configure(
+                state="disabled",
+                fg_color=COLORS["surface"],
+                border_width=1,
+                border_color=COLORS["line"],
+                text_color_disabled=COLORS["subtle"],
+                image=get_icon("trash", (13, 13), COLORS["subtle"])
+            )
+            if hasattr(self, "lbl_selected_hint"):
+                self.lbl_selected_hint.configure(text="Pilih server pada tabel untuk aksi single")
 
     def _update_tree_status(self, host_id: int, text: str):
         str_id = str(host_id)
@@ -645,9 +845,24 @@ class HostsView(ctk.CTkFrame):
             self._open_manual_terminal(host)
 
     def _edit_selected_host(self):
+        checked_ids = list(self.selected_host_ids)
+        if len(checked_ids) > 1:
+            self._open_bulk_edit_dialog(checked_ids)
+            return
         host = self._get_selected_host()
         if host:
             self._edit_host_dialog(host)
+
+    def _open_bulk_edit_dialog(self, host_ids: List[int]):
+        """Buka dialog bulk edit untuk daftar host_ids yang dipilih."""
+        if not host_ids:
+            return
+        BulkHostDialog(
+            parent=self.app,
+            db_manager=self.db,
+            host_ids=host_ids,
+            on_save_callback=self._refresh_and_notify
+        )
 
     def _delete_selected_host(self):
         host = self._get_selected_host()

@@ -1,13 +1,18 @@
+from datetime import datetime
 import os
 import sys
+import threading
+from tkinter import messagebox
+import webbrowser
 
 os.environ['TK_SILENCE_DEPRECATION'] = '1'
 
 import customtkinter as ctk
 from PIL import ImageTk, Image
 
-from theme import APP_VERSION, application_data_path, resource_path
+from theme import APP_VERSION, COLORS, application_data_path, resource_path
 from database import DatabaseManager
+from update_service import check_for_update, UpdateCheckResult
 from ui.db_blast_view import DBBlastView
 from ui.git_credential_dialog import GitCredentialDialog
 from ui.hosts_view import HostsView
@@ -19,7 +24,7 @@ ctk.set_default_color_theme("dark-blue")
 
 class PullmanApp(ctk.CTk):
     def __init__(self):
-        super().__init__()
+        super().__init__(fg_color=COLORS["window"])
 
         data_path = application_data_path()
         self.db = DatabaseManager(
@@ -52,6 +57,51 @@ class PullmanApp(ctk.CTk):
         self.db_blast_frame = None
 
         self._show_hosts_view()
+
+        # Mulai auto check update harian di background setelah startup
+        self.after(3000, self._start_background_update_checker)
+
+    def _start_background_update_checker(self):
+        """Memulai pengecekan update otomatis di background secara berkala (1x sehari)."""
+        self._check_update_daily_background()
+        # Periksa ulang setiap 1 jam untuk mengecek apakah sudah saatnya cek harian (>= 24 jam)
+        self.after(3600 * 1000, self._start_background_update_checker)
+
+    def _check_update_daily_background(self):
+        """Cek update terbaru di GitHub jika belum pernah dicek dalam 24 jam terakhir."""
+        last_check_str = self.db.get_setting("last_update_check")
+        if last_check_str:
+            try:
+                last_check_dt = datetime.fromisoformat(last_check_str)
+                # Jika belum 24 jam (86400 detik), lewati
+                if (datetime.now() - last_check_dt).total_seconds() < 86400:
+                    return
+            except Exception:
+                pass
+
+        def worker():
+            try:
+                result = check_for_update(APP_VERSION, timeout=10)
+                self.db.set_setting("last_update_check", datetime.now().isoformat())
+                if result.update_available:
+                    self.after(0, lambda: self._on_update_available_background(result))
+            except Exception:
+                # Diamkan kegagalan koneksi di background check agar tidak mengganggu user
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_update_available_background(self, result: UpdateCheckResult):
+        """Tampilkan notifikasi dan badge update saat versi baru terdeteksi di background."""
+        self.sidebar.show_update_badge(result.latest_version)
+        should_open = messagebox.askyesno(
+            "Update Tersedia",
+            f"Versi baru DO.MBA Pull Manager (v{result.latest_version}) telah tersedia!\n"
+            f"Versi yang Anda gunakan saat ini: v{APP_VERSION}\n\n"
+            "Apakah Anda ingin membuka halaman unduhan sekarang?"
+        )
+        if should_open:
+            webbrowser.open(result.release_url)
 
     def _notify_db_blast_changed(self):
         if getattr(self, "db_blast_frame", None) is not None:

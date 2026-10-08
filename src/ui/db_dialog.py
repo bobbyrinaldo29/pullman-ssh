@@ -2,6 +2,7 @@ import customtkinter as ctk
 from tkinter import messagebox
 from typing import Optional, Callable, Dict, Any
 import threading
+from theme import COLORS
 from db_executor import run_db_query
 
 
@@ -18,7 +19,7 @@ class DBConnectionDialog(ctk.CTkToplevel):
         connection_data: Optional[Dict[str, Any]] = None,
         on_save_callback: Optional[Callable[[], None]] = None
     ):
-        super().__init__(parent)
+        super().__init__(parent, fg_color=COLORS["window"])
 
         self.db = db_manager
         self.conn_data = connection_data
@@ -61,11 +62,11 @@ class DBConnectionDialog(ctk.CTkToplevel):
 
     def _setup_ui(self):
         # 1. FIXED BOTTOM ACTION BAR (Selalu berada di bagian bawah dan selalu terlihat)
-        bottom_bar = ctk.CTkFrame(self, fg_color="#18191D", corner_radius=0, border_width=1, border_color="#32343B")
+        bottom_bar = ctk.CTkFrame(self, fg_color=COLORS["surface"], corner_radius=0, border_width=1, border_color=COLORS["line"])
         bottom_bar.pack(side="bottom", fill="x", padx=0, pady=0)
 
         # Baris error label
-        self.lbl_error = ctk.CTkLabel(bottom_bar, text="", text_color="#FF453A", font=ctk.CTkFont(size=11))
+        self.lbl_error = ctk.CTkLabel(bottom_bar, text="", text_color=COLORS["danger"], font=ctk.CTkFont(size=11))
         self.lbl_error.pack(anchor="w", padx=20, pady=(6, 2))
 
         btn_container = ctk.CTkFrame(bottom_bar, fg_color="transparent")
@@ -75,11 +76,11 @@ class DBConnectionDialog(ctk.CTkToplevel):
             btn_container,
             text="⚡ Test Connection",
             height=34,
-            fg_color="#18283E",
-            hover_color="#223B5D",
-            text_color="#60A5FA",
+            fg_color=COLORS["accent_subtle"],
+            hover_color="#263750",
+            text_color=COLORS["accent_text"],
             border_width=1,
-            border_color="#254A78",
+            border_color=COLORS["accent_border"],
             font=ctk.CTkFont(size=12, weight="bold"),
             command=self._test_connection
         )
@@ -89,8 +90,9 @@ class DBConnectionDialog(ctk.CTkToplevel):
             btn_container,
             text="Save Connection",
             height=34,
-            fg_color="#0A84FF",
-            hover_color="#0072E5",
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color="#FFFFFF",
             font=ctk.CTkFont(size=12, weight="bold"),
             command=self._save_connection
         )
@@ -100,11 +102,11 @@ class DBConnectionDialog(ctk.CTkToplevel):
             btn_container,
             text="Cancel",
             height=34,
-            fg_color="transparent",
+            fg_color=COLORS["surface"],
             border_width=1,
-            border_color="#32343B",
-            text_color="gray80",
-            hover_color="#2A2C33",
+            border_color=COLORS["line"],
+            text_color=COLORS["text_secondary"],
+            hover_color=COLORS["surface_hover"],
             command=self.destroy
         )
         btn_cancel.pack(side="right")
@@ -114,7 +116,7 @@ class DBConnectionDialog(ctk.CTkToplevel):
         top_header.pack(side="top", fill="x", padx=20, pady=(16, 6))
 
         title_text = "Edit Database Connection" if self.conn_data else "New Database Connection"
-        lbl_title = ctk.CTkLabel(top_header, text=title_text, font=ctk.CTkFont(size=18, weight="bold"))
+        lbl_title = ctk.CTkLabel(top_header, text=title_text, text_color=COLORS["text"], font=ctk.CTkFont(size=18, weight="bold"))
         lbl_title.pack(anchor="w")
 
         # 3. SCROLLABLE FORM BODY (Mengisi sisa ruang secara fleksibel)

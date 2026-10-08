@@ -7,6 +7,7 @@ from tkinter import messagebox
 from PIL import Image
 
 from theme import APP_VERSION, COLORS, resource_path
+from icons import get_icon
 from update_service import check_for_update
 
 
@@ -53,74 +54,136 @@ class Sidebar(ctk.CTkFrame):
 
     @staticmethod
     def _build_brand_fallback(brand):
-        ctk.CTkLabel(brand, text="D", width=35, height=35, corner_radius=9, fg_color=COLORS["accent"], font=ctk.CTkFont(size=15, weight="bold")).pack(side="left", padx=(0, 9))
+        ctk.CTkLabel(brand, text="D", width=35, height=35, corner_radius=9, fg_color=COLORS["accent"], text_color="#FFFFFF", font=ctk.CTkFont(size=15, weight="bold")).pack(side="left", padx=(0, 9))
 
     def _build_nav(self, on_show_hosts: Callable[[], None], on_show_db_blast: Callable[[], None], on_git_credential: Callable[[], None]):
         self.btn_hosts = ctk.CTkButton(
-            self, text="Pull Blast", anchor="w",
-            height=38, corner_radius=9, fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"], text_color=COLORS["text"],
+            self,
+            text=" Pull Blast",
+            image=get_icon("rocket", (16, 16), "#FFFFFF"),
+            compound="left",
+            anchor="w",
+            height=38,
+            corner_radius=9,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(size=13, weight="bold"),
             command=on_show_hosts
         )
-        self.btn_hosts.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
+        self.btn_hosts.grid(row=1, column=0, padx=10, pady=4, sticky="ew")
 
         self.btn_db_blast = ctk.CTkButton(
-            self, text="DB Blast", anchor="w",
-            height=38, corner_radius=9, fg_color="transparent", hover_color=COLORS["surface_hover"], text_color=COLORS["text"],
+            self,
+            text=" DB Blast",
+            image=get_icon("database", (16, 16), COLORS["text_secondary"]),
+            compound="left",
+            anchor="w",
+            height=38,
+            corner_radius=9,
+            fg_color="transparent",
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text_secondary"],
+            font=ctk.CTkFont(size=13),
             command=on_show_db_blast
         )
-        self.btn_db_blast.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
+        self.btn_db_blast.grid(row=2, column=0, padx=10, pady=4, sticky="ew")
 
         btn_git_credential = ctk.CTkButton(
-            self, text="⌘  Git Credential", anchor="w",
-            height=34, corner_radius=8, fg_color="transparent", hover_color=COLORS["surface_hover"],
+            self,
+            text=" Git Credential",
+            image=get_icon("key", (15, 15), COLORS["text_secondary"]),
+            compound="left",
+            anchor="w",
+            height=34,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text_secondary"],
+            font=ctk.CTkFont(size=12),
             command=on_git_credential
         )
-        btn_git_credential.grid(row=3, column=0, padx=10, pady=5, sticky="ew")
+        btn_git_credential.grid(row=3, column=0, padx=10, pady=4, sticky="ew")
 
         # Spacer keeps data actions aligned with the lower edge of the window.
         ctk.CTkLabel(self, text="").grid(row=4, column=0)
-        ctk.CTkLabel(self, text="DATA", text_color=COLORS["muted"], font=ctk.CTkFont(size=10, weight="bold")).grid(row=5, column=0, padx=20, pady=(0, 5), sticky="w")
+        ctk.CTkLabel(self, text="DATA & TOOLS", text_color=COLORS["subtle"], font=ctk.CTkFont(size=10, weight="bold")).grid(row=5, column=0, padx=18, pady=(0, 4), sticky="w")
 
     def _build_data_actions(self, on_import: Callable[[], None], on_export: Callable[[], None]):
         btn_import = ctk.CTkButton(
             self,
-            text="⬇  Import",
-            height=34, corner_radius=8, fg_color="transparent", hover_color=COLORS["surface_hover"],
+            text=" Import",
+            image=get_icon("download", (15, 15), COLORS["text_secondary"]),
+            compound="left",
+            height=34,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text_secondary"],
+            font=ctk.CTkFont(size=12),
             anchor="w",
             command=on_import
         )
-        btn_import.grid(row=6, column=0, padx=10, pady=5, sticky="ew")
+        btn_import.grid(row=6, column=0, padx=10, pady=3, sticky="ew")
 
         btn_export = ctk.CTkButton(
             self,
-            text="⬆  Export",
-            height=34, corner_radius=8, fg_color="transparent", hover_color=COLORS["surface_hover"],
+            text=" Export",
+            image=get_icon("upload", (15, 15), COLORS["text_secondary"]),
+            compound="left",
+            height=34,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text_secondary"],
+            font=ctk.CTkFont(size=12),
             anchor="w",
             command=on_export
         )
-        btn_export.grid(row=7, column=0, padx=10, pady=(5, 10), sticky="ew")
+        btn_export.grid(row=7, column=0, padx=10, pady=3, sticky="ew")
 
         self.btn_update = ctk.CTkButton(
             self,
-            text="↻  Check for Updates",
-            height=34, corner_radius=8, fg_color="transparent", hover_color=COLORS["surface_hover"],
-            anchor="w", command=self._check_for_updates
+            text=" Check for Updates",
+            image=get_icon("refresh-cw", (14, 14), COLORS["muted"]),
+            compound="left",
+            height=34,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["muted"],
+            font=ctk.CTkFont(size=11),
+            anchor="w",
+            command=self._check_for_updates
         )
-        self.btn_update.grid(row=8, column=0, padx=10, pady=(0, 10), sticky="ew")
+        self.btn_update.grid(row=8, column=0, padx=10, pady=(6, 10), sticky="ew")
 
     def _build_footer(self):
         footer_label = ctk.CTkLabel(
             self,
-            text="Vibe Code \n By DO.MBA Devs",
+            text="Vibe Code • DO.MBA Devs",
             font=ctk.CTkFont(size=10),
-            text_color=COLORS["muted"]
+            text_color=COLORS["subtle"]
         )
-        footer_label.grid(row=9, column=0, padx=10, pady=(0, 12), sticky="ew")
+        footer_label.grid(row=9, column=0, padx=10, pady=(0, 14), sticky="ew")
 
     def set_active(self, view_name: str):
         """Reset semua tombol nav ke transparan, lalu aktifkan yang dipilih."""
-        self.btn_hosts.configure(fg_color=COLORS["accent"] if view_name == "hosts" else "transparent")
-        self.btn_db_blast.configure(fg_color=COLORS["accent"] if view_name == "db_blast" else "transparent")
+        is_hosts = (view_name == "hosts")
+        self.btn_hosts.configure(
+            fg_color=COLORS["accent"] if is_hosts else "transparent",
+            hover_color=COLORS["accent_hover"] if is_hosts else COLORS["surface_hover"],
+            text_color="#FFFFFF" if is_hosts else COLORS["text_secondary"],
+            image=get_icon("rocket", (16, 16), "#FFFFFF" if is_hosts else COLORS["text_secondary"]),
+            font=ctk.CTkFont(size=13, weight="bold" if is_hosts else "normal")
+        )
+        self.btn_db_blast.configure(
+            fg_color=COLORS["accent"] if not is_hosts else "transparent",
+            hover_color=COLORS["accent_hover"] if not is_hosts else COLORS["surface_hover"],
+            text_color="#FFFFFF" if not is_hosts else COLORS["text_secondary"],
+            image=get_icon("database", (16, 16), "#FFFFFF" if not is_hosts else COLORS["text_secondary"]),
+            font=ctk.CTkFont(size=13, weight="bold" if not is_hosts else "normal")
+        )
 
     def _check_for_updates(self):
         """Check GitHub Releases in a worker thread so the UI remains responsive."""
@@ -135,8 +198,28 @@ class Sidebar(ctk.CTkFrame):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def show_update_badge(self, version: str):
+        """Ubah tampilan tombol update di sidebar agar memberi sinyal visual jelas bahwa ada versi baru."""
+        self.btn_update.configure(
+            text=f" Update {version} Tersedia!",
+            text_color=COLORS["accent_text"],
+            image=get_icon("sparkles", (14, 14), COLORS["accent_text"]),
+            fg_color=COLORS["surface"],
+            border_width=1,
+            border_color=COLORS["line"],
+            font=ctk.CTkFont(size=11, weight="bold")
+        )
+
     def _restore_update_button(self):
-        self.btn_update.configure(state="normal", text="↻  Check for Updates")
+        self.btn_update.configure(
+            state="normal",
+            text=" Check for Updates",
+            text_color=COLORS["muted"],
+            image=get_icon("refresh-cw", (14, 14), COLORS["muted"]),
+            fg_color="transparent",
+            border_width=0,
+            font=ctk.CTkFont(size=11)
+        )
 
     def _show_update_result(self, result):
         self._restore_update_button()
@@ -147,6 +230,7 @@ class Sidebar(ctk.CTkFrame):
             )
             return
 
+        self.show_update_badge(result.latest_version)
         should_open = messagebox.askyesno(
             "Update Available",
             f"Versi baru {result.latest_version} tersedia.\n"
