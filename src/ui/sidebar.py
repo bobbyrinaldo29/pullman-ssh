@@ -1,6 +1,6 @@
 import threading
 import webbrowser
-from typing import Callable
+from typing import Callable, Optional
 
 import customtkinter as ctk
 from tkinter import messagebox
@@ -20,9 +20,11 @@ class Sidebar(ctk.CTkFrame):
         on_git_credential: Callable[[], None],
         on_import: Callable[[], None],
         on_export: Callable[[], None],
+        on_toggle_theme: Optional[Callable[[], None]] = None,
     ):
         super().__init__(parent, width=224, corner_radius=0, fg_color=COLORS["sidebar"])
 
+        self._on_toggle_theme = on_toggle_theme
         self.grid_rowconfigure(4, weight=1)  # row 4 = spacer
         self.grid_columnconfigure(0, weight=1)
 
@@ -142,6 +144,23 @@ class Sidebar(ctk.CTkFrame):
         )
         btn_export.grid(row=7, column=0, padx=10, pady=3, sticky="ew")
 
+        # Tombol Toggle Theme (Light Mode / Dark Mode)
+        self.btn_theme = ctk.CTkButton(
+            self,
+            text=" Light Mode" if ctk.get_appearance_mode() == "Dark" else " Dark Mode",
+            image=get_icon("sun" if ctk.get_appearance_mode() == "Dark" else "moon", (14, 14), COLORS["text_secondary"]),
+            compound="left",
+            height=34,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text_secondary"],
+            font=ctk.CTkFont(size=12),
+            anchor="w",
+            command=self._on_theme_toggle_clicked
+        )
+        self.btn_theme.grid(row=8, column=0, padx=10, pady=(4, 2), sticky="ew")
+
         self.btn_update = ctk.CTkButton(
             self,
             text=" Check for Updates",
@@ -156,7 +175,7 @@ class Sidebar(ctk.CTkFrame):
             anchor="w",
             command=self._check_for_updates
         )
-        self.btn_update.grid(row=8, column=0, padx=10, pady=(6, 10), sticky="ew")
+        self.btn_update.grid(row=9, column=0, padx=10, pady=(4, 10), sticky="ew")
 
     def _build_footer(self):
         footer_label = ctk.CTkLabel(
@@ -165,7 +184,19 @@ class Sidebar(ctk.CTkFrame):
             font=ctk.CTkFont(size=10),
             text_color=COLORS["subtle"]
         )
-        footer_label.grid(row=9, column=0, padx=10, pady=(0, 14), sticky="ew")
+        footer_label.grid(row=10, column=0, padx=10, pady=(0, 14), sticky="ew")
+
+    def _on_theme_toggle_clicked(self):
+        if self._on_toggle_theme:
+            self._on_toggle_theme()
+
+    def update_theme_state(self, mode: str):
+        """Update label dan icon tombol theme toggle saat mode berganti."""
+        is_dark = (mode.lower() == "dark")
+        self.btn_theme.configure(
+            text=" Light Mode" if is_dark else " Dark Mode",
+            image=get_icon("sun" if is_dark else "moon", (14, 14), COLORS["text_secondary"])
+        )
 
     def set_active(self, view_name: str):
         """Reset semua tombol nav ke transparan, lalu aktifkan yang dipilih."""

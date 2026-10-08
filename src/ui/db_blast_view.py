@@ -9,8 +9,8 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 import customtkinter as ctk
 
-from theme import COLORS
-from icons import get_icon
+from theme import COLORS, get_color, apply_treeview_styles
+from icons import get_icon, get_tk_image
 from db_executor import (
     export_connections_to_file,
     import_connections_from_file,
@@ -176,8 +176,8 @@ class DBBlastView(ctk.CTkFrame):
         search_box.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         search_box.grid_columnconfigure(1, weight=1)
 
-        lbl_icon = ctk.CTkLabel(search_box, text="", image=get_icon("search", (15, 15), COLORS["muted"]))
-        lbl_icon.grid(row=0, column=0, padx=(8, 4))
+        lbl_icon = ctk.CTkLabel(search_box, text="", image=get_icon("search", (14, 14), COLORS["muted"]))
+        lbl_icon.grid(row=0, column=0, padx=(8, 2), pady=(3, 3))
 
         self.search_var = ctk.StringVar()
         self.search_var.trace_add("write", self._on_search_changed)
@@ -185,10 +185,14 @@ class DBBlastView(ctk.CTkFrame):
             search_box,
             placeholder_text="Cari database / host...",
             textvariable=self.search_var,
-            height=32, corner_radius=8, border_width=0,
-            fg_color="transparent", text_color=COLORS["text"], placeholder_text_color=COLORS["muted"]
+            height=26,
+            corner_radius=6,
+            border_width=0,
+            fg_color=COLORS["input_bg"],
+            text_color=COLORS["text"],
+            placeholder_text_color=COLORS["muted"]
         )
-        self.ent_search.grid(row=0, column=1, sticky="ew")
+        self.ent_search.grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=(3, 3))
 
         # Row 2: Group Filter
         ctrl_row = ctk.CTkFrame(filter_bar, fg_color="transparent")
@@ -212,35 +216,12 @@ class DBBlastView(ctk.CTkFrame):
         self.opt_group.pack(side="right")
 
         # 3. Navicat Style High-Performance Connection Table Explorer (<10ms load)
-        table_container = tk.Frame(self.left_panel, bg=COLORS["input_bg"], highlightthickness=1, highlightbackground=COLORS["line"])
+        table_container = ctk.CTkFrame(self.left_panel, fg_color=COLORS["input_bg"], border_width=1, border_color=COLORS["line"], corner_radius=6)
         table_container.grid(row=2, column=0, sticky="nsew", padx=16, pady=(0, 8))
         table_container.grid_columnconfigure(0, weight=1)
         table_container.grid_rowconfigure(0, weight=1)
 
-        style = ttk.Style()
-        style.theme_use("default")
-        style.configure(
-            "Navicat.Treeview",
-            background=COLORS["input_bg"],
-            foreground=COLORS["text"],
-            fieldbackground=COLORS["input_bg"],
-            rowheight=28,
-            font=("Segoe UI", 9),
-            borderwidth=0
-        )
-        style.configure(
-            "Navicat.Treeview.Heading",
-            background=COLORS["surface"],
-            foreground=COLORS["muted"],
-            relief="flat",
-            font=("Segoe UI", 9, "bold"),
-            borderwidth=0
-        )
-        style.map(
-            "Navicat.Treeview",
-            background=[("selected", COLORS["accent"])],
-            foreground=[("selected", "#FFFFFF")]
-        )
+        apply_treeview_styles()
 
         self.tree = ttk.Treeview(
             table_container,
@@ -687,6 +668,12 @@ class DBBlastView(ctk.CTkFrame):
                 image=get_icon("file-text", (13, 13), COLORS["text_secondary"])
             )
 
+    def on_theme_changed(self, mode: str):
+        """Update Treeview styling, context menus, and theme-dependent items when appearance mode changes."""
+        apply_treeview_styles(mode)
+        self._create_tree_context_menu()
+        self._on_tree_select_change()
+
     # =========================================================================
     # CONTEXT MENU & SELECTION HANDLING
     # =========================================================================
@@ -694,9 +681,9 @@ class DBBlastView(ctk.CTkFrame):
         self.context_menu = tk.Menu(
             self,
             tearoff=0,
-            bg=COLORS["surface"],
-            fg=COLORS["text"],
-            activebackground=COLORS["accent"],
+            bg=get_color("surface"),
+            fg=get_color("text"),
+            activebackground=get_color("accent"),
             activeforeground="#FFFFFF",
             bd=1
         )
@@ -719,49 +706,82 @@ class DBBlastView(ctk.CTkFrame):
             target_ids = [clicked_id]
             label_suffix = ""
 
-        # Rebuild context menu dinamis
+        # Rebuild context menu dinamis dengan Lucide icons
         self.context_menu.delete(0, "end")
-        self.context_menu.add_command(label="⚡ Run Query on This DB", command=self._run_query_on_selected_row)
-        self.context_menu.add_command(label="🧪 Test Connection", command=self._test_selected_row)
+        self.context_menu.add_command(
+            label="  Run Query on This DB",
+            image=get_tk_image("play", (15, 15), COLORS["accent_text"]),
+            compound="left",
+            command=self._run_query_on_selected_row
+        )
+        self.context_menu.add_command(
+            label="  Test Connection",
+            image=get_tk_image("activity", (15, 15), COLORS["text"]),
+            compound="left",
+            command=self._test_selected_row
+        )
         self.context_menu.add_separator()
 
         # Submenu: Move to Group
         group_menu = tk.Menu(
             self.context_menu,
             tearoff=0,
-            bg=COLORS["surface"],
-            fg=COLORS["text"],
-            activebackground=COLORS["accent"],
+            bg=get_color("surface"),
+            fg=get_color("text"),
+            activebackground=get_color("accent"),
             activeforeground="#FFFFFF",
             bd=1
         )
         groups = self.db.get_groups()
         for g in groups:
             group_menu.add_command(
-                label=f"📁  {g['name']}",
+                label=f"  {g['name']}",
+                image=get_tk_image("folder", (14, 14), COLORS["text_secondary"]),
+                compound="left",
                 command=lambda gid=g["id"]: self._move_target_dbs_to_group(target_ids, gid)
             )
         if groups:
             group_menu.add_separator()
         group_menu.add_command(
-            label="🚫  (None / Default)",
+            label="  (None / Default)",
+            image=get_tk_image("x", (14, 14), COLORS["text_secondary"]),
+            compound="left",
             command=lambda: self._move_target_dbs_to_group(target_ids, None)
         )
         group_menu.add_command(
-            label="➕  Create New Group...",
+            label="  Create New Group...",
+            image=get_tk_image("plus", (14, 14), COLORS["accent_text"]),
+            compound="left",
             command=lambda: self._prompt_new_group_and_move(target_ids)
         )
 
-        self.context_menu.add_cascade(label=f"📁 Move to Group{label_suffix}", menu=group_menu)
+        self.context_menu.add_cascade(
+            label=f"  Move to Group{label_suffix}",
+            image=get_tk_image("folder", (15, 15), COLORS["text"]),
+            compound="left",
+            menu=group_menu
+        )
         self.context_menu.add_separator()
         if len(target_ids) > 1:
             self.context_menu.add_command(
-                label=f"✏️ Bulk Edit ({len(target_ids)} DBs)...",
+                label=f"  Bulk Edit ({len(target_ids)} DBs)...",
+                image=get_tk_image("pencil", (15, 15), COLORS["text"]),
+                compound="left",
                 command=lambda: self._open_bulk_edit_dialog(target_ids)
             )
         else:
-            self.context_menu.add_command(label="✏️ Edit Connection", command=self._edit_selected_row)
-        self.context_menu.add_command(label="🗑️ Delete Connection", command=self._delete_selected_row)
+            self.context_menu.add_command(
+                label="  Edit Connection",
+                image=get_tk_image("pencil", (15, 15), COLORS["text"]),
+                compound="left",
+                command=self._edit_selected_row
+            )
+        self.context_menu.add_command(
+            label="  Delete Connection",
+            image=get_tk_image("trash", (15, 15), COLORS["danger_text"]),
+            compound="left",
+            command=self._delete_selected_row
+        )
 
         try:
             self.context_menu.tk_popup(event.x_root, event.y_root)

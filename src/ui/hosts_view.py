@@ -11,8 +11,8 @@ from typing import Any, Callable, Dict, List, Optional, Set
 import customtkinter as ctk
 
 import pull_service
-from theme import COLORS
-from icons import get_icon
+from theme import COLORS, get_color, apply_treeview_styles
+from icons import get_icon, get_tk_image
 from ui.bulk_host_dialog import BulkHostDialog
 from ui.db_tool_import_dialog import DbToolImportDialog
 from ui.export_dialog import ExportDialog
@@ -212,12 +212,12 @@ class HostsView(ctk.CTkFrame):
         self.btn_run_all.grid(row=0, column=4, sticky="e", padx=(5, 0))
 
         # 2. SEARCH BAR
-        search_frame = ctk.CTkFrame(self, fg_color=COLORS["surface"], corner_radius=10, border_width=1, border_color=COLORS["line"])
+        search_frame = ctk.CTkFrame(self, fg_color=COLORS["surface"], corner_radius=8, border_width=1, border_color=COLORS["line"])
         search_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         search_frame.grid_columnconfigure(1, weight=1)
 
         lbl_search = ctk.CTkLabel(search_frame, text="", image=get_icon("search", (15, 15), COLORS["muted"]))
-        lbl_search.grid(row=0, column=0, padx=(12, 6))
+        lbl_search.grid(row=0, column=0, padx=(10, 4), pady=(3, 3))
 
         self.search_var = ctk.StringVar()
         self.search_var.trace_add("write", self._on_search_changed)
@@ -226,45 +226,22 @@ class HostsView(ctk.CTkFrame):
             search_frame,
             placeholder_text="Cari host berdasarkan nama, IP, username, branch, atau repo path...",
             textvariable=self.search_var,
-            height=36,
-            corner_radius=8,
+            height=28,
+            corner_radius=6,
             border_width=0,
-            fg_color="transparent",
+            fg_color=COLORS["surface"],
             text_color=COLORS["text"],
             placeholder_text_color=COLORS["muted"]
         )
-        self.search_entry.grid(row=0, column=1, sticky="ew", padx=(0, 10))
+        self.search_entry.grid(row=0, column=1, sticky="ew", padx=(0, 8), pady=(3, 3))
 
         # 3. HIGH-PERFORMANCE SERVERS TABLE (TTK TREEVIEW - SUB-5MS)
-        table_container = tk.Frame(self, bg=COLORS["input_bg"], highlightthickness=1, highlightbackground=COLORS["line"])
+        table_container = ctk.CTkFrame(self, fg_color=COLORS["input_bg"], border_width=1, border_color=COLORS["line"], corner_radius=6)
         table_container.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
         table_container.grid_columnconfigure(0, weight=1)
         table_container.grid_rowconfigure(0, weight=1)
 
-        style = ttk.Style()
-        style.theme_use("default")
-        style.configure(
-            "Pullman.Treeview",
-            background=COLORS["input_bg"],
-            foreground=COLORS["text"],
-            fieldbackground=COLORS["input_bg"],
-            rowheight=29,
-            font=("Segoe UI", 9),
-            borderwidth=0
-        )
-        style.configure(
-            "Pullman.Treeview.Heading",
-            background=COLORS["surface"],
-            foreground=COLORS["muted"],
-            relief="flat",
-            font=("Segoe UI", 9, "bold"),
-            borderwidth=0
-        )
-        style.map(
-            "Pullman.Treeview",
-            background=[("selected", COLORS["accent"])],
-            foreground=[("selected", "#FFFFFF")]
-        )
+        apply_treeview_styles()
 
         self.tree = ttk.Treeview(
             table_container,
@@ -534,6 +511,12 @@ class HostsView(ctk.CTkFrame):
         self._update_run_button_text()
         self._on_tree_select_change()
 
+    def on_theme_changed(self, mode: str):
+        """Update Treeview styling, context menus, and theme-dependent items when appearance mode changes."""
+        apply_treeview_styles(mode)
+        self._create_tree_context_menu()
+        self._on_tree_select_change()
+
     # ------------------------------------------------------------------
     # Context Menu & Selection
     # ------------------------------------------------------------------
@@ -542,9 +525,9 @@ class HostsView(ctk.CTkFrame):
         self.context_menu = tk.Menu(
             self,
             tearoff=0,
-            bg=COLORS["surface"],
-            fg=COLORS["text"],
-            activebackground=COLORS["accent"],
+            bg=get_color("surface"),
+            fg=get_color("text"),
+            activebackground=get_color("accent"),
             activeforeground="#FFFFFF",
             bd=1
         )
@@ -568,50 +551,88 @@ class HostsView(ctk.CTkFrame):
             target_ids = [clicked_id]
             label_suffix = ""
 
-        # Rebuild context menu dinamis
+        # Rebuild context menu dinamis dengan Lucide icons
         self.context_menu.delete(0, "end")
-        self.context_menu.add_command(label="⚡ Run Git Pull (Terminal)", command=self._run_single_host)
-        self.context_menu.add_command(label="🧪 Test SSH Connection", command=self._test_selected_host)
-        self.context_menu.add_command(label="💻 Open SSH Terminal (PuTTY/CMD)", command=self._terminal_selected_host)
+        self.context_menu.add_command(
+            label="  Run Git Pull (Terminal)",
+            image=get_tk_image("play", (15, 15), COLORS["accent_text"]),
+            compound="left",
+            command=self._run_single_host
+        )
+        self.context_menu.add_command(
+            label="  Test SSH Connection",
+            image=get_tk_image("activity", (15, 15), COLORS["text"]),
+            compound="left",
+            command=self._test_selected_host
+        )
+        self.context_menu.add_command(
+            label="  Open SSH Terminal (PuTTY/CMD)",
+            image=get_tk_image("terminal", (15, 15), COLORS["text_secondary"]),
+            compound="left",
+            command=self._terminal_selected_host
+        )
         self.context_menu.add_separator()
 
         # Submenu: Move to Group
         group_menu = tk.Menu(
             self.context_menu,
             tearoff=0,
-            bg=COLORS["surface"],
-            fg=COLORS["text"],
-            activebackground=COLORS["accent"],
+            bg=get_color("surface"),
+            fg=get_color("text"),
+            activebackground=get_color("accent"),
             activeforeground="#FFFFFF",
             bd=1
         )
         groups = self.db.get_groups()
         for g in groups:
             group_menu.add_command(
-                label=f"📁  {g['name']}",
+                label=f"  {g['name']}",
+                image=get_tk_image("folder", (14, 14), COLORS["text_secondary"]),
+                compound="left",
                 command=lambda gid=g["id"]: self._move_target_hosts_to_group(target_ids, gid)
             )
         if groups:
             group_menu.add_separator()
         group_menu.add_command(
-            label="🚫  (None / Default)",
+            label="  (None / Default)",
+            image=get_tk_image("x", (14, 14), COLORS["text_secondary"]),
+            compound="left",
             command=lambda: self._move_target_hosts_to_group(target_ids, None)
         )
         group_menu.add_command(
-            label="➕  Create New Group...",
+            label="  Create New Group...",
+            image=get_tk_image("plus", (14, 14), COLORS["accent_text"]),
+            compound="left",
             command=lambda: self._prompt_new_group_and_move(target_ids)
         )
 
-        self.context_menu.add_cascade(label=f"📁 Move to Group{label_suffix}", menu=group_menu)
+        self.context_menu.add_cascade(
+            label=f"  Move to Group{label_suffix}",
+            image=get_tk_image("folder", (15, 15), COLORS["text"]),
+            compound="left",
+            menu=group_menu
+        )
         self.context_menu.add_separator()
         if len(target_ids) > 1:
             self.context_menu.add_command(
-                label=f"✏️ Bulk Edit ({len(target_ids)} Hosts)...",
+                label=f"  Bulk Edit ({len(target_ids)} Hosts)...",
+                image=get_tk_image("pencil", (15, 15), COLORS["text"]),
+                compound="left",
                 command=lambda: self._open_bulk_edit_dialog(target_ids)
             )
         else:
-            self.context_menu.add_command(label="✏️ Edit Host", command=self._edit_selected_host)
-        self.context_menu.add_command(label="🗑️ Delete Host", command=self._delete_selected_host)
+            self.context_menu.add_command(
+                label="  Edit Host",
+                image=get_tk_image("pencil", (15, 15), COLORS["text"]),
+                compound="left",
+                command=self._edit_selected_host
+            )
+        self.context_menu.add_command(
+            label="  Delete Host",
+            image=get_tk_image("trash", (15, 15), COLORS["danger_text"]),
+            compound="left",
+            command=self._delete_selected_host
+        )
 
         try:
             self.context_menu.tk_popup(event.x_root, event.y_root)

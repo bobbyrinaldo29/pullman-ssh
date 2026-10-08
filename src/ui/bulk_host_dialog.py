@@ -97,7 +97,7 @@ class BulkHostDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             top_header,
-            text=f"✏️ Bulk Edit ({len(self.host_ids)} Hosts)",
+            text=f"Bulk Edit ({len(self.host_ids)} Hosts)",
             text_color=COLORS["text"],
             font=ctk.CTkFont(size=18, weight="bold")
         ).pack(anchor="w")

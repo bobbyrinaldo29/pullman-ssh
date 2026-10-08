@@ -10,7 +10,7 @@ os.environ['TK_SILENCE_DEPRECATION'] = '1'
 import customtkinter as ctk
 from PIL import ImageTk, Image
 
-from theme import APP_VERSION, COLORS, application_data_path, resource_path
+from theme import APP_VERSION, COLORS, application_data_path, resource_path, apply_treeview_styles
 from database import DatabaseManager
 from update_service import check_for_update, UpdateCheckResult
 from ui.db_blast_view import DBBlastView
@@ -18,19 +18,24 @@ from ui.git_credential_dialog import GitCredentialDialog
 from ui.hosts_view import HostsView
 from ui.sidebar import Sidebar
 
-ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("dark-blue")
-
 
 class PullmanApp(ctk.CTk):
     def __init__(self):
+        # 1. Initialize Root Window first to ensure single Tk interpreter
         super().__init__(fg_color=COLORS["window"])
 
+        # 2. Database & Key Storage
         data_path = application_data_path()
         self.db = DatabaseManager(
             str(data_path / "pullManager.db"),
             str(data_path / ".master.key")
         )
+
+        # 3. Muat preferensi tema (Default: Dark)
+        saved_theme = self.db.get_setting("appearance_mode", "Dark")
+        ctk.set_appearance_mode(saved_theme)
+        ctk.set_default_color_theme("dark-blue")
+        apply_treeview_styles(saved_theme)
 
         self.title(f"DO.MBA - Pull Manager v{APP_VERSION}")
         self.geometry("1080x680")
@@ -48,6 +53,7 @@ class PullmanApp(ctk.CTk):
             on_git_credential=self._open_git_credential_dialog,
             on_import=lambda: self.hosts_view.open_import_dialog(),
             on_export=lambda: self.hosts_view.open_export_dialog(),
+            on_toggle_theme=self._toggle_appearance_mode,
         )
         self.sidebar.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
 
@@ -60,6 +66,19 @@ class PullmanApp(ctk.CTk):
 
         # Mulai auto check update harian di background setelah startup
         self.after(3000, self._start_background_update_checker)
+
+    def _toggle_appearance_mode(self):
+        """Beralih antara Dark Mode dan Light Mode secara dinamis."""
+        current = ctk.get_appearance_mode()
+        new_mode = "Light" if current.lower() == "dark" else "Dark"
+        ctk.set_appearance_mode(new_mode)
+        self.db.set_setting("appearance_mode", new_mode)
+        apply_treeview_styles(new_mode)
+        self.sidebar.update_theme_state(new_mode)
+        if hasattr(self, "hosts_view") and self.hosts_view:
+            self.hosts_view.on_theme_changed(new_mode)
+        if getattr(self, "db_blast_frame", None):
+            self.db_blast_frame.on_theme_changed(new_mode)
 
     def _start_background_update_checker(self):
         """Memulai pengecekan update otomatis di background secara berkala (1x sehari)."""
@@ -125,6 +144,8 @@ class PullmanApp(ctk.CTk):
         try:
             ico_file = resource_path("assets/app_icon.ico")
             png_file = resource_path("assets/icon_512x512.png")
+            if not png_file.exists():
+                png_file = resource_path("src/assets/icon_512x512.png")
 
             if png_file.exists():
                 pil_image = Image.open(png_file)
@@ -133,9 +154,6 @@ class PullmanApp(ctk.CTk):
 
             if sys.platform == "win32" and ico_file.exists():
                 self.iconbitmap(default=str(ico_file))
-            elif sys.platform == "darwin" and png_file.exists():
-                app_icon = ImageTk.PhotoImage(Image.open(png_file))
-                self.iconphoto(True, app_icon)
         except Exception as e:
             print(f"Gagal memuat ikon aplikasi: {e}")
 
