@@ -3,6 +3,7 @@ import os
 import sys
 import threading
 from tkinter import messagebox
+from typing import Optional
 import webbrowser
 
 os.environ['TK_SILENCE_DEPRECATION'] = '1'
