@@ -18,6 +18,7 @@ from theme import COLORS, get_color
 from icons import get_icon
 from redmine_markup import MarkupRenderer
 from redmine_service import RedmineClient, RedmineError
+from ui.redmine_edit_task_dialog import RedmineEditTaskDialog
 
 FIELD_LABELS = {
     "status_id": "Status",
@@ -87,6 +88,7 @@ class RedmineIssuePanel(ctk.CTkFrame):
         lookups: Dict[str, Dict[str, str]],
         on_loaded: Optional[Callable[[int, Dict[str, Any]], None]] = None,
         on_open_issue: Optional[Callable[[int], None]] = None,
+        on_status_changed: Optional[Callable[[int], None]] = None,
         text_format: str = "auto",
     ):
         super().__init__(parent, fg_color="transparent")
@@ -97,6 +99,7 @@ class RedmineIssuePanel(ctk.CTkFrame):
         self.issue: Dict[str, Any] = {}
         self._on_loaded = on_loaded
         self._on_open_issue = on_open_issue
+        self._on_status_changed = on_status_changed
         self._is_loading = False
 
         # Gambar: cache bytes per URL agar refresh tidak mengunduh ulang
@@ -131,15 +134,24 @@ class RedmineIssuePanel(ctk.CTkFrame):
 
         buttons = ctk.CTkFrame(header, fg_color="transparent")
         buttons.grid(row=0, column=1, rowspan=2, sticky="ne", padx=(10, 0))
+
+        self.btn_edit_task = ctk.CTkButton(
+            buttons, text=" Edit Task", image=get_icon("edit", (13, 13), "#FFFFFF"), compound="left",
+            width=110, height=32, corner_radius=8, fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            text_color="#FFFFFF", font=ctk.CTkFont(size=12, weight="bold"), command=self._open_edit_task_dialog
+        )
+        self.btn_edit_task.pack(side="left")
+
         self.btn_refresh = ctk.CTkButton(
             buttons, text="", image=get_icon("refresh-cw", (14, 14), COLORS["text"]), width=34, height=32,
             corner_radius=8, fg_color=COLORS["surface"], hover_color=COLORS["surface_hover"],
             border_width=1, border_color=COLORS["line"], command=self.refresh
         )
-        self.btn_refresh.pack(side="left")
+        self.btn_refresh.pack(side="left", padx=(6, 0))
+
         ctk.CTkButton(
             buttons, text=" Buka di Browser", image=get_icon("external-link", (14, 14), COLORS["text"]), compound="left",
-            width=140, height=32, corner_radius=8, fg_color=COLORS["surface"], hover_color=COLORS["surface_hover"],
+            width=135, height=32, corner_radius=8, fg_color=COLORS["surface"], hover_color=COLORS["surface_hover"],
             text_color=COLORS["text"], border_width=1, border_color=COLORS["line"], font=ctk.CTkFont(size=12),
             command=self.open_in_browser
         ).pack(side="left", padx=(6, 0))
@@ -226,6 +238,28 @@ class RedmineIssuePanel(ctk.CTkFrame):
         self._is_loading = False
         self.btn_refresh.configure(state="normal")
         self.lbl_meta.configure(text=f"Gagal memuat task: {message}", text_color=COLORS["danger"])
+
+    def _open_edit_task_dialog(self):
+        if not self.issue:
+            return
+        status_lookup = self.lookups.get("status_id", {})
+        status_ids = {name: int(sid) for sid, name in status_lookup.items() if str(sid).isdigit()}
+        priority_lookup = self.lookups.get("priority_id", {})
+        priority_ids = {name: int(pid) for pid, name in priority_lookup.items() if str(pid).isdigit()}
+        RedmineEditTaskDialog(
+            parent=self.winfo_toplevel(),
+            client=self.client,
+            issue=self.issue,
+            lookups=self.lookups,
+            status_ids=status_ids,
+            priority_ids=priority_ids,
+            on_saved=self._on_task_saved,
+        )
+
+    def _on_task_saved(self):
+        self.refresh()
+        if self._on_status_changed:
+            self._on_status_changed(self.issue_id)
 
     def _on_loaded_issue(self, issue: Dict[str, Any]):
         if not self.winfo_exists():
@@ -467,7 +501,8 @@ class RedmineIssuePanel(ctk.CTkFrame):
                 self._image_cache.setdefault(url, data)
             folder = Path(tempfile.gettempdir()) / "domba-redmine"
             folder.mkdir(exist_ok=True)
-            path = folder / f"{self.issue_id}_{re.sub(r'[^\w.\-]+', '_', name)}"
+            safe_name = re.sub(r'[^\w.\-]+', '_', name)
+            path = folder / f"{self.issue_id}_{safe_name}"
             path.write_bytes(data)
             self.after(0, lambda: self._open_local_file(path))
 

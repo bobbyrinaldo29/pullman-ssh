@@ -293,21 +293,24 @@ class SFTPService:
                     async with sftp.open(tmp_path, 'wb') as f:
                         await f.write(data)
 
-                # 2. Pindahkan dengan sudo cp ke target path dan hapus file temp
+                # 2. Pindahkan dengan sudo cp ke target path
                 if password:
                     escaped_pass = password.replace("'", "'\\''")
-                    cmd = f"printf '%s\\n' '{escaped_pass}' | sudo -S -p '' cp -f '{tmp_path}' '{safe_target}' && printf '%s\\n' '{escaped_pass}' | sudo -S -p '' rm -f '{tmp_path}'"
+                    cmd = f"printf '%s\\n' '{escaped_pass}' | sudo -S -p '' cp -f '{tmp_path}' '{safe_target}'"
                 else:
-                    cmd = f"sudo -n cp -f '{tmp_path}' '{safe_target}' && sudo -n rm -f '{tmp_path}'"
+                    cmd = f"sudo -n cp -f '{tmp_path}' '{safe_target}'"
 
                 res = await conn.run(cmd, check=False)
+
+                # 3. Hapus file temp tanpa sudo (file dibuat dan dimiliki oleh user saat ini)
+                try:
+                    await conn.run(f"rm -f '{tmp_path}'", check=False)
+                except Exception:
+                    pass
+
                 if res.exit_status == 0:
                     return True, None
                 else:
-                    try:
-                        await conn.run(f"rm -f '{tmp_path}'", check=False)
-                    except Exception:
-                        pass
                     err_msg = (res.stderr or "").strip() or f"Sudo write failed (exit code {res.exit_status})"
                     return False, err_msg
         except Exception as e:

@@ -18,7 +18,7 @@ from ui.about_dialog import AboutDialog
 from ui.db_blast_view import DBBlastView
 from ui.git_credential_dialog import GitCredentialDialog
 from ui.hosts_view import HostsView
-from redmine_notifier import NotificationCenter, RedmineNotifier, format_change, notifications_enabled, notify_interval_minutes
+from redmine_notifier import NotificationCenter, RedmineNotifier, format_change, notifications_enabled, notify_interval_seconds
 from ui.redmine_view import RedmineView
 from ui.toast import ToastManager, flash_taskbar
 from ui.sftp_view import SFTPView
@@ -149,7 +149,7 @@ class PullmanApp(ctk.CTk):
         if self._redmine_poll_job is not None:
             self.after_cancel(self._redmine_poll_job)
         if delay_ms is None:
-            delay_ms = notify_interval_minutes(self.db) * 60 * 1000
+            delay_ms = notify_interval_seconds(self.db) * 1000
         self._redmine_poll_job = self.after(delay_ms, self._poll_redmine)
 
     def _poll_redmine(self):
@@ -192,11 +192,24 @@ class PullmanApp(ctk.CTk):
             self.redmine_frame.notify_issues_changed([c["issue_id"] for c in changes])
 
     def _open_redmine_from_notification(self, issue_id: Optional[int]):
-        self.deiconify()
-        self.lift()
-        self.focus_force()
+        try:
+            self.deiconify()
+            self.attributes("-topmost", True)
+            self.update_idletasks()
+            self.attributes("-topmost", False)
+            self.lift()
+            self.focus_force()
+            if sys.platform == "darwin":
+                import os
+                subprocess.run(
+                    ["osascript", "-e", f'tell application "System Events" to set frontmost of (first process whose unix id is {os.getpid()}) to true'],
+                    check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+        except Exception:
+            pass
+
         self._show_redmine_view()
-        if issue_id is not None:
+        if issue_id is not None and self.redmine_frame is not None:
             self.redmine_frame.open_issue_tab(issue_id)
         self.redmine_notifications.mark_all_read()
 

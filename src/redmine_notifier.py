@@ -15,19 +15,37 @@ MAX_SNAPSHOT = 3000
 # Batas issue yang detail journal-nya diambil per siklus, agar polling tetap ringan
 MAX_DETAIL_FETCH = 10
 
-DEFAULT_INTERVAL_MINUTES = 5
-INTERVAL_OPTIONS = {"1 menit": 1, "5 menit": 5, "10 menit": 10, "15 menit": 15, "30 menit": 30}
+DEFAULT_INTERVAL_SECONDS = 300
+INTERVAL_OPTIONS = {
+    "Realtime": 10,
+    "1 menit": 60,
+    "5 menit": 300,
+    "10 menit": 600,
+    "15 menit": 900,
+    "30 menit": 1800,
+}
 
 
 def notifications_enabled(db: Any) -> bool:
     return db.get_setting("redmine_notify_enabled", "1") == "1"
 
 
-def notify_interval_minutes(db: Any) -> int:
+def notify_interval_seconds(db: Any) -> int:
     try:
-        return max(1, int(db.get_setting("redmine_notify_interval", str(DEFAULT_INTERVAL_MINUTES))))
+        val = int(db.get_setting("redmine_notify_interval", "300"))
+        # Jika nilai lama tersimpan dalam format menit (1, 5, 10, 15):
+        if val in (1, 5, 15):
+            return val * 60
+        if val == 30 and db.get_setting("redmine_notify_interval_unit") != "sec":
+            return 1800
+        return max(5, val)
     except ValueError:
-        return DEFAULT_INTERVAL_MINUTES
+        return DEFAULT_INTERVAL_SECONDS
+
+
+def notify_interval_minutes(db: Any) -> int:
+    """Helper kompatibilitas."""
+    return max(1, notify_interval_seconds(db) // 60)
 
 
 def _user_name(user: Optional[Dict[str, Any]]) -> str:
@@ -89,15 +107,18 @@ class RedmineNotifier:
         self._save_state(owner, cursor, snapshot)
 
     def _fetch_updated_since(self, client: RedmineClient, cursor: str) -> List[Dict[str, Any]]:
-        params = {"assigned_to_id": "me", "status_id": "*", "sort": "updated_on:desc", "updated_on": f">={cursor}"}
+        params = {"assigned_to_id": "me", "status_id": "*", "sort": "updated_on:desc"}
+        if cursor:
+            params["updated_on"] = f">={cursor}"
         try:
-            issues, _ = client.list_issues(params, limit=100)
-        except RedmineError as error:
-            # Redmine versi lama belum mendukung filter timestamp; turunkan ke filter tanggal
-            if error.code not in (400, 422, 500):
-                raise
-            params["updated_on"] = f">={cursor[:10]}"
-            issues, _ = client.list_issues(params, limit=100)
+            issues, _ = client.list_issues(params, limit=50)
+            if not issues and cursor:
+                # Fallback jika filter updated_on kosong karena clock skew/format date: ambil 50 issue terbaru
+                params_fallback = {"assigned_to_id": "me", "status_id": "*", "sort": "updated_on:desc"}
+                issues, _ = client.list_issues(params_fallback, limit=50)
+        except RedmineError:
+            params_fallback = {"assigned_to_id": "me", "status_id": "*", "sort": "updated_on:desc"}
+            issues, _ = client.list_issues(params_fallback, limit=50)
         return issues
 
     def _my_user_id(self, client: RedmineClient, credential: Dict[str, Any]) -> Optional[int]:
@@ -113,20 +134,24 @@ class RedmineNotifier:
         my_id: Optional[int], fetch_detail: bool
     ) -> Optional[Dict[str, Any]]:
         status = issue.get("status") or {}
+        # Hanya notifikasi jika status berubah dari snapshot sebelumnya
+        if not previous or previous.get("s") == status.get("id"):
+            return None
+
+        old_status_name = previous.get("n") or "?"
+        new_status_name = status.get("name") or "?"
+
         change = {
             "issue_id": issue["id"],
             "subject": issue.get("subject", ""),
             "project": (issue.get("project") or {}).get("name", ""),
-            "status": status.get("name", ""),
+            "status": new_status_name,
+            "old_status": old_status_name,
             "updated_on": issue.get("updated_on", ""),
-            "old_status": None,
             "actor": "",
             "notes": "",
-            "kind": "updated",
+            "kind": "status",
         }
-        if previous and previous.get("s") != status.get("id"):
-            change["old_status"] = previous.get("n") or "?"
-            change["kind"] = "status"
 
         if fetch_detail:
             try:
@@ -135,22 +160,40 @@ class RedmineNotifier:
                 detail = {}
             journals = detail.get("journals") or []
             if journals:
-                last = journals[-1]
-                if my_id and (last.get("user") or {}).get("id") == my_id:
-                    return None  # Perubahan oleh diri sendiri tidak perlu dinotifikasi
-                change["actor"] = _user_name(last.get("user"))
-                change["notes"] = (last.get("notes") or "").strip()
-                if previous is None and any(d.get("name") == "assigned_to_id" for d in last.get("details") or []):
-                    change["kind"] = "assigned"
-            elif detail:
-                if my_id and (detail.get("author") or {}).get("id") == my_id:
-                    return None
-                change["actor"] = _user_name(detail.get("author"))
-                if previous is None:
-                    change["kind"] = "assigned"
+                # Urutkan berdasarkan waktu created_on atau id
+                sorted_journals = sorted(
+                    journals,
+                    key=lambda j: j.get("created_on") or str(j.get("id", 0))
+                )
+                # Cari journal TERAKHIR yang spesifik mengubah status_id
+                target_journal = None
+                for j in reversed(sorted_journals):
+                    details_list = j.get("details") or []
+                    if any(d.get("name") == "status_id" for d in details_list):
+                        target_journal = j
+                        break
 
-        if change["kind"] == "updated" and change["notes"]:
-            change["kind"] = "comment"
+                # Jika tidak ditemukan detail spesifik status_id, ambil journal terakhir
+                if target_journal is None:
+                    target_journal = sorted_journals[-1]
+
+                actor_user = target_journal.get("user") or {}
+                actor_id = actor_user.get("id")
+                actor_name = _user_name(actor_user)
+                if my_id and actor_id == my_id:
+                    change["actor"] = f"{actor_name} (Anda)" if actor_name else "Anda"
+                else:
+                    change["actor"] = actor_name
+                change["notes"] = (target_journal.get("notes") or "").strip()
+            elif detail:
+                author_user = detail.get("author") or {}
+                author_id = author_user.get("id")
+                author_name = _user_name(author_user)
+                if my_id and author_id == my_id:
+                    change["actor"] = f"{author_name} (Anda)" if author_name else "Anda"
+                else:
+                    change["actor"] = author_name
+
         return change
 
     def _save_state(self, owner: str, cursor: str, snapshot: Dict[str, Dict[str, Any]]) -> None:
@@ -166,16 +209,7 @@ def format_change(change: Dict[str, Any]) -> Dict[str, str]:
     """Ubah data perubahan menjadi judul & pesan notifikasi yang siap ditampilkan."""
     title = f"#{change['issue_id']} · {change['subject']}"
     actor = f" oleh {change['actor']}" if change.get("actor") else ""
-    kind = change.get("kind")
-    if kind == "status":
-        message = f"Status berubah: {change['old_status']} → {change['status']}{actor}"
-    elif kind == "assigned":
-        message = f"Task di-assign ke Anda{actor} ({change['status']})"
-    elif kind == "comment":
-        notes = change["notes"].replace("\r", " ").replace("\n", " ")
-        message = f"Komentar baru{actor}: {notes[:90]}{'…' if len(notes) > 90 else ''}"
-    else:
-        message = f"Task diperbarui{actor} ({change['status']})"
+    message = f"Status berubah: {change.get('old_status', '?')} → {change.get('status', '?')}{actor}"
     return {"title": title, "message": message}
 
 

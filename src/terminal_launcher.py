@@ -119,7 +119,7 @@ def launch_ssh_terminal(
     target_dir = initial_dir.strip() if initial_dir and initial_dir.strip() else ""
     if target_dir:
         safe_dir = target_dir.replace("'", "'\\''")
-        remote_cmd = f"cd '{safe_dir}' 2>/dev/null || cd /; exec $SHELL -l"
+        remote_cmd = f"cd '{safe_dir}' 2>/dev/null || cd /; if [ -x /bin/bash ]; then exec /bin/bash -l; elif [ -x /bin/sh ]; then exec /bin/sh -l; else exec sh -l; fi"
     else:
         remote_cmd = ""
 

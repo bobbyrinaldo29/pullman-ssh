@@ -18,6 +18,7 @@ from theme import COLORS, get_color, apply_treeview_styles
 from icons import get_icon, get_tk_image
 from sftp_service import SFTPService
 from ui.file_editor_dialog import FileEditorDialog
+from ui.tab_bar import HorizontalScrollableTabBar
 from terminal_launcher import launch_ssh_terminal, launch_local_terminal
 
 
@@ -311,15 +312,44 @@ class SFTPView(ctk.CTkFrame):
         session_frame.grid_rowconfigure(1, weight=1)
 
         # 2a. Browser Tab Bar Container
-        self.tab_bar_frame = ctk.CTkFrame(session_frame, fg_color="transparent", height=34)
+        self.tab_bar_frame = ctk.CTkFrame(session_frame, fg_color="transparent", height=36)
         self.tab_bar_frame.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        self.tab_bar_frame.grid_columnconfigure(0, weight=1)
+        self.tab_bar_frame.grid_columnconfigure(0, weight=0)
+        self.tab_bar_frame.grid_columnconfigure(1, weight=1)
+        self.tab_bar_frame.grid_columnconfigure(2, weight=0)
 
-        self.tab_items_box = ctk.CTkFrame(self.tab_bar_frame, fg_color="transparent")
-        self.tab_items_box.grid(row=0, column=0, sticky="w")
+        self.btn_tab_left = ctk.CTkButton(
+            self.tab_bar_frame,
+            text="‹",
+            width=26,
+            height=28,
+            corner_radius=6,
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"],
+            border_width=1,
+            border_color=COLORS["line"],
+            font=ctk.CTkFont(size=14, weight="bold"),
+            command=lambda: self.tab_items_box.scroll_left()
+        )
 
-        tab_border = ctk.CTkFrame(self.tab_bar_frame, fg_color=COLORS["line"], height=1)
-        tab_border.grid(row=1, column=0, sticky="ew", pady=(0, 0))
+        self.tab_items_box = HorizontalScrollableTabBar(self.tab_bar_frame, height=36, fg_color="transparent")
+        self.tab_items_box.grid(row=0, column=1, sticky="ew")
+
+        self.btn_tab_right = ctk.CTkButton(
+            self.tab_bar_frame,
+            text="›",
+            width=26,
+            height=28,
+            corner_radius=6,
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"],
+            border_width=1,
+            border_color=COLORS["line"],
+            font=ctk.CTkFont(size=14, weight="bold"),
+            command=lambda: self.tab_items_box.scroll_right()
+        )
 
         # 2b. Dual-Pane Container (Local Site on Left, Remote Site on Right)
         dual_pane = ctk.CTkFrame(session_frame, fg_color="transparent")
@@ -1423,9 +1453,12 @@ class SFTPView(ctk.CTkFrame):
         - Active tab dengan latar surface dan border elegan
         - Inactive tab dengan subtle divider dan hover effect
         - Tombol close 'x' dan tombol new tab '+' berbentuk sirkular
+        - Support horizontal mousewheel scroll
         """
         for widget in self.tab_items_box.winfo_children():
             widget.destroy()
+
+        active_tab_widget = None
 
         for idx, tab in enumerate(self._tabs):
             is_active = (tab.tab_id == self._active_tab_id)
@@ -1434,6 +1467,7 @@ class SFTPView(ctk.CTkFrame):
             if idx > 0 and not is_active and (self._tabs[idx - 1].tab_id != self._active_tab_id):
                 divider = ctk.CTkFrame(self.tab_items_box, width=1, height=16, fg_color=COLORS["line"])
                 divider.pack(side="left", padx=(0, 4), pady=(6, 0))
+                self.tab_items_box.bind_child_scroll(divider)
 
             # Tab Card Container (Browser Tab Style)
             tab_frame = ctk.CTkFrame(
@@ -1445,10 +1479,14 @@ class SFTPView(ctk.CTkFrame):
                 cursor="hand2"
             )
             tab_frame.pack(side="left", padx=(0, 4), pady=(2, 0))
+            self.tab_items_box.bind_child_scroll(tab_frame)
+            if is_active:
+                active_tab_widget = tab_frame
 
             # Inner content
             content_frame = ctk.CTkFrame(tab_frame, fg_color="transparent", cursor="hand2")
             content_frame.pack(side="top", padx=(10, 6), pady=(4, 4))
+            self.tab_items_box.bind_child_scroll(content_frame)
 
             # 1. Favicon Icon (Server / Laptop icon)
             icon_color = COLORS["success"] if tab.is_connected else (COLORS["accent"] if is_active else COLORS["muted"])
@@ -1460,6 +1498,7 @@ class SFTPView(ctk.CTkFrame):
                 width=16
             )
             lbl_icon.pack(side="left", padx=(0, 6))
+            self.tab_items_box.bind_child_scroll(lbl_icon)
 
             # 2. Tab Title Label
             lbl_title = ctk.CTkLabel(
@@ -1470,6 +1509,7 @@ class SFTPView(ctk.CTkFrame):
                 cursor="hand2"
             )
             lbl_title.pack(side="left", padx=(0, 8))
+            self.tab_items_box.bind_child_scroll(lbl_title)
 
             # 3. Close 'x' button (Browser style circular hover)
             btn_close = ctk.CTkButton(
@@ -1484,6 +1524,7 @@ class SFTPView(ctk.CTkFrame):
                 command=lambda tid=tab.tab_id: self._close_tab(tid)
             )
             btn_close.pack(side="left")
+            self.tab_items_box.bind_child_scroll(btn_close)
 
             # Bind clicks to switch tab
             tab_frame.bind("<Button-1>", lambda e, tid=tab.tab_id: self._switch_to_tab(tid))
@@ -1517,6 +1558,18 @@ class SFTPView(ctk.CTkFrame):
             command=self._add_new_tab
         )
         btn_add.pack(side="left", padx=(4, 4), pady=(4, 0))
+        self.tab_items_box.bind_child_scroll(btn_add)
+
+        if active_tab_widget:
+            self.after(50, lambda: self.tab_items_box.scroll_to_child(active_tab_widget))
+
+        # Tampilkan tombol navigasi ‹ dan › jika tab mulai banyak
+        if len(self._tabs) >= 3:
+            self.btn_tab_left.grid(row=0, column=0, padx=(0, 4), sticky="w")
+            self.btn_tab_right.grid(row=0, column=2, padx=(4, 0), sticky="e")
+        else:
+            self.btn_tab_left.grid_forget()
+            self.btn_tab_right.grid_forget()
 
     def _save_current_tab_state(self):
         active_tab = self._get_active_tab()

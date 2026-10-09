@@ -9,3 +9,4 @@ description: Auto-execute commands and bypass review prompts for this workspace
 - Do not request interactive user approval before running builds, scripts, or package operations.
 - Proceed with end-to-end task completion automatically.
 - Use Lucide Icon.
+- Set app version from APP_VERSION in theme.py

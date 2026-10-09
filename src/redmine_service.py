@@ -66,17 +66,111 @@ class RedmineClient:
         except (ValueError, json.JSONDecodeError) as error:
             raise RedmineError("Respons Redmine bukan JSON yang valid. Periksa kembali URL Redmine.") from error
 
+    def _put(self, path: str, payload: Dict[str, Any]) -> None:
+        url = f"{self.base_url}{path}"
+        data = json.dumps(payload).encode("utf-8")
+        request = Request(
+            url,
+            data=data,
+            headers={
+                "X-Redmine-API-Key": self.api_key,
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "DO.MBA-Pull-Manager",
+            },
+            method="PUT",
+        )
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                pass
+        except HTTPError as error:
+            if error.code == 401:
+                raise RedmineError("API key Redmine tidak valid atau sudah kedaluwarsa.", 401) from error
+            if error.code == 403:
+                raise RedmineError("Anda tidak memiliki izin untuk mengedit task ini (HTTP 403).", 403) from error
+            if error.code == 404:
+                raise RedmineError("Task tidak ditemukan di Redmine (HTTP 404).", 404) from error
+            if error.code == 422:
+                try:
+                    err_json = json.loads(error.read().decode("utf-8"))
+                    errors = err_json.get("errors", [])
+                    if errors:
+                        raise RedmineError(f"Validasi gagal: {', '.join(errors)}", 422)
+                except (ValueError, json.JSONDecodeError):
+                    pass
+            raise RedmineError(f"Redmine mengembalikan error HTTP {error.code}.", error.code) from error
+        except URLError as error:
+            raise RedmineError(f"Tidak dapat terhubung ke Redmine: {error.reason}") from error
+
+    def upload_file(self, file_path_or_bytes: Any, filename: Optional[str] = None, content_type: Optional[str] = None) -> Dict[str, Any]:
+        """Upload file ke Redmine dan mengembalikan dict info token: {'token': str, 'filename': str, 'content_type': str}."""
+        from pathlib import Path
+        if isinstance(file_path_or_bytes, (str, Path)):
+            p = Path(file_path_or_bytes)
+            data = p.read_bytes()
+            if filename is None:
+                filename = p.name
+        else:
+            data = bytes(file_path_or_bytes)
+            if filename is None:
+                filename = "attachment"
+
+        url = f"{self.base_url}/uploads.json"
+        request = Request(
+            url,
+            data=data,
+            headers={
+                "X-Redmine-API-Key": self.api_key,
+                "Content-Type": content_type or "application/octet-stream",
+                "Accept": "application/json",
+                "User-Agent": "DO.MBA-Pull-Manager",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=max(self.timeout, 30)) as response:
+                res_data = json.loads(response.read().decode("utf-8"))
+                token = (res_data.get("upload") or {}).get("token", "")
+                return {"token": token, "filename": filename, "content_type": content_type or "application/octet-stream"}
+        except HTTPError as error:
+            if error.code == 401:
+                raise RedmineError("API key Redmine tidak valid atau sudah kedaluwarsa.", 401) from error
+            if error.code == 403:
+                raise RedmineError("Anda tidak memiliki izin untuk mengunggah file lampiran (HTTP 403).", 403) from error
+            raise RedmineError(f"Gagal mengunggah file (HTTP {error.code}).", error.code) from error
+        except URLError as error:
+            raise RedmineError(f"Tidak dapat terhubung ke Redmine: {error.reason}") from error
+
+    def update_issue(self, issue_id: int, updates: Dict[str, Any], notes: Optional[str] = None) -> None:
+        """Update atribut issue (mis. status_id, priority_id, uploads, notes/komentar)."""
+        payload: Dict[str, Any] = {"issue": dict(updates)}
+        if notes:
+            payload["issue"]["notes"] = notes
+        self._put(f"/issues/{issue_id}.json", payload)
+
+    def update_issue_status(self, issue_id: int, status_id: int, notes: Optional[str] = None) -> None:
+        """Helper cepat untuk memperbarui status suatu task."""
+        self.update_issue(issue_id, {"status_id": status_id}, notes=notes)
+
     def _get_all(self, path: str, key: str, params: Optional[Dict[str, Any]] = None, max_items: int = MAX_ISSUES) -> List[Dict[str, Any]]:
         """Ambil seluruh halaman dari endpoint koleksi Redmine."""
         items: List[Dict[str, Any]] = []
         offset = 0
+        limit = PAGE_SIZE
         while len(items) < max_items:
-            data = self._get(path, {**(params or {}), "limit": PAGE_SIZE, "offset": offset})
+            req_params = {**(params or {}), "limit": limit, "offset": offset}
+            data = self._get(path, req_params)
             page = data.get(key, [])
+            if not page:
+                break
             items.extend(page)
             offset += len(page)
-            if not page or offset >= int(data.get("total_count", 0)):
-                break
+            if "total_count" in data:
+                if offset >= int(data["total_count"]):
+                    break
+            else:
+                if len(page) < limit:
+                    break
         return items[:max_items]
 
     def get_current_user(self) -> Dict[str, Any]:
@@ -110,6 +204,9 @@ class RedmineClient:
 
     def list_projects(self) -> List[Dict[str, Any]]:
         return self._get_all("/projects.json", "projects", max_items=1000)
+
+    def list_queries(self) -> List[Dict[str, Any]]:
+        return self._get_all("/queries.json", "queries", max_items=500)
 
     def resolve_url(self, url: str) -> str:
         return urljoin(self.base_url + "/", url)

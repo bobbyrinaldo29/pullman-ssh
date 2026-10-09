@@ -166,6 +166,8 @@ class FileEditorDialog(ctk.CTkToplevel):
                 ok, content, err = SFTPService.read_file_text(self.host, self.remote_file_path)
 
             def on_done():
+                if not self.winfo_exists():
+                    return
                 self.btn_reload.configure(state="normal")
                 if ok:
                     self._original_content = content
@@ -213,6 +215,8 @@ class FileEditorDialog(ctk.CTkToplevel):
                 ok, err = SFTPService.write_file_text(self.host, self.remote_file_path, content)
 
             def on_done():
+                if not self.winfo_exists():
+                    return
                 self.btn_save.configure(state="normal", text=" Save (Ctrl+S)")
                 if ok:
                     self.is_modified = False
