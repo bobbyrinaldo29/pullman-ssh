@@ -34,6 +34,8 @@ ICONS = [
     "file-text",
     "file-code",
     "laptop",
+    "list-checks",
+    "bell",
 ]
 
 out_dir = Path(__file__).resolve().parent / "icons"

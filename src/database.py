@@ -852,6 +852,38 @@ class DatabaseManager:
             """, (key, value))
             conn.commit()
 
+    def save_redmine_credential(self, base_url: str, api_key: str, user_name: str = "", user_id: Optional[int] = None) -> None:
+        """Simpan URL & API key Redmine milik user (API key terenkripsi)."""
+        self.set_setting("redmine_url", base_url)
+        self.set_setting("redmine_api_key", self._encrypt(api_key))
+        self.set_setting("redmine_user_name", user_name)
+        self.set_setting("redmine_user_id", str(user_id or ""))
+
+    def get_redmine_credential(self) -> Optional[Dict[str, Any]]:
+        base_url = self.get_setting("redmine_url")
+        cipher_key = self.get_setting("redmine_api_key")
+        if not base_url or not cipher_key:
+            return None
+        try:
+            api_key = self._decrypt(cipher_key)
+        except Exception:
+            return None
+        return {
+            "base_url": base_url,
+            "api_key": api_key,
+            "user_name": self.get_setting("redmine_user_name", ""),
+            "user_id": self.get_setting("redmine_user_id", ""),
+        }
+
+    def delete_redmine_credential(self) -> None:
+        with self._get_connection() as conn:
+            conn.execute(
+                "DELETE FROM app_settings WHERE key IN ("
+                "'redmine_url', 'redmine_api_key', 'redmine_user_name', 'redmine_user_id', "
+                "'redmine_notify_owner', 'redmine_notify_cursor', 'redmine_notify_snapshot');"
+            )
+            conn.commit()
+
 
 # ==================== CONTOH PENGGUNAAN ====================
 if __name__ == "__main__":

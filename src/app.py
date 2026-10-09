@@ -18,6 +18,9 @@ from ui.about_dialog import AboutDialog
 from ui.db_blast_view import DBBlastView
 from ui.git_credential_dialog import GitCredentialDialog
 from ui.hosts_view import HostsView
+from redmine_notifier import NotificationCenter, RedmineNotifier, format_change, notifications_enabled, notify_interval_minutes
+from ui.redmine_view import RedmineView
+from ui.toast import ToastManager, flash_taskbar
 from ui.sftp_view import SFTPView
 from ui.sidebar import Sidebar
 
@@ -55,6 +58,7 @@ class PullmanApp(ctk.CTk):
             on_show_hosts=self._show_hosts_view,
             on_show_db_blast=self._show_db_blast_view,
             on_show_sftp=self._show_sftp_view,
+            on_show_redmine=self._show_redmine_view,
             on_git_credential=self._open_git_credential_dialog,
             on_import=lambda: self.hosts_view.open_import_dialog(),
             on_export=lambda: self.hosts_view.open_export_dialog(),
@@ -66,11 +70,21 @@ class PullmanApp(ctk.CTk):
         self.hosts_view = HostsView(self, self.db, on_data_changed=self._notify_other_views_changed)
         self.db_blast_frame = None
         self.sftp_frame = None
+        self.redmine_frame = None
+
+        # Notifikasi perubahan task Redmine (polling di background)
+        self.redmine_notifications = NotificationCenter()
+        self.redmine_notifications.subscribe(lambda: self.sidebar.set_redmine_badge(self.redmine_notifications.unread))
+        self.toasts = ToastManager(self)
+        self._redmine_notifier = RedmineNotifier(self.db)
+        self._redmine_poll_job = None
+        self._redmine_polling = False
 
         self._show_hosts_view()
 
         # Mulai auto check update harian di background setelah startup
         self.after(3000, self._start_background_update_checker)
+        self._schedule_redmine_poll(15 * 1000)
 
     def _toggle_appearance_mode(self):
         """Beralih antara Dark Mode dan Light Mode secara dinamis."""
@@ -86,6 +100,8 @@ class PullmanApp(ctk.CTk):
             self.db_blast_frame.on_theme_changed(new_mode)
         if getattr(self, "sftp_frame", None):
             self.sftp_frame.on_theme_changed(new_mode)
+        if getattr(self, "redmine_frame", None):
+            self.redmine_frame.on_theme_changed(new_mode)
 
     def _start_background_update_checker(self):
         """Memulai pengecekan update otomatis di background secara berkala (1x sehari)."""
@@ -128,6 +144,61 @@ class PullmanApp(ctk.CTk):
         )
         if should_open:
             webbrowser.open(result.release_url)
+
+    def _schedule_redmine_poll(self, delay_ms: Optional[int] = None):
+        if self._redmine_poll_job is not None:
+            self.after_cancel(self._redmine_poll_job)
+        if delay_ms is None:
+            delay_ms = notify_interval_minutes(self.db) * 60 * 1000
+        self._redmine_poll_job = self.after(delay_ms, self._poll_redmine)
+
+    def _poll_redmine(self):
+        """Cek perubahan task Redmine di background, lalu jadwalkan siklus berikutnya."""
+        self._redmine_poll_job = None
+        if self._redmine_polling or not notifications_enabled(self.db) or not self.db.get_redmine_credential():
+            self._schedule_redmine_poll()
+            return
+        self._redmine_polling = True
+
+        def worker():
+            try:
+                changes = self._redmine_notifier.check()
+            except Exception:
+                changes = []  # gagal koneksi diam saja, coba lagi di siklus berikutnya
+            self.after(0, lambda: self._on_redmine_changes(changes))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_redmine_changes(self, changes):
+        self._redmine_polling = False
+        self._schedule_redmine_poll()
+        if not changes:
+            return
+        self.redmine_notifications.add(changes)
+        if len(changes) > 3:
+            self.toasts.show(
+                "Task Redmine diperbarui",
+                f"{len(changes)} task Anda berubah. Klik untuk melihat daftar task.",
+                on_click=lambda: self._open_redmine_from_notification(None),
+            )
+        else:
+            for change in changes:
+                text = format_change(change)
+                self.toasts.show(text["title"], text["message"],
+                                 on_click=lambda i=change["issue_id"]: self._open_redmine_from_notification(i))
+        if self.focus_displayof() is None:
+            flash_taskbar(self)
+        if self.redmine_frame is not None:
+            self.redmine_frame.notify_issues_changed([c["issue_id"] for c in changes])
+
+    def _open_redmine_from_notification(self, issue_id: Optional[int]):
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+        self._show_redmine_view()
+        if issue_id is not None:
+            self.redmine_frame.open_issue_tab(issue_id)
+        self.redmine_notifications.mark_all_read()
 
     def _notify_other_views_changed(self):
         if getattr(self, "db_blast_frame", None) is not None:
@@ -288,6 +359,8 @@ class PullmanApp(ctk.CTk):
     def _show_hosts_view(self):
         """Tampilkan kembali tampilan Hosts."""
         self.sidebar.set_active("hosts")
+        if self.redmine_frame is not None:
+            self.redmine_frame.grid_remove()
         if self.db_blast_frame is not None:
             self.db_blast_frame.grid_remove()
         if self.sftp_frame is not None:
@@ -299,6 +372,8 @@ class PullmanApp(ctk.CTk):
     def _show_db_blast_view(self):
         """Tampilkan tampilan DB Blast bergaya Navicat (instan)."""
         self.sidebar.set_active("db_blast")
+        if self.redmine_frame is not None:
+            self.redmine_frame.grid_remove()
         self.hosts_view.grid_remove()
         if self.sftp_frame is not None:
             self.sftp_frame.grid_remove()
@@ -313,6 +388,8 @@ class PullmanApp(ctk.CTk):
     def _show_sftp_view(self, target_host: Optional[dict] = None):
         """Tampilkan tampilan SFTP File Manager terintegrasi."""
         self.sidebar.set_active("sftp")
+        if self.redmine_frame is not None:
+            self.redmine_frame.grid_remove()
         self.hosts_view.grid_remove()
         if self.db_blast_frame is not None:
             self.db_blast_frame.grid_remove()
@@ -328,6 +405,23 @@ class PullmanApp(ctk.CTk):
         # Jika ada target_host spesifik (misal dibuka dari tombol action di HostsView)
         if target_host:
             self.sftp_frame.select_host(target_host)
+
+    def _show_redmine_view(self):
+        """Tampilkan daftar task Redmine milik user yang terhubung."""
+        self.sidebar.set_active("redmine")
+        self.hosts_view.grid_remove()
+        if self.db_blast_frame is not None:
+            self.db_blast_frame.grid_remove()
+        if self.sftp_frame is not None:
+            self.sftp_frame.grid_remove()
+
+        if self.redmine_frame is None:
+            self.redmine_frame = RedmineView(
+                self, self.db, self.redmine_notifications,
+                on_account_changed=lambda: self._schedule_redmine_poll(3000)
+            )
+        self.redmine_frame.grid(row=0, column=1, sticky="nsew", padx=28, pady=24)
+        self.redmine_frame.on_show()
 
 
 if __name__ == "__main__":
