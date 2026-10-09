@@ -17,6 +17,7 @@ class Sidebar(ctk.CTkFrame):
         parent: ctk.CTk,
         on_show_hosts: Callable[[], None],
         on_show_db_blast: Callable[[], None],
+        on_show_sftp: Callable[[], None],
         on_git_credential: Callable[[], None],
         on_import: Callable[[], None],
         on_export: Callable[[], None],
@@ -25,11 +26,11 @@ class Sidebar(ctk.CTkFrame):
         super().__init__(parent, width=224, corner_radius=0, fg_color=COLORS["sidebar"])
 
         self._on_toggle_theme = on_toggle_theme
-        self.grid_rowconfigure(4, weight=1)  # row 4 = spacer
+        self.grid_rowconfigure(5, weight=1)  # row 5 = spacer
         self.grid_columnconfigure(0, weight=1)
 
         self._build_brand()
-        self._build_nav(on_show_hosts, on_show_db_blast, on_git_credential)
+        self._build_nav(on_show_hosts, on_show_db_blast, on_show_sftp, on_git_credential)
         self._build_data_actions(on_import, on_export)
         self._build_footer()
 
@@ -58,7 +59,13 @@ class Sidebar(ctk.CTkFrame):
     def _build_brand_fallback(brand):
         ctk.CTkLabel(brand, text="D", width=35, height=35, corner_radius=9, fg_color=COLORS["accent"], text_color="#FFFFFF", font=ctk.CTkFont(size=15, weight="bold")).pack(side="left", padx=(0, 9))
 
-    def _build_nav(self, on_show_hosts: Callable[[], None], on_show_db_blast: Callable[[], None], on_git_credential: Callable[[], None]):
+    def _build_nav(
+        self,
+        on_show_hosts: Callable[[], None],
+        on_show_db_blast: Callable[[], None],
+        on_show_sftp: Callable[[], None],
+        on_git_credential: Callable[[], None]
+    ):
         self.btn_hosts = ctk.CTkButton(
             self,
             text=" Pull Blast",
@@ -91,6 +98,22 @@ class Sidebar(ctk.CTkFrame):
         )
         self.btn_db_blast.grid(row=2, column=0, padx=10, pady=4, sticky="ew")
 
+        self.btn_sftp = ctk.CTkButton(
+            self,
+            text=" File Manager",
+            image=get_icon("folder-tree", (16, 16), COLORS["text_secondary"]),
+            compound="left",
+            anchor="w",
+            height=38,
+            corner_radius=9,
+            fg_color="transparent",
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text_secondary"],
+            font=ctk.CTkFont(size=13),
+            command=on_show_sftp
+        )
+        self.btn_sftp.grid(row=3, column=0, padx=10, pady=4, sticky="ew")
+
         btn_git_credential = ctk.CTkButton(
             self,
             text=" Git Credential",
@@ -105,11 +128,11 @@ class Sidebar(ctk.CTkFrame):
             font=ctk.CTkFont(size=12),
             command=on_git_credential
         )
-        btn_git_credential.grid(row=3, column=0, padx=10, pady=4, sticky="ew")
+        btn_git_credential.grid(row=4, column=0, padx=10, pady=4, sticky="ew")
 
         # Spacer keeps data actions aligned with the lower edge of the window.
-        ctk.CTkLabel(self, text="").grid(row=4, column=0)
-        ctk.CTkLabel(self, text="DATA & TOOLS", text_color=COLORS["subtle"], font=ctk.CTkFont(size=10, weight="bold")).grid(row=5, column=0, padx=18, pady=(0, 4), sticky="w")
+        ctk.CTkLabel(self, text="").grid(row=5, column=0)
+        ctk.CTkLabel(self, text="DATA & TOOLS", text_color=COLORS["subtle"], font=ctk.CTkFont(size=10, weight="bold")).grid(row=6, column=0, padx=18, pady=(0, 4), sticky="w")
 
     def _build_data_actions(self, on_import: Callable[[], None], on_export: Callable[[], None]):
         btn_import = ctk.CTkButton(
@@ -126,7 +149,7 @@ class Sidebar(ctk.CTkFrame):
             anchor="w",
             command=on_import
         )
-        btn_import.grid(row=6, column=0, padx=10, pady=3, sticky="ew")
+        btn_import.grid(row=7, column=0, padx=10, pady=3, sticky="ew")
 
         btn_export = ctk.CTkButton(
             self,
@@ -142,7 +165,7 @@ class Sidebar(ctk.CTkFrame):
             anchor="w",
             command=on_export
         )
-        btn_export.grid(row=7, column=0, padx=10, pady=3, sticky="ew")
+        btn_export.grid(row=8, column=0, padx=10, pady=3, sticky="ew")
 
         # Tombol Toggle Theme (Light Mode / Dark Mode)
         self.btn_theme = ctk.CTkButton(
@@ -159,7 +182,7 @@ class Sidebar(ctk.CTkFrame):
             anchor="w",
             command=self._on_theme_toggle_clicked
         )
-        self.btn_theme.grid(row=8, column=0, padx=10, pady=(4, 2), sticky="ew")
+        self.btn_theme.grid(row=9, column=0, padx=10, pady=(4, 2), sticky="ew")
 
         self.btn_update = ctk.CTkButton(
             self,
@@ -175,7 +198,7 @@ class Sidebar(ctk.CTkFrame):
             anchor="w",
             command=self._check_for_updates
         )
-        self.btn_update.grid(row=9, column=0, padx=10, pady=(4, 10), sticky="ew")
+        self.btn_update.grid(row=10, column=0, padx=10, pady=(4, 10), sticky="ew")
 
     def _build_footer(self):
         footer_label = ctk.CTkLabel(
@@ -184,7 +207,7 @@ class Sidebar(ctk.CTkFrame):
             font=ctk.CTkFont(size=10),
             text_color=COLORS["subtle"]
         )
-        footer_label.grid(row=10, column=0, padx=10, pady=(0, 14), sticky="ew")
+        footer_label.grid(row=11, column=0, padx=10, pady=(0, 14), sticky="ew")
 
     def _on_theme_toggle_clicked(self):
         if self._on_toggle_theme:
@@ -201,6 +224,9 @@ class Sidebar(ctk.CTkFrame):
     def set_active(self, view_name: str):
         """Reset semua tombol nav ke transparan, lalu aktifkan yang dipilih."""
         is_hosts = (view_name == "hosts")
+        is_db = (view_name == "db_blast")
+        is_sftp = (view_name == "sftp")
+
         self.btn_hosts.configure(
             fg_color=COLORS["accent"] if is_hosts else "transparent",
             hover_color=COLORS["accent_hover"] if is_hosts else COLORS["surface_hover"],
@@ -209,11 +235,18 @@ class Sidebar(ctk.CTkFrame):
             font=ctk.CTkFont(size=13, weight="bold" if is_hosts else "normal")
         )
         self.btn_db_blast.configure(
-            fg_color=COLORS["accent"] if not is_hosts else "transparent",
-            hover_color=COLORS["accent_hover"] if not is_hosts else COLORS["surface_hover"],
-            text_color="#FFFFFF" if not is_hosts else COLORS["text_secondary"],
-            image=get_icon("database", (16, 16), "#FFFFFF" if not is_hosts else COLORS["text_secondary"]),
-            font=ctk.CTkFont(size=13, weight="bold" if not is_hosts else "normal")
+            fg_color=COLORS["accent"] if is_db else "transparent",
+            hover_color=COLORS["accent_hover"] if is_db else COLORS["surface_hover"],
+            text_color="#FFFFFF" if is_db else COLORS["text_secondary"],
+            image=get_icon("database", (16, 16), "#FFFFFF" if is_db else COLORS["text_secondary"]),
+            font=ctk.CTkFont(size=13, weight="bold" if is_db else "normal")
+        )
+        self.btn_sftp.configure(
+            fg_color=COLORS["accent"] if is_sftp else "transparent",
+            hover_color=COLORS["accent_hover"] if is_sftp else COLORS["surface_hover"],
+            text_color="#FFFFFF" if is_sftp else COLORS["text_secondary"],
+            image=get_icon("folder-tree", (16, 16), "#FFFFFF" if is_sftp else COLORS["text_secondary"]),
+            font=ctk.CTkFont(size=13, weight="bold" if is_sftp else "normal")
         )
 
     def _check_for_updates(self):

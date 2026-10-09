@@ -715,7 +715,7 @@ class DBBlastView(ctk.CTkFrame):
             command=self._run_query_on_selected_row
         )
         self.context_menu.add_command(
-            label="  Test Connection",
+            label=f"  Test Connection{label_suffix}",
             image=get_tk_image("activity", (15, 15), COLORS["text"]),
             compound="left",
             command=self._test_selected_row
@@ -837,13 +837,17 @@ class DBBlastView(ctk.CTkFrame):
             self.tree.item(item_id, values=curr_vals)
         self._sync_check_all_state()
         self._update_blast_button_label()
+        self._on_tree_select_change()
 
     def _on_tree_select_change(self, event=None):
         sel = self.tree.selection()
-        has_sel = bool(sel)
+        checked_count = len(self.selected_db_ids)
+        has_sel = bool(sel) or checked_count > 0
 
         if has_sel:
+            run_text = f" Run ({checked_count})" if checked_count > 1 else " Run"
             self.btn_action_run.configure(
+                text=run_text,
                 state="normal",
                 fg_color=COLORS["accent"],
                 hover_color=COLORS["accent_hover"],
@@ -851,7 +855,9 @@ class DBBlastView(ctk.CTkFrame):
                 border_width=0,
                 image=get_icon("play", (13, 13), "#FFFFFF")
             )
+            test_text = f" Test ({checked_count})" if checked_count > 1 else " Test"
             self.btn_action_test.configure(
+                text=test_text,
                 state="normal",
                 fg_color=COLORS["surface"],
                 hover_color=COLORS["surface_hover"],
@@ -860,7 +866,7 @@ class DBBlastView(ctk.CTkFrame):
                 border_color=COLORS["line"],
                 image=get_icon("activity", (13, 13), COLORS["accent_text"])
             )
-            edit_text = f" Bulk Edit ({len(self.selected_db_ids)})" if len(self.selected_db_ids) > 1 else " Edit"
+            edit_text = f" Bulk Edit ({checked_count})" if checked_count > 1 else " Edit"
             self.btn_action_edit.configure(
                 text=edit_text,
                 state="normal",
@@ -871,7 +877,9 @@ class DBBlastView(ctk.CTkFrame):
                 border_color=COLORS["line"],
                 image=get_icon("pencil", (13, 13), COLORS["text_secondary"])
             )
+            del_text = f" Delete ({checked_count})" if checked_count > 1 else " Delete"
             self.btn_action_del.configure(
+                text=del_text,
                 state="normal",
                 fg_color=COLORS["danger_subtle"],
                 hover_color=COLORS["danger_hover"],
@@ -920,9 +928,18 @@ class DBBlastView(ctk.CTkFrame):
             self._run_query_on_single_conn(int(sel[0]))
 
     def _test_selected_row(self):
+        """Test koneksi database untuk koneksi yang dipilih / dicentang (mendukung single & multiple batch test)."""
+        if len(self.selected_db_ids) > 1:
+            self._test_multiple_conns(list(self.selected_db_ids))
+            return
+        
         sel = self.tree.selection()
         if sel:
             self._test_single_conn(int(sel[0]))
+        elif len(self.selected_db_ids) == 1:
+            self._test_single_conn(list(self.selected_db_ids)[0])
+        else:
+            messagebox.showwarning("Peringatan", "Pilih atau centang setidaknya satu koneksi database untuk dites.")
 
     def _edit_selected_row(self):
         checked_ids = list(self.selected_db_ids)
@@ -1075,6 +1092,7 @@ class DBBlastView(ctk.CTkFrame):
 
         self._sync_check_all_state()
         self._update_blast_button_label()
+        self._on_tree_select_change()
 
     def _update_blast_button_label(self):
         filtered = getattr(self, "_current_filtered_conns", [])
@@ -1289,6 +1307,73 @@ class DBBlastView(ctk.CTkFrame):
             self.after(0, update)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _test_multiple_conns(self, conn_ids: List[int]):
+        """Menjalankan test koneksi database secara paralel untuk multiple database yang dipilih."""
+        target_conns = []
+        for cid in conn_ids:
+            c = self.db.get_db_connection_by_id(cid)
+            if c:
+                target_conns.append(c)
+
+        if not target_conns:
+            return
+
+        total = len(target_conns)
+        for c in target_conns:
+            self._update_tree_status(c["id"], "Testing...")
+
+        self._set_active_tab("log")
+        self._log_message(f"\n[{datetime.now().strftime('%H:%M:%S')}] 🧪 Memulai test koneksi massal untuk {total} database...\n" + "─" * 60 + "\n")
+
+        results: Dict[int, Dict[str, Any]] = {}
+        lock = threading.Lock()
+
+        def test_worker(conn: dict):
+            res = run_db_query(conn, "SELECT VERSION();", timeout=10)
+            with lock:
+                results[conn["id"]] = res
+
+            name = conn.get("name") or f"DB-{conn['id']}"
+            def on_single_finish(c_name=name, c_id=conn["id"], r=res):
+                elapsed = r.get("elapsed_ms", 0)
+                if r.get("success"):
+                    self._update_tree_status(c_id, f"✓ OK ({elapsed}ms)")
+                    self._log_message(f"✓ [{c_name}] OK ({elapsed} ms): {r.get('output', '').strip()}\n")
+                else:
+                    self._update_tree_status(c_id, "✗ Error")
+                    err = r.get("error", "Unknown error")
+                    self._log_message(f"✗ [{c_name}] FAILED ({elapsed} ms): {err}\n")
+
+            self.after(0, on_single_finish)
+
+        def runner():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [executor.submit(test_worker, c) for c in target_conns]
+                concurrent.futures.wait(futures)
+
+            def on_all_finish():
+                success_count = sum(1 for r in results.values() if r.get("success"))
+                failed_count = total - success_count
+                self._log_message("─" * 60 + f"\n📊 Selesai: {success_count}/{total} Database Berhasil, {failed_count} Gagal.\n\n")
+                if failed_count == 0:
+                    messagebox.showinfo(
+                        "Test Koneksi Selesai",
+                        f"Semua koneksi database ({success_count}/{total}) BERHASIL terhubung!\n"
+                    )
+                else:
+                    messagebox.showwarning(
+                        "Test Koneksi Selesai",
+                        f"Hasil Test Koneksi ({total} database):\n\n"
+                        f"• Berhasil (OK): {success_count}\n"
+                        f"• Gagal (Error): {failed_count}\n\n"
+                        "Lihat tab Log Eksekusi untuk detail respon masing-masing database."
+                    )
+
+            self.after(0, on_all_finish)
+
+        threading.Thread(target=runner, daemon=True).start()
 
     # =========================================================================
     # SINGLE QUERY EXECUTION

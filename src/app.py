@@ -13,9 +13,11 @@ from PIL import ImageTk, Image
 from theme import APP_VERSION, COLORS, application_data_path, resource_path, apply_treeview_styles
 from database import DatabaseManager
 from update_service import check_for_update, UpdateCheckResult
+from ui.about_dialog import AboutDialog
 from ui.db_blast_view import DBBlastView
 from ui.git_credential_dialog import GitCredentialDialog
 from ui.hosts_view import HostsView
+from ui.sftp_view import SFTPView
 from ui.sidebar import Sidebar
 
 
@@ -42,6 +44,7 @@ class PullmanApp(ctk.CTk):
         self.minsize(900, 560)
         self._set_windows_app_id()
         self._load_app_icon()
+        self._setup_native_menubar()
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -50,6 +53,7 @@ class PullmanApp(ctk.CTk):
             self,
             on_show_hosts=self._show_hosts_view,
             on_show_db_blast=self._show_db_blast_view,
+            on_show_sftp=self._show_sftp_view,
             on_git_credential=self._open_git_credential_dialog,
             on_import=lambda: self.hosts_view.open_import_dialog(),
             on_export=lambda: self.hosts_view.open_export_dialog(),
@@ -57,10 +61,10 @@ class PullmanApp(ctk.CTk):
         )
         self.sidebar.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
 
-        # Pull Blast dan DB Blast berbagi satu tabel host yang sama, jadi masing-masing memberi tahu
-        # yang lain ketika datanya berubah (tambah/edit/hapus), agar keduanya selalu tersinkron.
-        self.hosts_view = HostsView(self, self.db, on_data_changed=self._notify_db_blast_changed)
+        # Pull Blast, DB Blast, dan File Manager berbagi satu tabel host yang sama
+        self.hosts_view = HostsView(self, self.db, on_data_changed=self._notify_other_views_changed)
         self.db_blast_frame = None
+        self.sftp_frame = None
 
         self._show_hosts_view()
 
@@ -79,6 +83,8 @@ class PullmanApp(ctk.CTk):
             self.hosts_view.on_theme_changed(new_mode)
         if getattr(self, "db_blast_frame", None):
             self.db_blast_frame.on_theme_changed(new_mode)
+        if getattr(self, "sftp_frame", None):
+            self.sftp_frame.on_theme_changed(new_mode)
 
     def _start_background_update_checker(self):
         """Memulai pengecekan update otomatis di background secara berkala (1x sehari)."""
@@ -122,13 +128,17 @@ class PullmanApp(ctk.CTk):
         if should_open:
             webbrowser.open(result.release_url)
 
-    def _notify_db_blast_changed(self):
+    def _notify_other_views_changed(self):
         if getattr(self, "db_blast_frame", None) is not None:
             self.db_blast_frame.mark_needs_refresh()
+        if getattr(self, "sftp_frame", None) is not None:
+            self.sftp_frame.mark_needs_refresh()
 
     def _notify_hosts_changed(self):
         if hasattr(self, "hosts_view"):
             self.hosts_view.mark_needs_refresh()
+        if getattr(self, "sftp_frame", None) is not None:
+            self.sftp_frame.mark_needs_refresh()
 
     def _set_windows_app_id(self):
         """Set AppUserModelID agar icon taskbar Windows muncul terpisah & berikon."""
@@ -157,6 +167,120 @@ class PullmanApp(ctk.CTk):
         except Exception as e:
             print(f"Gagal memuat ikon aplikasi: {e}")
 
+    def _setup_native_menubar(self):
+        """Konfigurasi macOS/Windows native Menubar dan override dialog About macOS."""
+        import tkinter as tk
+
+        menubar = tk.Menu(self)
+
+        # 0. macOS Apple Menu (Application Menu)
+        if sys.platform == "darwin":
+            apple_menu = tk.Menu(menubar, name="apple")
+            apple_menu.add_command(label="About DO.MBA Pull Manager", command=self._show_about_dialog)
+            apple_menu.add_separator()
+            menubar.add_cascade(menu=apple_menu)
+
+        # 1. File Menu
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(
+            label="New Host...",
+            accelerator="Cmd+N" if sys.platform == "darwin" else "Ctrl+N",
+            command=lambda: self.hosts_view._add_host_dialog()
+        )
+        file_menu.add_separator()
+        file_menu.add_command(label="Import...", command=lambda: self.hosts_view.open_import_dialog())
+        file_menu.add_command(label="Export...", command=lambda: self.hosts_view.open_export_dialog())
+        file_menu.add_separator()
+        file_menu.add_command(
+            label="Close Window",
+            accelerator="Cmd+W" if sys.platform == "darwin" else "Ctrl+W",
+            command=self.destroy
+        )
+        menubar.add_cascade(label="File", menu=file_menu)
+
+        # 2. Edit Menu (Enables native macOS clipboard shortcuts)
+        edit_menu = tk.Menu(menubar, tearoff=0)
+        edit_menu.add_command(
+            label="Undo",
+            accelerator="Cmd+Z" if sys.platform == "darwin" else "Ctrl+Z",
+            command=lambda: self.focus_get().event_generate("<<Undo>>") if self.focus_get() else None
+        )
+        edit_menu.add_command(
+            label="Redo",
+            accelerator="Cmd+Shift+Z" if sys.platform == "darwin" else "Ctrl+Y",
+            command=lambda: self.focus_get().event_generate("<<Redo>>") if self.focus_get() else None
+        )
+        edit_menu.add_separator()
+        edit_menu.add_command(
+            label="Cut",
+            accelerator="Cmd+X" if sys.platform == "darwin" else "Ctrl+X",
+            command=lambda: self.focus_get().event_generate("<<Cut>>") if self.focus_get() else None
+        )
+        edit_menu.add_command(
+            label="Copy",
+            accelerator="Cmd+C" if sys.platform == "darwin" else "Ctrl+C",
+            command=lambda: self.focus_get().event_generate("<<Copy>>") if self.focus_get() else None
+        )
+        edit_menu.add_command(
+            label="Paste",
+            accelerator="Cmd+V" if sys.platform == "darwin" else "Ctrl+V",
+            command=lambda: self.focus_get().event_generate("<<Paste>>") if self.focus_get() else None
+        )
+        edit_menu.add_command(
+            label="Select All",
+            accelerator="Cmd+A" if sys.platform == "darwin" else "Ctrl+A",
+            command=lambda: self.focus_get().event_generate("<<SelectAll>>") if self.focus_get() else None
+        )
+        menubar.add_cascade(label="Edit", menu=edit_menu)
+
+        # 3. View Menu
+        view_menu = tk.Menu(menubar, tearoff=0)
+        view_menu.add_command(label="Toggle Theme", command=self._toggle_appearance_mode)
+        view_menu.add_command(
+            label="Refresh",
+            accelerator="Cmd+R" if sys.platform == "darwin" else "F5",
+            command=lambda: self.hosts_view.refresh()
+        )
+        menubar.add_cascade(label="View", menu=view_menu)
+
+        # 4. Window Menu
+        window_menu = tk.Menu(menubar, tearoff=0)
+        window_menu.add_command(
+            label="Minimize",
+            accelerator="Cmd+M" if sys.platform == "darwin" else "Ctrl+M",
+            command=lambda: self.iconify()
+        )
+        menubar.add_cascade(label="Window", menu=window_menu)
+
+        # 5. Help Menu
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label="About DO.MBA Pull Manager", command=self._show_about_dialog)
+        help_menu.add_separator()
+        help_menu.add_command(label="Check for Updates...", command=lambda: self.sidebar._check_for_updates())
+        menubar.add_cascade(label="Help", menu=help_menu)
+
+        # macOS System Menu integration (Direct Tcl/Tk Proc Override)
+        if sys.platform == "darwin":
+            try:
+                cmd = self.register(self._show_about_dialog)
+                self.tk.eval(f"proc ::tk::mac::ShowAbout {{}} {{ {cmd} }}")
+                self.tk.eval(f"proc tkAboutDialog {{}} {{ {cmd} }}")
+            except Exception:
+                pass
+            if hasattr(self, "createcommand"):
+                try:
+                    self.createcommand("::tk::mac::ShowAbout", self._show_about_dialog)
+                    self.createcommand("tkAboutDialog", self._show_about_dialog)
+                    self.createcommand("::tk::mac::ShowHelp", lambda: webbrowser.open("https://github.com/bobbyrinaldo29/pullman-ssh"))
+                except Exception:
+                    pass
+
+        self.config(menu=menubar)
+
+    def _show_about_dialog(self):
+        """Buka dialog About DO.MBA Pull Manager."""
+        AboutDialog(self)
+
     def _open_git_credential_dialog(self):
         GitCredentialDialog(parent=self, db_manager=self.db)
 
@@ -165,6 +289,8 @@ class PullmanApp(ctk.CTk):
         self.sidebar.set_active("hosts")
         if self.db_blast_frame is not None:
             self.db_blast_frame.grid_remove()
+        if self.sftp_frame is not None:
+            self.sftp_frame.grid_remove()
         self.hosts_view.grid(row=0, column=1, sticky="nsew", padx=28, pady=24)
         if getattr(self.hosts_view, "_needs_refresh", False):
             self.hosts_view.refresh()
@@ -173,6 +299,8 @@ class PullmanApp(ctk.CTk):
         """Tampilkan tampilan DB Blast bergaya Navicat (instan)."""
         self.sidebar.set_active("db_blast")
         self.hosts_view.grid_remove()
+        if self.sftp_frame is not None:
+            self.sftp_frame.grid_remove()
         if self.db_blast_frame is None:
             self.db_blast_frame = DBBlastView(self, self.db, on_data_changed=self._notify_hosts_changed)
             self.db_blast_frame.grid(row=0, column=1, sticky="nsew", padx=28, pady=24)
@@ -180,6 +308,25 @@ class PullmanApp(ctk.CTk):
             self.db_blast_frame.grid(row=0, column=1, sticky="nsew", padx=28, pady=24)
             if getattr(self.db_blast_frame, "_needs_refresh", False):
                 self.db_blast_frame._refresh_connections()
+
+    def _show_sftp_view(self, target_host: Optional[dict] = None):
+        """Tampilkan tampilan SFTP File Manager terintegrasi."""
+        self.sidebar.set_active("sftp")
+        self.hosts_view.grid_remove()
+        if self.db_blast_frame is not None:
+            self.db_blast_frame.grid_remove()
+
+        if self.sftp_frame is None:
+            self.sftp_frame = SFTPView(self, self.db, on_data_changed=self._notify_hosts_changed)
+            self.sftp_frame.grid(row=0, column=1, sticky="nsew", padx=28, pady=24)
+        else:
+            self.sftp_frame.grid(row=0, column=1, sticky="nsew", padx=28, pady=24)
+            if getattr(self.sftp_frame, "_needs_refresh", False):
+                self.sftp_frame.refresh_hosts_list()
+
+        # Jika ada target_host spesifik (misal dibuka dari tombol action di HostsView)
+        if target_host:
+            self.sftp_frame.select_host(target_host)
 
 
 if __name__ == "__main__":

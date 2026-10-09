@@ -20,6 +20,8 @@ from ui.host_dialog import HostDialog
 from ui.import_dialog import ImportDialog
 from ui.import_source_dialog import ImportSourceDialog
 from ui.terminal_window import TerminalWindow
+from ui.sftp_window import SFTPWindow
+from terminal_launcher import launch_ssh_terminal
 
 
 class HostsView(ctk.CTkFrame):
@@ -341,6 +343,24 @@ class HostsView(ctk.CTkFrame):
         )
         self.btn_action_term.pack(side="left", padx=(0, 6))
 
+        self.btn_action_sftp = ctk.CTkButton(
+            left_actions,
+            text=" Files",
+            image=get_icon("folder-tree", (13, 13), COLORS["text_secondary"]),
+            compound="left",
+            width=84,
+            height=30,
+            corner_radius=7,
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text_secondary"],
+            border_width=1,
+            border_color=COLORS["line"],
+            font=ctk.CTkFont(size=11),
+            command=self._open_sftp_file_manager
+        )
+        self.btn_action_sftp.pack(side="left", padx=(0, 6))
+
         self.btn_action_edit = ctk.CTkButton(
             left_actions,
             text=" Edit",
@@ -560,7 +580,7 @@ class HostsView(ctk.CTkFrame):
             command=self._run_single_host
         )
         self.context_menu.add_command(
-            label="  Test SSH Connection",
+            label=f"  Test SSH Connection{label_suffix}",
             image=get_tk_image("activity", (15, 15), COLORS["text"]),
             compound="left",
             command=self._test_selected_host
@@ -570,6 +590,12 @@ class HostsView(ctk.CTkFrame):
             image=get_tk_image("terminal", (15, 15), COLORS["text_secondary"]),
             compound="left",
             command=self._terminal_selected_host
+        )
+        self.context_menu.add_command(
+            label="  Open SFTP File Manager",
+            image=get_tk_image("folder-tree", (15, 15), COLORS["text"]),
+            compound="left",
+            command=self._open_sftp_file_manager
         )
         self.context_menu.add_separator()
 
@@ -687,6 +713,7 @@ class HostsView(ctk.CTkFrame):
                 self.tree.item(item_id, values=curr_vals)
         self._sync_check_all_state()
         self._update_run_button_text()
+        self._on_tree_select_change()
 
     def _toggle_check_all(self):
         if not self._current_filtered_hosts:
@@ -711,6 +738,7 @@ class HostsView(ctk.CTkFrame):
 
         self._sync_check_all_state()
         self._update_run_button_text()
+        self._on_tree_select_change()
 
     def _sync_check_all_state(self):
         if self._current_filtered_hosts:
@@ -733,10 +761,13 @@ class HostsView(ctk.CTkFrame):
 
     def _on_tree_select_change(self, event=None):
         sel = self.tree.selection()
-        has_sel = bool(sel)
+        checked_count = len(self.selected_host_ids)
+        has_sel = bool(sel) or checked_count > 0
 
         if has_sel:
+            pull_text = f" Pull ({checked_count})" if checked_count > 1 else " Pull Single"
             self.btn_action_pull.configure(
+                text=pull_text,
                 state="normal",
                 fg_color=COLORS["accent"],
                 hover_color=COLORS["accent_hover"],
@@ -744,7 +775,9 @@ class HostsView(ctk.CTkFrame):
                 border_width=0,
                 image=get_icon("play", (13, 13), "#FFFFFF")
             )
+            test_text = f" Test ({checked_count})" if checked_count > 1 else " Test Connection"
             self.btn_action_test.configure(
+                text=test_text,
                 state="normal",
                 fg_color=COLORS["surface"],
                 hover_color=COLORS["surface_hover"],
@@ -753,16 +786,26 @@ class HostsView(ctk.CTkFrame):
                 border_color=COLORS["line"],
                 image=get_icon("activity", (13, 13), COLORS["accent_text"])
             )
+            is_single = (checked_count == 1 or (checked_count == 0 and len(sel) == 1))
             self.btn_action_term.configure(
-                state="normal",
+                state="normal" if is_single else "disabled",
                 fg_color=COLORS["surface"],
-                hover_color=COLORS["surface_hover"],
-                text_color=COLORS["text_secondary"],
+                hover_color=COLORS["surface_hover"] if is_single else COLORS["surface"],
+                text_color=COLORS["text_secondary"] if is_single else COLORS["subtle"],
                 border_width=1,
                 border_color=COLORS["line"],
-                image=get_icon("terminal", (13, 13), COLORS["text_secondary"])
+                image=get_icon("terminal", (13, 13), COLORS["text_secondary"] if is_single else COLORS["subtle"])
             )
-            edit_text = f" Bulk Edit ({len(self.selected_host_ids)})" if len(self.selected_host_ids) > 1 else " Edit"
+            self.btn_action_sftp.configure(
+                state="normal" if is_single else "disabled",
+                fg_color=COLORS["surface"],
+                hover_color=COLORS["surface_hover"] if is_single else COLORS["surface"],
+                text_color=COLORS["text_secondary"] if is_single else COLORS["subtle"],
+                border_width=1,
+                border_color=COLORS["line"],
+                image=get_icon("folder-tree", (13, 13), COLORS["text_secondary"] if is_single else COLORS["subtle"])
+            )
+            edit_text = f" Bulk Edit ({checked_count})" if checked_count > 1 else " Edit"
             self.btn_action_edit.configure(
                 text=edit_text,
                 state="normal",
@@ -773,7 +816,9 @@ class HostsView(ctk.CTkFrame):
                 border_color=COLORS["line"],
                 image=get_icon("pencil", (13, 13), COLORS["text_secondary"])
             )
+            del_text = f" Delete ({checked_count})" if checked_count > 1 else " Delete"
             self.btn_action_del.configure(
+                text=del_text,
                 state="normal",
                 fg_color=COLORS["danger_subtle"],
                 hover_color=COLORS["danger_hover"],
@@ -783,9 +828,12 @@ class HostsView(ctk.CTkFrame):
                 image=get_icon("trash", (13, 13), COLORS["danger_text"])
             )
             if hasattr(self, "lbl_selected_hint"):
-                h = self._get_selected_host()
-                name = h.get("label", "") if h else ""
-                self.lbl_selected_hint.configure(text=f"Server: {name}" if name else "")
+                if checked_count > 1:
+                    self.lbl_selected_hint.configure(text=f"{checked_count} server terpilih")
+                else:
+                    h = self._get_selected_host()
+                    name = h.get("label", "") if h else ""
+                    self.lbl_selected_hint.configure(text=f"Server: {name}" if name else "")
         else:
             self.btn_action_pull.configure(
                 state="disabled",
@@ -810,6 +858,14 @@ class HostsView(ctk.CTkFrame):
                 border_color=COLORS["line"],
                 text_color_disabled=COLORS["subtle"],
                 image=get_icon("terminal", (13, 13), COLORS["subtle"])
+            )
+            self.btn_action_sftp.configure(
+                state="disabled",
+                fg_color=COLORS["surface"],
+                border_width=1,
+                border_color=COLORS["line"],
+                text_color_disabled=COLORS["subtle"],
+                image=get_icon("folder-tree", (13, 13), COLORS["subtle"])
             )
             self.btn_action_edit.configure(
                 state="disabled",
@@ -856,14 +912,101 @@ class HostsView(ctk.CTkFrame):
             self._open_terminal(host)
 
     def _test_selected_host(self):
-        host = self._get_selected_host()
-        if host:
-            self._test_host_connection(host)
+        """Test koneksi SSH untuk server yang dipilih / dicentang (mendukung single & multiple batch test)."""
+        if len(self.selected_host_ids) > 1:
+            target_ids = list(self.selected_host_ids)
+        else:
+            host = self._get_selected_host()
+            if host:
+                target_ids = [host["id"]]
+            elif len(self.selected_host_ids) == 1:
+                target_ids = list(self.selected_host_ids)
+            else:
+                messagebox.showwarning("Peringatan", "Pilih atau centang setidaknya satu server untuk dites koneksinya.")
+                return
+
+        if len(target_ids) == 1:
+            h = next((x for x in self._all_hosts if x["id"] == target_ids[0]), None)
+            if h:
+                self._test_host_connection(h)
+        else:
+            self._test_multiple_hosts_connection(target_ids)
+
+    def _test_multiple_hosts_connection(self, host_ids: List[int]):
+        """Menjalankan test koneksi SSH secara paralel untuk multiple host yang dipilih."""
+        target_hosts = [h for h in self._all_hosts if h["id"] in host_ids]
+        if not target_hosts:
+            return
+
+        total = len(target_hosts)
+        for h in target_hosts:
+            self._update_tree_status(h["id"], "Testing...")
+
+        self._append_output(f"\n🧪 Memulai test koneksi SSH massal untuk {total} server...\n" + "─" * 60 + "\n")
+        
+        results: Dict[int, Dict[str, Any]] = {}
+        lock = threading.Lock()
+
+        def test_worker(h: dict):
+            full_host = self.db.get_host_by_id(h["id"]) or h
+            res = pull_service.test_connection(full_host)
+            with lock:
+                results[h["id"]] = res
+
+            def on_single_finish(host=h, r=res):
+                elapsed = r.get("elapsed_ms", 0)
+                if r.get("success"):
+                    self._update_tree_status(host["id"], "✓ Online")
+                    self._append_output(f"✓ [{host['label']}] Online ({elapsed} ms) -> {host['hostname']}:{host.get('port', 22)}\n")
+                else:
+                    self._update_tree_status(host["id"], "✗ Offline")
+                    err = r.get("error", "Unknown error")
+                    self._append_output(f"✗ [{host['label']}] OFFLINE: {err} -> {host['hostname']}:{host.get('port', 22)}\n")
+
+            self.after(0, on_single_finish)
+
+        def runner():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [executor.submit(test_worker, h) for h in target_hosts]
+                concurrent.futures.wait(futures)
+
+            def on_all_finish():
+                success_count = sum(1 for r in results.values() if r.get("success"))
+                failed_count = total - success_count
+                self._append_output("─" * 60 + f"\n📊 Selesai: {success_count}/{total} Server Online, {failed_count} Gagal.\n\n")
+                if failed_count == 0:
+                    messagebox.showinfo(
+                        "Test Koneksi Massal Selesai",
+                        f"Semua server ({success_count}/{total}) BERHASIL terhubung via SSH!\n"
+                    )
+                else:
+                    messagebox.showwarning(
+                        "Test Koneksi Massal Selesai",
+                        f"Hasil Test Koneksi ({total} server):\n\n"
+                        f"• Berhasil (Online): {success_count}\n"
+                        f"• Gagal (Offline): {failed_count}\n\n"
+                        "Lihat Output Log untuk detail kesalahan masing-masing server."
+                    )
+
+            self.after(0, on_all_finish)
+
+        threading.Thread(target=runner, daemon=True).start()
 
     def _terminal_selected_host(self):
         host = self._get_selected_host()
         if host:
             self._open_manual_terminal(host)
+
+    def _open_sftp_file_manager(self):
+        """Buka SFTP File Manager untuk server yang dipilih (beralih ke tab File Manager di sidebar)."""
+        host = self._get_selected_host()
+        if host:
+            full_host = self.db.get_host_by_id(host["id"]) or host
+            if hasattr(self.app, "_show_sftp_view"):
+                self.app._show_sftp_view(full_host)
+            else:
+                SFTPWindow(self.app, full_host)
 
     def _edit_selected_host(self):
         checked_ids = list(self.selected_host_ids)
@@ -941,94 +1084,15 @@ class HostsView(ctk.CTkFrame):
             )
 
     def _open_manual_terminal(self, host: dict):
-        """Membuka sesi terminal interaktif (macOS Terminal/sshpass, PuTTY, atau Windows CMD) untuk akses manual."""
+        """Membuka sesi terminal interaktif (Windows CMD / PowerShell / PuTTY, macOS Terminal, Linux) untuk akses manual."""
         full_host = self.db.get_host_by_id(host["id"]) or host
-        hostname = full_host.get("hostname", "")
-        port = str(full_host.get("port", 22))
-        username = full_host.get("username", "")
-        password = full_host.get("password", "")
-        key_file = full_host.get("key_filename", "")
-        auth_type = full_host.get("auth_type", "password")
-
-        if password:
-            try:
-                self.app.clipboard_clear()
-                self.app.clipboard_append(password)
-                self._append_output(f"ℹ [{host['label']}] Password SSH telah disalin ke clipboard.\n")
-            except Exception:
-                pass
-
-        if sys.platform == "darwin":
-            extra_opts = "-o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa"
-            sshpass_bin = shutil.which("sshpass")
-
-            if auth_type == "key" and key_file:
-                ssh_cmd = f"ssh -i '{key_file}' {extra_opts} -p {port} {username}@{hostname}"
-                applescript = f'tell application "Terminal" to do script "{ssh_cmd}"'
-            elif auth_type == "password" and password and sshpass_bin:
-                ssh_cmd = f"{sshpass_bin} -p '{password}' ssh {extra_opts} -p {port} {username}@{hostname}"
-                applescript = f'tell application "Terminal" to do script "{ssh_cmd}"'
-            elif auth_type == "password" and password:
-                ssh_cmd = f"ssh {extra_opts} -p {port} {username}@{hostname}"
-                applescript = f'''
-                tell application "Terminal"
-                    activate
-                    set newTab to do script "{ssh_cmd}"
-                    delay 1.5
-                    do script "{password}" in newTab
-                end tell
-                '''
-            else:
-                ssh_cmd = f"ssh {extra_opts} -p {port} {username}@{hostname}"
-                applescript = f'tell application "Terminal" to do script "{ssh_cmd}"'
-
-            try:
-                subprocess.Popen(["osascript", "-e", applescript])
-                self._append_output(f"🚀 [{host['label']}] Membuka Terminal macOS ({hostname}:{port})...\n")
-                return
-            except Exception as e:
-                self._append_output(f"Gagal membuka Terminal macOS ({e}), mencoba fallback...\n")
-
-        # Windows PuTTY / CMD
-        putty_exe = shutil.which("putty")
-        if not putty_exe:
-            for candidate in [
-                r"C:\Program Files\PuTTY\putty.exe",
-                r"C:\Program Files (x86)\PuTTY\putty.exe",
-                os.path.expandvars(r"%LOCALAPPDATA%\Programs\PuTTY\putty.exe")
-            ]:
-                if os.path.exists(candidate):
-                    putty_exe = candidate
-                    break
-
-        if putty_exe:
-            cmd = [putty_exe, "-ssh", "-P", port, "-l", username]
-            if auth_type == "password" and password:
-                cmd.extend(["-pw", password])
-            elif auth_type == "key" and key_file and key_file.lower().endswith(".ppk"):
-                cmd.extend(["-i", key_file])
-            cmd.append(hostname)
-
-            try:
-                subprocess.Popen(cmd)
-                self._append_output(f"🚀 [{host['label']}] Membuka sesi SSH via PuTTY ({hostname}:{port})...\n")
-                return
-            except Exception as e:
-                self._append_output(f"Gagal membuka PuTTY ({e}), beralih ke Command Prompt...\n")
-
-        # Fallback ke Command Prompt Windows
-        title = f"SSH - {host['label']} ({hostname})"
-        if auth_type == "key" and key_file:
-            ssh_target = f'ssh -i "{key_file}" -p {port} {username}@{hostname}'
+        initial_dir = full_host.get("repo_path") or "/var/www/html"
+        res = launch_ssh_terminal(host=dict(full_host), initial_dir=initial_dir, app=self.app)
+        if res.get("success"):
+            self._append_output(f"🚀 [{host.get('label', 'Host')}] {res.get('message', 'Membuka Terminal...')}\n")
         else:
-            ssh_target = f'ssh -p {port} {username}@{hostname}'
-
-        full_cmd = f'start "{title}" cmd /k "{ssh_target}"'
-        try:
-            subprocess.Popen(full_cmd, shell=True)
-            self._append_output(f"🚀 [{host['label']}] Membuka Command Prompt SSH: {ssh_target}\n")
-        except Exception as e:
-            messagebox.showerror("Terminal Error", f"Gagal membuka terminal: {e}")
+            self._append_output(f"✗ [{host.get('label', 'Host')}] Gagal membuka terminal: {res.get('error')}\n")
+            messagebox.showerror("Terminal Error", f"Gagal membuka terminal:\n\n{res.get('error')}")
 
     def _run_all_hosts(self):
         """Menjalankan git pull pada seluruh host yang dipilih di background thread tanpa freeze UI."""

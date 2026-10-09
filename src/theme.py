@@ -7,7 +7,7 @@ os.environ['TK_SILENCE_DEPRECATION'] = '1'
 
 import customtkinter as ctk
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 APP_NAME = "DO.MBA Pull Manager"
 
 # Dual Theme Palette: Tuple (Light Mode, Dark Mode)
