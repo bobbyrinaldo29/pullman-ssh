@@ -66,10 +66,6 @@ class RedmineEditTaskDialog(ctk.CTkToplevel):
         self._build_footer()
         self._build_form()
 
-        # Keyboard shortcuts
-        self.bind("<Control-s>", lambda _: self._save_changes())
-        self.bind("<Command-s>", lambda _: self._save_changes())
-
         # Setup smooth & fast mousewheel scrolling across all components
         self.after(60, lambda: self._bind_mousewheel_recursive(self.scroll_frame))
 
