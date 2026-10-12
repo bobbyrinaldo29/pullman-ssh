@@ -1,0 +1,1624 @@
+import os
+import re
+import subprocess
+import sys
+import threading
+import tkinter as tk
+from tkinter import ttk, messagebox
+from typing import Any, Dict, List, Optional, Tuple
+
+import customtkinter as ctk
+
+try:
+    import git
+    from git import Repo, InvalidGitRepositoryError, NoSuchPathError, GitCommandError
+    HAS_GITPYTHON = True
+except ImportError:
+    HAS_GITPYTHON = False
+
+from theme import COLORS, get_color
+from icons import get_icon
+from sftp_service import SFTPService
+from terminal_launcher import launch_ssh_terminal, launch_local_terminal
+
+
+class GitGraphDialog(ctk.CTkToplevel):
+    """
+    Dialog Git History, Commit & Sync Manager bergaya GitHub Desktop.
+    Menyediakan:
+    - Tab "Changes": Daftar file berubah di working directory, staging dengan checkbox, commit box.
+    - Tab "History": Visual commit feed, branch graph, file navigator, dan commit diff.
+    - Sync Actions: Push origin, Pull origin, Discard changes, Open Terminal.
+    - Mendukung Local (via GitPython) & Remote Server (via SSH).
+    """
+
+    def __init__(
+        self,
+        parent: Any,
+        host: Optional[Dict[str, Any]],
+        target_dir: str,
+        is_local: bool = False
+    ):
+        super().__init__(parent)
+        self.host = host or {}
+        self.target_dir = target_dir
+        self.is_local = is_local
+
+        dir_name = os.path.basename(target_dir.rstrip("/")) or target_dir
+        host_label = "Local" if is_local else (self.host.get("label") or self.host.get("hostname") or "Remote")
+        self.title(f"GitHub Desktop - {dir_name} ({host_label})")
+        self.geometry("1200x780")
+        self.minsize(920, 560)
+        self.configure(fg_color=COLORS["window"])
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+
+        # State History
+        self._commits: List[Dict[str, Any]] = []
+        self._current_branch = "main"
+        self._is_loading = False
+
+        # State Selected Commit (History Tab)
+        self._selected_commit_hash = ""
+        self._history_files_data: List[Dict[str, Any]] = []
+        self._history_all_diff = ""
+
+        # State Changes (Working Tree Tab)
+        self._working_changes: List[Dict[str, Any]] = []  # dict: {path, status, type, checked_var, add, del}
+        self._selected_working_file: Optional[Dict[str, Any]] = None
+        self._active_tab = "Changes"
+
+        self._build_ui()
+        self._refresh_all_data()
+
+    # -------------------------------------------------------------
+    # 1. UI BUILDER (GitHub Desktop Layout)
+    # -------------------------------------------------------------
+    def _build_ui(self):
+        # ---------------------------------------------------------
+        # TOP NAVIGATION BAR (Repo, Branch, Sync Buttons, Terminal)
+        # ---------------------------------------------------------
+        top_bar = ctk.CTkFrame(
+            self,
+            fg_color=COLORS["surface"],
+            height=54,
+            corner_radius=0,
+            border_width=1,
+            border_color=COLORS["line"]
+        )
+        top_bar.grid(row=0, column=0, sticky="ew")
+        top_bar.grid_columnconfigure(1, weight=1)
+
+        # Left Group: Repository & Branch Pills
+        left_box = ctk.CTkFrame(top_bar, fg_color="transparent")
+        left_box.grid(row=0, column=0, padx=14, pady=8, sticky="w")
+
+        dir_name = os.path.basename(self.target_dir.rstrip("/")) or self.target_dir
+        repo_pill = ctk.CTkFrame(left_box, fg_color=COLORS["input_bg"], corner_radius=6, border_width=1, border_color=COLORS["line"])
+        repo_pill.pack(side="left", padx=(0, 8), pady=2)
+
+        icon_repo = ctk.CTkLabel(repo_pill, text="", image=get_icon("folder", (15, 15), COLORS["accent"]))
+        icon_repo.pack(side="left", padx=(8, 4), pady=4)
+
+        lbl_repo = ctk.CTkLabel(repo_pill, text=dir_name, font=ctk.CTkFont(size=12, weight="bold"), text_color=COLORS["text"])
+        lbl_repo.pack(side="left", padx=(0, 6))
+
+        tag_type = "Local" if self.is_local else (self.host.get("label") or self.host.get("hostname") or "Remote")
+        lbl_type = ctk.CTkLabel(
+            repo_pill,
+            text=f" {tag_type} ",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            fg_color=COLORS["accent_subtle"],
+            text_color=COLORS["accent_text"],
+            corner_radius=4,
+            height=18
+        )
+        lbl_type.pack(side="left", padx=(0, 8), pady=4)
+
+        # Current Branch Pill
+        branch_pill = ctk.CTkFrame(left_box, fg_color=COLORS["input_bg"], corner_radius=6, border_width=1, border_color=COLORS["line"])
+        branch_pill.pack(side="left", padx=(0, 8), pady=2)
+
+        icon_branch = ctk.CTkLabel(branch_pill, text="", image=get_icon("activity", (14, 14), COLORS["text_secondary"]))
+        icon_branch.pack(side="left", padx=(8, 4), pady=4)
+
+        self.lbl_branch_name = ctk.CTkLabel(
+            branch_pill,
+            text="Branch: ...",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS["text"]
+        )
+        self.lbl_branch_name.pack(side="left", padx=(0, 8), pady=4)
+
+        # Right Group: Pull, Push, Terminal, Refresh
+        controls_box = ctk.CTkFrame(top_bar, fg_color="transparent")
+        controls_box.grid(row=0, column=2, padx=14, pady=8, sticky="e")
+
+        # Pull origin button
+        self.btn_pull = ctk.CTkButton(
+            controls_box,
+            text=" Pull origin",
+            image=get_icon("download", (12, 12), COLORS["text"]),
+            width=95, height=30,
+            corner_radius=6,
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"],
+            border_width=1,
+            border_color=COLORS["line"],
+            font=ctk.CTkFont(size=11),
+            command=self._do_pull
+        )
+        self.btn_pull.pack(side="left", padx=(0, 6))
+
+        # Push origin button
+        self.btn_push = ctk.CTkButton(
+            controls_box,
+            text=" Push origin",
+            image=get_icon("upload", (12, 12), COLORS["accent_text"]),
+            width=95, height=30,
+            corner_radius=6,
+            fg_color=COLORS["accent_subtle"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["accent_text"],
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=self._do_push
+        )
+        self.btn_push.pack(side="left", padx=(0, 6))
+
+        # Open Terminal
+        btn_terminal = ctk.CTkButton(
+            controls_box,
+            text=" Terminal",
+            image=get_icon("terminal", (12, 12), COLORS["text_secondary"]),
+            width=85, height=30,
+            corner_radius=6,
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"],
+            border_width=1,
+            border_color=COLORS["line"],
+            font=ctk.CTkFont(size=11),
+            command=self._open_terminal_here
+        )
+        btn_terminal.pack(side="left", padx=(0, 6))
+
+        # Refresh button
+        self.btn_refresh = ctk.CTkButton(
+            controls_box,
+            text=" Refresh",
+            image=get_icon("refresh-cw", (12, 12), COLORS["text"]),
+            width=80, height=30,
+            corner_radius=6,
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"],
+            border_width=1,
+            border_color=COLORS["line"],
+            font=ctk.CTkFont(size=11),
+            command=self._refresh_all_data
+        )
+        self.btn_refresh.pack(side="left")
+
+        # ---------------------------------------------------------
+        # MAIN BODY (2-Column Horizontal Split)
+        # ---------------------------------------------------------
+        main_paned = tk.PanedWindow(
+            self,
+            orient=tk.HORIZONTAL,
+            bg=get_color("line"),
+            bd=0,
+            sashwidth=4,
+            sashrelief=tk.FLAT
+        )
+        main_paned.grid(row=1, column=0, sticky="nsew", padx=10, pady=(8, 4))
+
+        # ---------------------------------------------------------
+        # LEFT PANE: TABS (Changes vs History)
+        # ---------------------------------------------------------
+        left_pane = ctk.CTkFrame(main_paned, fg_color=COLORS["surface"], corner_radius=6)
+        main_paned.add(left_pane, minsize=350, width=440)
+        left_pane.grid_columnconfigure(0, weight=1)
+        left_pane.grid_rowconfigure(1, weight=1)
+
+        # Tab Segmented Switcher (Changes / History)
+        tab_box = ctk.CTkFrame(left_pane, fg_color="transparent", height=36)
+        tab_box.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
+        tab_box.grid_columnconfigure(0, weight=1)
+
+        self.seg_tabs = ctk.CTkSegmentedButton(
+            tab_box,
+            values=["Changes", "History"],
+            font=ctk.CTkFont(size=12, weight="bold"),
+            selected_color=COLORS["accent"],
+            selected_hover_color=COLORS["accent_hover"],
+            unselected_color=COLORS["input_bg"],
+            unselected_hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"],
+            command=self._on_tab_changed
+        )
+        self.seg_tabs.grid(row=0, column=0, sticky="ew")
+        self.seg_tabs.set("Changes")
+
+        # Container for Tab Views
+        self.tab_container = ctk.CTkFrame(left_pane, fg_color="transparent")
+        self.tab_container.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
+        self.tab_container.grid_columnconfigure(0, weight=1)
+        self.tab_container.grid_rowconfigure(0, weight=1)
+
+        # TAB 1: CHANGES VIEW (Working Tree & Commit Box)
+        self._build_changes_view()
+
+        # TAB 2: HISTORY VIEW (Commits & Filter)
+        self._build_history_view()
+
+        # ---------------------------------------------------------
+        # RIGHT PANE: DIFF VIEWER / COMMIT OVERVIEW
+        # ---------------------------------------------------------
+        self.right_pane = ctk.CTkFrame(main_paned, fg_color=COLORS["surface"], corner_radius=6)
+        main_paned.add(self.right_pane, minsize=460, width=740)
+        self.right_pane.grid_columnconfigure(0, weight=1)
+        self.right_pane.grid_rowconfigure(1, weight=1)
+
+        self._build_right_pane()
+
+        # ---------------------------------------------------------
+        # BOTTOM STATUS BAR
+        # ---------------------------------------------------------
+        bottom_bar = ctk.CTkFrame(self, fg_color=COLORS["surface"], height=26, corner_radius=0, border_width=1, border_color=COLORS["line"])
+        bottom_bar.grid(row=2, column=0, sticky="ew")
+
+        self.lbl_status = ctk.CTkLabel(
+            bottom_bar,
+            text="Ready",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["muted"]
+        )
+        self.lbl_status.pack(side="left", padx=14, pady=2)
+
+        lbl_footer_path = ctk.CTkLabel(
+            bottom_bar,
+            text=self.target_dir,
+            font=ctk.CTkFont(size=10),
+            text_color=COLORS["subtle"]
+        )
+        lbl_footer_path.pack(side="right", padx=14, pady=2)
+
+    # -------------------------------------------------------------
+    # 2. LEFT PANE - TAB 1: CHANGES VIEW
+    # -------------------------------------------------------------
+    def _build_changes_view(self):
+        self.frame_changes = ctk.CTkFrame(self.tab_container, fg_color="transparent")
+        self.frame_changes.grid_columnconfigure(0, weight=1)
+        self.frame_changes.grid_rowconfigure(1, weight=1)
+
+        # Header: Select All CheckBox & Discard Action
+        changes_header = ctk.CTkFrame(self.frame_changes, fg_color=COLORS["input_bg"], height=32, corner_radius=4)
+        changes_header.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        changes_header.grid_columnconfigure(0, weight=1)
+
+        self.var_select_all = ctk.BooleanVar(value=True)
+        self.chk_select_all = ctk.CTkCheckBox(
+            changes_header,
+            text="Select All (0 files)",
+            variable=self.var_select_all,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=COLORS["text"],
+            checkbox_width=16, checkbox_height=16,
+            command=self._toggle_select_all_changes
+        )
+        self.chk_select_all.grid(row=0, column=0, sticky="w", padx=10, pady=6)
+
+        btn_discard_all = ctk.CTkButton(
+            changes_header,
+            text="Discard all...",
+            font=ctk.CTkFont(size=10),
+            fg_color="transparent",
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["danger_text"],
+            width=70, height=22,
+            command=self._do_discard_all
+        )
+        btn_discard_all.grid(row=0, column=1, sticky="e", padx=8, pady=4)
+
+        # Scrollable List of Changed Files
+        self.scroll_changes = ctk.CTkScrollableFrame(
+            self.frame_changes,
+            fg_color=COLORS["input_bg"],
+            corner_radius=4,
+            border_width=1,
+            border_color=COLORS["line"]
+        )
+        self.scroll_changes.grid(row=1, column=0, sticky="nsew")
+        self.scroll_changes.grid_columnconfigure(0, weight=1)
+
+        # Context Menu for Changed File
+        self.menu_changes = tk.Menu(self, tearoff=False, bg=get_color("surface"), fg=get_color("text"), activebackground=get_color("accent"))
+        self.menu_changes.add_command(label="Discard Changes...", command=self._do_discard_selected_file)
+        self.menu_changes.add_command(label="Copy Relative Path", command=self._copy_selected_file_path)
+
+        # ---------------------------------------------------------
+        # COMMIT BOX (GitHub Desktop Style)
+        # ---------------------------------------------------------
+        commit_box = ctk.CTkFrame(
+            self.frame_changes,
+            fg_color=COLORS["input_bg"],
+            corner_radius=6,
+            border_width=1,
+            border_color=COLORS["line"]
+        )
+        commit_box.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        commit_box.grid_columnconfigure(0, weight=1)
+
+        lbl_commit_box_title = ctk.CTkLabel(
+            commit_box,
+            text="Commit message",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=COLORS["text_secondary"]
+        )
+        lbl_commit_box_title.grid(row=0, column=0, sticky="w", padx=10, pady=(8, 4))
+
+        # Summary entry (Required)
+        self.entry_commit_summary = ctk.CTkEntry(
+            commit_box,
+            placeholder_text="Summary (required)",
+            height=30,
+            font=ctk.CTkFont(size=11),
+            fg_color=COLORS["surface"],
+            border_width=1,
+            border_color=COLORS["line"]
+        )
+        self.entry_commit_summary.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
+        self.entry_commit_summary.bind("<KeyRelease>", lambda e: self._update_commit_button_state())
+
+        # Description textbox (Optional)
+        self.txt_commit_desc = ctk.CTkTextbox(
+            commit_box,
+            height=54,
+            font=ctk.CTkFont(size=11),
+            fg_color=COLORS["surface"],
+            border_width=1,
+            border_color=COLORS["line"],
+            wrap="word"
+        )
+        self.txt_commit_desc.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 8))
+
+        # Commit Action Button
+        self.btn_commit = ctk.CTkButton(
+            commit_box,
+            text="Commit to main",
+            height=32,
+            corner_radius=6,
+            fg_color="#238636",              # GitHub Green
+            hover_color="#2EA043",
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            state="disabled",
+            command=self._do_commit
+        )
+        self.btn_commit.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 10))
+
+    # -------------------------------------------------------------
+    # 3. LEFT PANE - TAB 2: HISTORY VIEW
+    # -------------------------------------------------------------
+    def _build_history_view(self):
+        self.frame_history = ctk.CTkFrame(self.tab_container, fg_color="transparent")
+        self.frame_history.grid_columnconfigure(0, weight=1)
+        self.frame_history.grid_rowconfigure(1, weight=1)
+
+        # Controls: Search, Switch All, Limit
+        filter_box = ctk.CTkFrame(self.frame_history, fg_color=COLORS["input_bg"], height=36, corner_radius=4)
+        filter_box.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        filter_box.grid_columnconfigure(0, weight=1)
+
+        self.entry_filter = ctk.CTkEntry(
+            filter_box,
+            placeholder_text="Filter history (message, author, SHA)...",
+            height=28,
+            font=ctk.CTkFont(size=11),
+            fg_color=COLORS["surface"],
+            border_width=1,
+            border_color=COLORS["line"]
+        )
+        self.entry_filter.grid(row=0, column=0, sticky="ew", padx=(8, 6), pady=4)
+        self.entry_filter.bind("<KeyRelease>", lambda e: self._filter_displayed_commits())
+
+        self.switch_all = ctk.CTkSwitch(
+            filter_box,
+            text="All",
+            font=ctk.CTkFont(size=10),
+            text_color=COLORS["text_secondary"],
+            command=self._load_git_log
+        )
+        self.switch_all.grid(row=0, column=1, padx=(0, 6), pady=4)
+        self.switch_all.select()
+
+        # Treeview History
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure(
+            "GitHub.History.Treeview",
+            background=get_color("input_bg"),
+            foreground=get_color("text"),
+            fieldbackground=get_color("input_bg"),
+            borderwidth=0,
+            rowheight=32,
+            font=("Segoe UI" if os.name == "nt" else "SF Pro", 11)
+        )
+        style.configure(
+            "GitHub.History.Treeview.Heading",
+            background=get_color("surface"),
+            foreground=get_color("text_secondary"),
+            borderwidth=1,
+            relief="flat",
+            font=("Segoe UI" if os.name == "nt" else "SF Pro", 10, "bold")
+        )
+        style.map(
+            "GitHub.History.Treeview",
+            background=[("selected", get_color("accent_subtle"))],
+            foreground=[("selected", get_color("accent_text"))]
+        )
+
+        tree_container = ctk.CTkFrame(self.frame_history, fg_color="transparent")
+        tree_container.grid(row=1, column=0, sticky="nsew")
+        tree_container.grid_columnconfigure(0, weight=1)
+        tree_container.grid_rowconfigure(0, weight=1)
+
+        columns = ("graph", "commit", "author_date", "hash")
+        self.tree_history = ttk.Treeview(
+            tree_container,
+            columns=columns,
+            show="headings",
+            style="GitHub.History.Treeview",
+            selectmode="browse"
+        )
+        self.tree_history.grid(row=0, column=0, sticky="nsew")
+
+        self.tree_history.heading("graph", text="Graph", anchor="w")
+        self.tree_history.heading("commit", text="Commit Message", anchor="w")
+        self.tree_history.heading("author_date", text="Author & Date", anchor="w")
+        self.tree_history.heading("hash", text="SHA", anchor="w")
+
+        self.tree_history.column("graph", width=65, minwidth=45, stretch=False)
+        self.tree_history.column("commit", width=190, minwidth=140, stretch=True)
+        self.tree_history.column("author_date", width=120, minwidth=90, stretch=False)
+        self.tree_history.column("hash", width=65, minwidth=55, stretch=False)
+
+        hist_scroll = ctk.CTkScrollbar(tree_container, orientation="vertical", command=self.tree_history.yview)
+        hist_scroll.grid(row=0, column=1, sticky="ns")
+        self.tree_history.configure(yscrollcommand=hist_scroll.set)
+
+        self.tree_history.bind("<<TreeviewSelect>>", self._on_history_commit_selected)
+        self.tree_history.bind("<Double-Button-1>", lambda e: self._copy_selected_hash())
+
+    # -------------------------------------------------------------
+    # 4. RIGHT PANE: COMMIT CARD & DIFF VIEWER
+    # -------------------------------------------------------------
+    def _build_right_pane(self):
+        # 1. Commit Overview Card (Terlihat saat di tab History)
+        self.card_overview = ctk.CTkFrame(
+            self.right_pane,
+            fg_color=COLORS["input_bg"],
+            corner_radius=6,
+            border_width=1,
+            border_color=COLORS["line"]
+        )
+        self.card_overview.grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 8))
+        self.card_overview.grid_columnconfigure(0, weight=1)
+
+        title_row = ctk.CTkFrame(self.card_overview, fg_color="transparent")
+        title_row.grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 4))
+        title_row.grid_columnconfigure(0, weight=1)
+
+        self.lbl_commit_title = ctk.CTkLabel(
+            title_row,
+            text="Working Directory Changes",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=COLORS["text"],
+            anchor="w",
+            wraplength=520,
+            justify="left"
+        )
+        self.lbl_commit_title.grid(row=0, column=0, sticky="w")
+
+        self.btn_copy_sha = ctk.CTkButton(
+            title_row,
+            text="Copy SHA",
+            image=get_icon("copy", (11, 11), COLORS["text_secondary"]),
+            width=90, height=24,
+            corner_radius=4,
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text_secondary"],
+            font=ctk.CTkFont(size=10),
+            command=self._copy_selected_hash
+        )
+        self.btn_copy_sha.grid(row=0, column=1, sticky="e", padx=(8, 0))
+
+        self.lbl_commit_body = ctk.CTkLabel(
+            self.card_overview,
+            text="",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["muted"],
+            anchor="w",
+            justify="left",
+            wraplength=600
+        )
+        self.lbl_commit_body.grid(row=1, column=0, sticky="w", padx=12, pady=(0, 4))
+
+        meta_row = ctk.CTkFrame(self.card_overview, fg_color="transparent")
+        meta_row.grid(row=2, column=0, sticky="ew", padx=12, pady=(2, 6))
+
+        self.lbl_author_info = ctk.CTkLabel(
+            meta_row,
+            text="",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_secondary"]
+        )
+        self.lbl_author_info.pack(side="left", padx=(0, 14))
+
+        self.lbl_date_info = ctk.CTkLabel(
+            meta_row,
+            text="",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["muted"]
+        )
+        self.lbl_date_info.pack(side="left", padx=(0, 14))
+
+        self.lbl_sha_full = ctk.CTkLabel(
+            meta_row,
+            text="",
+            font=ctk.CTkFont(family="Menlo" if os.name != "nt" else "Consolas", size=10),
+            text_color=COLORS["muted"]
+        )
+        self.lbl_sha_full.pack(side="left")
+
+        summary_bar = ctk.CTkFrame(self.card_overview, fg_color=COLORS["surface"], height=28, corner_radius=4)
+        summary_bar.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 10))
+
+        self.lbl_summary_stats = ctk.CTkLabel(
+            summary_bar,
+            text="0 files changed",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=COLORS["text"]
+        )
+        self.lbl_summary_stats.pack(side="left", padx=10, pady=2)
+
+        self.lbl_additions_badge = ctk.CTkLabel(
+            summary_bar,
+            text="+0",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            fg_color="#12261E",
+            text_color="#3FB950",
+            corner_radius=4,
+            height=18
+        )
+        self.lbl_additions_badge.pack(side="left", padx=(0, 6))
+
+        self.lbl_deletions_badge = ctk.CTkLabel(
+            summary_bar,
+            text="-0",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            fg_color="#2E1518",
+            text_color="#F85149",
+            corner_radius=4,
+            height=18
+        )
+        self.lbl_deletions_badge.pack(side="left")
+
+        # 2. Sub-Split: Files Changed (History only) + Diff Viewer
+        self.diff_paned = tk.PanedWindow(
+            self.right_pane,
+            orient=tk.HORIZONTAL,
+            bg=get_color("line"),
+            bd=0,
+            sashwidth=4,
+            sashrelief=tk.FLAT
+        )
+        self.diff_paned.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 10))
+
+        # Files Frame (Khusus History)
+        self.history_files_frame = ctk.CTkFrame(self.diff_paned, fg_color=COLORS["input_bg"], corner_radius=6)
+        self.diff_paned.add(self.history_files_frame, minsize=180, width=220)
+        self.history_files_frame.grid_columnconfigure(0, weight=1)
+        self.history_files_frame.grid_rowconfigure(1, weight=1)
+
+        files_top = ctk.CTkFrame(self.history_files_frame, fg_color="transparent", height=28)
+        files_top.grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 4))
+        files_top.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            files_top,
+            text="Changed Files",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=COLORS["text_secondary"]
+        ).grid(row=0, column=0, sticky="w")
+
+        files_tree_box = ctk.CTkFrame(self.history_files_frame, fg_color="transparent")
+        files_tree_box.grid(row=1, column=0, sticky="nsew", padx=6, pady=(0, 8))
+        files_tree_box.grid_columnconfigure(0, weight=1)
+        files_tree_box.grid_rowconfigure(0, weight=1)
+
+        style = ttk.Style()
+        style.configure(
+            "GitHub.Files.Treeview",
+            background=get_color("input_bg"),
+            foreground=get_color("text"),
+            fieldbackground=get_color("input_bg"),
+            borderwidth=0,
+            rowheight=26,
+            font=("Segoe UI" if os.name == "nt" else "SF Pro", 10)
+        )
+        style.map(
+            "GitHub.Files.Treeview",
+            background=[("selected", get_color("accent_subtle"))],
+            foreground=[("selected", get_color("accent_text"))]
+        )
+
+        self.tree_files = ttk.Treeview(
+            files_tree_box,
+            columns=("type", "file", "stat"),
+            show="headings",
+            style="GitHub.Files.Treeview",
+            selectmode="browse"
+        )
+        self.tree_files.grid(row=0, column=0, sticky="nsew")
+
+        self.tree_files.heading("type", text="Type", anchor="center")
+        self.tree_files.heading("file", text="File Path", anchor="w")
+        self.tree_files.heading("stat", text="+ / -", anchor="e")
+
+        self.tree_files.column("type", width=42, minwidth=35, stretch=False, anchor="center")
+        self.tree_files.column("file", width=120, minwidth=90, stretch=True)
+        self.tree_files.column("stat", width=55, minwidth=45, stretch=False, anchor="e")
+
+        files_scroll = ctk.CTkScrollbar(files_tree_box, orientation="vertical", command=self.tree_files.yview)
+        files_scroll.grid(row=0, column=1, sticky="ns")
+        self.tree_files.configure(yscrollcommand=files_scroll.set)
+        self.tree_files.bind("<<TreeviewSelect>>", self._on_history_file_selected)
+
+        # Diff View Frame
+        self.diff_view_frame = ctk.CTkFrame(self.diff_paned, fg_color=COLORS["input_bg"], corner_radius=6)
+        self.diff_paned.add(self.diff_view_frame, minsize=280, width=540)
+        self.diff_view_frame.grid_columnconfigure(0, weight=1)
+        self.diff_view_frame.grid_rowconfigure(1, weight=1)
+
+        diff_top = ctk.CTkFrame(self.diff_view_frame, fg_color=COLORS["surface"], height=30, corner_radius=0)
+        diff_top.grid(row=0, column=0, sticky="ew")
+
+        self.lbl_diff_title = ctk.CTkLabel(
+            diff_top,
+            text="Diff Viewer",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=COLORS["text"]
+        )
+        self.lbl_diff_title.pack(side="left", padx=12, pady=4)
+
+        self.txt_diff = ctk.CTkTextbox(
+            self.diff_view_frame,
+            font=ctk.CTkFont(family="Menlo" if os.name != "nt" else "Consolas", size=11),
+            fg_color=COLORS["input_bg"],
+            text_color=COLORS["text"],
+            corner_radius=0,
+            border_width=0,
+            wrap="none"
+        )
+        self.txt_diff.grid(row=1, column=0, sticky="nsew", padx=2, pady=2)
+
+    # -------------------------------------------------------------
+    # 5. TAB SWITCHING (Changes vs History)
+    # -------------------------------------------------------------
+    def _on_tab_changed(self, selected_tab: str):
+        self._active_tab = selected_tab
+        if selected_tab == "Changes":
+            self.frame_history.grid_forget()
+            self.frame_changes.grid(row=0, column=0, sticky="nsew")
+
+            # Atur Right Pane untuk Changes
+            self.btn_copy_sha.grid_remove()
+            self.lbl_sha_full.configure(text="")
+            self.lbl_date_info.configure(text="")
+            self.lbl_commit_body.configure(text="")
+            self.lbl_author_info.configure(text="Local Working Tree")
+            self.lbl_commit_title.configure(text=f"Changes in Working Directory ({len(self._working_changes)} files)")
+
+            # Sembunyikan files frame history di diff_paned
+            try:
+                self.diff_paned.forget(self.history_files_frame)
+            except Exception:
+                pass
+
+            self._load_working_changes()
+        else:
+            self.frame_changes.grid_forget()
+            self.frame_history.grid(row=0, column=0, sticky="nsew")
+
+            self.btn_copy_sha.grid()
+            # Tampilkan kembali files frame history di diff_paned
+            try:
+                self.diff_paned.add(self.history_files_frame, minsize=180, width=220, before=self.diff_view_frame)
+            except Exception:
+                pass
+
+            self._load_git_log()
+
+    def _refresh_all_data(self):
+        """Memperbarui branch, working changes, dan git history."""
+        self._detect_branch()
+        if self._active_tab == "Changes":
+            self._load_working_changes()
+        else:
+            self._load_git_log()
+
+    def _detect_branch(self):
+        def worker():
+            branch = "main"
+            if self.is_local:
+                if HAS_GITPYTHON:
+                    try:
+                        repo = Repo(self.target_dir, search_parent_directories=True)
+                        try:
+                            branch = repo.active_branch.name
+                        except (TypeError, ValueError):
+                            branch = "HEAD (detached)"
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        res = subprocess.run(f"cd '{self.target_dir}' && git rev-parse --abbrev-ref HEAD", shell=True, capture_output=True, text=True)
+                        if res.returncode == 0:
+                            branch = res.stdout.strip()
+                    except Exception:
+                        pass
+            else:
+                try:
+                    ok, out, _ = SFTPService.exec_command(self.host, f"cd '{self.target_dir}' && git rev-parse --abbrev-ref HEAD")
+                    if ok and out.strip():
+                        branch = out.strip()
+                except Exception:
+                    pass
+
+            def on_done():
+                if not self.winfo_exists():
+                    return
+                self._current_branch = branch
+                self.lbl_branch_name.configure(text=f"Branch: {branch}")
+                self.btn_commit.configure(text=f"Commit to {branch}")
+
+            self.after(0, on_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    # -------------------------------------------------------------
+    # 6. WORKING CHANGES LOGIC (Staging, Diff, Commit)
+    # -------------------------------------------------------------
+    def _load_working_changes(self):
+        self.lbl_status.configure(text="Mengecek perubahan file (git status)...", text_color=COLORS["muted"])
+
+        def worker():
+            files_data = []
+            status_raw = ""
+            ok = False
+
+            if self.is_local:
+                if HAS_GITPYTHON:
+                    try:
+                        repo = Repo(self.target_dir, search_parent_directories=True)
+                        status_raw = repo.git.status("--porcelain=v1")
+                        ok = True
+                    except Exception as e:
+                        status_raw = str(e)
+                else:
+                    try:
+                        res = subprocess.run(f"cd '{self.target_dir}' && git status --porcelain=v1", shell=True, capture_output=True, text=True)
+                        ok = (res.returncode == 0)
+                        status_raw = res.stdout
+                    except Exception as e:
+                        status_raw = str(e)
+            else:
+                ok, status_raw, _ = SFTPService.exec_command(self.host, f"cd '{self.target_dir}' && git status --porcelain=v1")
+
+            if ok and status_raw:
+                for line in status_raw.splitlines():
+                    if len(line) < 3:
+                        continue
+                    st = line[:2]
+                    path_str = line[3:].strip('"')
+
+                    ctype = "M"
+                    if "?" in st:
+                        ctype = "A"
+                    elif "D" in st:
+                        ctype = "D"
+                    elif "R" in st:
+                        ctype = "R"
+
+                    files_data.append({
+                        "path": path_str,
+                        "status": st,
+                        "type": ctype,
+                    })
+
+            def on_done():
+                if not self.winfo_exists():
+                    return
+                self._populate_working_changes_ui(files_data)
+
+            self.after(0, on_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _populate_working_changes_ui(self, files_data: List[Dict[str, Any]]):
+        self._working_changes.clear()
+        for w in self.scroll_changes.winfo_children():
+            w.destroy()
+
+        count = len(files_data)
+        self.seg_tabs.set(f"Changes")
+        self.chk_select_all.configure(text=f"Select All ({count} changed files)")
+        self.lbl_summary_stats.configure(text=f"{count} files changed")
+
+        if count == 0:
+            lbl_empty = ctk.CTkLabel(
+                self.scroll_changes,
+                text="No local changes in working directory.\nYour working tree is clean! ✓",
+                font=ctk.CTkFont(size=12),
+                text_color=COLORS["success_text"],
+                justify="center"
+            )
+            lbl_empty.pack(pady=40)
+            self._render_diff_text("Working Tree Clean", "No changes detected in working directory.")
+            self.lbl_status.configure(text="Working tree bersih — tidak ada file yang berubah ✓", text_color=COLORS["success_text"])
+            self._update_commit_button_state()
+            return
+
+        for f in files_data:
+            var_chk = ctk.BooleanVar(value=True)
+            row_frame = ctk.CTkFrame(self.scroll_changes, fg_color="transparent", height=30)
+            row_frame.pack(fill="x", padx=4, pady=2)
+            row_frame.grid_columnconfigure(2, weight=1)
+
+            # Checkbox
+            chk = ctk.CTkCheckBox(
+                row_frame,
+                text="",
+                variable=var_chk,
+                width=16, height=16,
+                checkbox_width=16, checkbox_height=16,
+                command=self._update_commit_button_state
+            )
+            chk.grid(row=0, column=0, padx=(4, 6), pady=4)
+
+            # Status Badge Pill
+            type_color = "#3FB950" if f["type"] == "A" else ("#F85149" if f["type"] == "D" else "#58A6FF")
+            lbl_badge = ctk.CTkLabel(
+                row_frame,
+                text=f" {f['type']} ",
+                font=ctk.CTkFont(size=10, weight="bold"),
+                fg_color=COLORS["surface"],
+                text_color=type_color,
+                corner_radius=4,
+                height=18
+            )
+            lbl_badge.grid(row=0, column=1, padx=(0, 6), pady=4)
+
+            # File Path Label
+            fname = os.path.basename(f["path"])
+            fdir = os.path.dirname(f["path"])
+            display_text = fname + (f"  ({fdir})" if fdir else "")
+            lbl_name = ctk.CTkLabel(
+                row_frame,
+                text=display_text,
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text"],
+                anchor="w",
+                cursor="hand2"
+            )
+            lbl_name.grid(row=0, column=2, sticky="w", pady=4)
+
+            item_data = {
+                "path": f["path"],
+                "status": f["status"],
+                "type": f["type"],
+                "checked_var": var_chk,
+                "frame": row_frame
+            }
+            self._working_changes.append(item_data)
+
+            # Click & Right-click events
+            for widget in (row_frame, lbl_name, lbl_badge):
+                widget.bind("<Button-1>", lambda e, item=item_data: self._on_working_file_clicked(item))
+                widget.bind("<Button-2>", lambda e, item=item_data: self._show_changes_context_menu(e, item))
+                widget.bind("<Button-3>", lambda e, item=item_data: self._show_changes_context_menu(e, item))
+
+        # Pilih file pertama
+        if self._working_changes:
+            self._on_working_file_clicked(self._working_changes[0])
+
+        self._update_commit_button_state()
+        self.lbl_status.configure(text=f"Ditemukan {count} file yang berubah di working directory", text_color=COLORS["text"])
+
+    def _on_working_file_clicked(self, item_data: Dict[str, Any]):
+        self._selected_working_file = item_data
+        for it in self._working_changes:
+            it["frame"].configure(fg_color="transparent")
+        item_data["frame"].configure(fg_color=COLORS["surface_hover"])
+
+        self._load_working_file_diff(item_data["path"], item_data["type"])
+
+    def _show_changes_context_menu(self, event, item_data: Dict[str, Any]):
+        self._selected_working_file = item_data
+        try:
+            self.menu_changes.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.menu_changes.grab_release()
+
+    def _load_working_file_diff(self, filepath: str, ftype: str):
+        self.lbl_diff_title.configure(text=f"Diff: {filepath}")
+        self.txt_diff.delete("1.0", "end")
+        self.txt_diff.insert("1.0", f"Memuat diff untuk {filepath}...\n")
+
+        def worker():
+            diff_text = ""
+            if self.is_local:
+                if HAS_GITPYTHON:
+                    try:
+                        repo = Repo(self.target_dir, search_parent_directories=True)
+                        if ftype == "A":
+                            full_p = os.path.join(self.target_dir, filepath)
+                            diff_text = self._generate_untracked_diff(filepath, full_p)
+                        else:
+                            try:
+                                diff_text = repo.git.diff("HEAD", "--", filepath)
+                            except Exception:
+                                diff_text = repo.git.diff("--", filepath)
+                    except Exception as e:
+                        diff_text = str(e)
+                else:
+                    if ftype == "A":
+                        full_p = os.path.join(self.target_dir, filepath)
+                        diff_text = self._generate_untracked_diff(filepath, full_p)
+                    else:
+                        res = subprocess.run(f"cd '{self.target_dir}' && git diff HEAD -- '{filepath}'", shell=True, capture_output=True, text=True)
+                        diff_text = res.stdout or res.stderr
+            else:
+                if ftype == "A":
+                    cmd = f"cd '{self.target_dir}' && head -n 300 '{filepath}'"
+                    ok, out, _ = SFTPService.exec_command(self.host, cmd)
+                    lines = out.splitlines() if ok else []
+                    diff_text = f"diff --git a/{filepath} b/{filepath}\nnew file mode 100644\n--- /dev/null\n+++ b/{filepath}\n@@ -0,0 +1,{len(lines)} @@\n" + "\n".join("+" + l for l in lines)
+                else:
+                    cmd = f"cd '{self.target_dir}' && git diff HEAD -- '{filepath}'"
+                    ok, out, err = SFTPService.exec_command(self.host, cmd)
+                    diff_text = out or err
+
+            def on_done():
+                if not self.winfo_exists():
+                    return
+                self._render_diff_text(filepath, diff_text or "No diff lines (file binary or empty).")
+
+            self.after(0, on_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _generate_untracked_diff(self, filepath: str, abs_path: str) -> str:
+        try:
+            if not os.path.isfile(abs_path):
+                return f"diff --git a/{filepath} b/{filepath}\n(File not found locally)"
+            with open(abs_path, "r", encoding="utf-8", errors="replace") as fp:
+                lines = fp.read().splitlines()
+            header = f"diff --git a/{filepath} b/{filepath}\nnew file mode 100644\n--- /dev/null\n+++ b/{filepath}\n@@ -0,0 +1,{len(lines)} @@\n"
+            return header + "\n".join("+" + l for l in lines)
+        except Exception as e:
+            return f"Error reading file {filepath}: {e}"
+
+    def _toggle_select_all_changes(self):
+        val = self.var_select_all.get()
+        for f in self._working_changes:
+            f["checked_var"].set(val)
+        self._update_commit_button_state()
+
+    def _update_commit_button_state(self):
+        checked_count = sum(1 for f in self._working_changes if f["checked_var"].get())
+        has_summary = bool(self.entry_commit_summary.get().strip())
+
+        branch_text = f"Commit to {self._current_branch}"
+        if checked_count > 0:
+            branch_text = f"Commit {checked_count} file(s) to {self._current_branch}"
+
+        self.btn_commit.configure(text=branch_text)
+        if has_summary and checked_count > 0:
+            self.btn_commit.configure(state="normal", fg_color="#238636")
+        else:
+            self.btn_commit.configure(state="disabled", fg_color=COLORS["surface"])
+
+    def _do_commit(self):
+        summary = self.entry_commit_summary.get().strip()
+        if not summary:
+            messagebox.showwarning("Peringatan", "Harap isi ringkasan commit (Summary) terlebih dahulu.", parent=self)
+            return
+
+        selected_files = [f["path"] for f in self._working_changes if f["checked_var"].get()]
+        if not selected_files:
+            messagebox.showwarning("Peringatan", "Pilih minimal satu file yang ingin di-commit.", parent=self)
+            return
+
+        desc = self.txt_commit_desc.get("1.0", "end-1c").strip()
+        full_msg = summary if not desc else f"{summary}\n\n{desc}"
+
+        self.btn_commit.configure(state="disabled", text="Committing...")
+        self.lbl_status.configure(text=f"Melakukan commit {len(selected_files)} file...", text_color=COLORS["accent"])
+
+        def worker():
+            ok = False
+            msg_res = ""
+
+            if self.is_local:
+                if HAS_GITPYTHON:
+                    try:
+                        repo = Repo(self.target_dir, search_parent_directories=True)
+                        # Stage selected files
+                        repo.git.add("--", *selected_files)
+                        # Deleted files
+                        dels = [f["path"] for f in self._working_changes if f["checked_var"].get() and f["type"] == "D"]
+                        if dels:
+                            try:
+                                repo.git.rm("--cached", "--", *dels)
+                            except Exception:
+                                pass
+                        commit_res = repo.git.commit("-m", full_msg)
+                        ok = True
+                        msg_res = commit_res
+                    except Exception as e:
+                        msg_res = str(e)
+                else:
+                    try:
+                        files_arg = " ".join(f"'{p}'" for p in selected_files)
+                        cmd = f"cd '{self.target_dir}' && git add {files_arg} && git commit -m '{full_msg}'"
+                        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                        ok = (res.returncode == 0)
+                        msg_res = res.stdout or res.stderr
+                    except Exception as e:
+                        msg_res = str(e)
+            else:
+                files_arg = " ".join(f"'{p}'" for p in selected_files)
+                # Escape single quote
+                esc_msg = full_msg.replace("'", "'\\''")
+                cmd = f"cd '{self.target_dir}' && git add {files_arg} && git commit -m '{esc_msg}'"
+                ok, out, err = SFTPService.exec_command(self.host, cmd)
+                msg_res = out or err
+
+            def on_done():
+                if not self.winfo_exists():
+                    return
+                if ok:
+                    self.entry_commit_summary.delete(0, "end")
+                    self.txt_commit_desc.delete("1.0", "end")
+                    self.lbl_status.configure(
+                        text=f"Commit berhasil dibuat ke branch {self._current_branch} ✓",
+                        text_color=COLORS["success_text"]
+                    )
+                    self._refresh_all_data()
+                else:
+                    self.btn_commit.configure(state="normal", text=f"Commit to {self._current_branch}")
+                    self.lbl_status.configure(text="Gagal melakukan commit!", text_color=COLORS["danger"])
+                    messagebox.showerror("Commit Error", f"Gagal melakukan commit:\n{msg_res}", parent=self)
+
+            self.after(0, on_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _do_discard_selected_file(self):
+        if not self._selected_working_file:
+            return
+        f = self._selected_working_file
+        confirm = messagebox.askyesno(
+            "Konfirmasi Discard Changes",
+            f"Apakah Anda yakin ingin membatalkan semua perubahan pada file:\n'{f['path']}'?\n\nPerubahan yang belum di-commit akan hilang!",
+            parent=self
+        )
+        if not confirm:
+            return
+
+        self._execute_discard([f])
+
+    def _do_discard_all(self):
+        if not self._working_changes:
+            return
+        confirm = messagebox.askyesno(
+            "Konfirmasi Discard All Changes",
+            f"Apakah Anda yakin ingin membatalkan semua perubahan pada {len(self._working_changes)} file?\n\nTindakan ini tidak dapat dibatalkan!",
+            parent=self
+        )
+        if not confirm:
+            return
+
+        self._execute_discard(self._working_changes)
+
+    def _execute_discard(self, files_to_discard: List[Dict[str, Any]]):
+        self.lbl_status.configure(text="Membatalkan perubahan file...", text_color=COLORS["danger"])
+
+        def worker():
+            for f in files_to_discard:
+                path = f["path"]
+                ftype = f["type"]
+                if self.is_local:
+                    if HAS_GITPYTHON:
+                        try:
+                            repo = Repo(self.target_dir, search_parent_directories=True)
+                            if ftype == "A":
+                                full_p = os.path.join(self.target_dir, path)
+                                if os.path.exists(full_p):
+                                    os.remove(full_p)
+                            else:
+                                repo.git.checkout("HEAD", "--", path)
+                        except Exception:
+                            pass
+                    else:
+                        if ftype == "A":
+                            full_p = os.path.join(self.target_dir, path)
+                            if os.path.exists(full_p):
+                                os.remove(full_p)
+                        else:
+                            subprocess.run(f"cd '{self.target_dir}' && git checkout HEAD -- '{path}'", shell=True)
+                else:
+                    if ftype == "A":
+                        SFTPService.exec_command(self.host, f"cd '{self.target_dir}' && rm -f '{path}'")
+                    else:
+                        SFTPService.exec_command(self.host, f"cd '{self.target_dir}' && git checkout HEAD -- '{path}'")
+
+            def on_done():
+                if not self.winfo_exists():
+                    return
+                self.lbl_status.configure(text=f"Perubahan pada {len(files_to_discard)} file berhasil dibatalkan ✓", text_color=COLORS["success_text"])
+                self._load_working_changes()
+
+            self.after(0, on_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _copy_selected_file_path(self):
+        if not self._selected_working_file:
+            return
+        p = self._selected_working_file["path"]
+        self.clipboard_clear()
+        self.clipboard_append(p)
+        self.lbl_status.configure(text=f"Copied path: {p} ✓", text_color=COLORS["success_text"])
+
+    # -------------------------------------------------------------
+    # 7. SYNC ACTIONS (Push & Pull)
+    # -------------------------------------------------------------
+    def _do_push(self):
+        self.btn_push.configure(state="disabled", text="Pushing...")
+        self.lbl_status.configure(text=f"Mendorong commit ke remote origin/{self._current_branch}...", text_color=COLORS["accent"])
+
+        def worker():
+            ok = False
+            out_res = ""
+
+            if self.is_local:
+                if HAS_GITPYTHON:
+                    try:
+                        repo = Repo(self.target_dir, search_parent_directories=True)
+                        push_info = repo.git.push("origin", self._current_branch)
+                        ok = True
+                        out_res = push_info or "Push completed."
+                    except Exception as e:
+                        out_res = str(e)
+                else:
+                    res = subprocess.run(f"cd '{self.target_dir}' && git push origin {self._current_branch}", shell=True, capture_output=True, text=True)
+                    ok = (res.returncode == 0)
+                    out_res = res.stdout or res.stderr
+            else:
+                ok, out, err = SFTPService.exec_command(self.host, f"cd '{self.target_dir}' && git push origin {self._current_branch}")
+                out_res = out or err
+
+            def on_done():
+                if not self.winfo_exists():
+                    return
+                self.btn_push.configure(state="normal", text=" Push origin")
+                if ok:
+                    self.lbl_status.configure(text=f"Berhasil push ke origin/{self._current_branch} ✓", text_color=COLORS["success_text"])
+                    self._refresh_all_data()
+                    messagebox.showinfo("Push Success", f"Commit berhasil di-push ke remote origin/{self._current_branch}!", parent=self)
+                else:
+                    self.lbl_status.configure(text="Gagal push ke remote origin!", text_color=COLORS["danger"])
+                    messagebox.showerror("Push Error", f"Gagal push ke origin:\n{out_res}", parent=self)
+
+            self.after(0, on_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _do_pull(self):
+        self.btn_pull.configure(state="disabled", text="Pulling...")
+        self.lbl_status.configure(text=f"Menarik perubahan dari remote origin/{self._current_branch}...", text_color=COLORS["accent"])
+
+        def worker():
+            ok = False
+            out_res = ""
+
+            if self.is_local:
+                if HAS_GITPYTHON:
+                    try:
+                        repo = Repo(self.target_dir, search_parent_directories=True)
+                        pull_info = repo.git.pull("origin", self._current_branch)
+                        ok = True
+                        out_res = pull_info or "Pull completed."
+                    except Exception as e:
+                        out_res = str(e)
+                else:
+                    res = subprocess.run(f"cd '{self.target_dir}' && git pull origin {self._current_branch}", shell=True, capture_output=True, text=True)
+                    ok = (res.returncode == 0)
+                    out_res = res.stdout or res.stderr
+            else:
+                ok, out, err = SFTPService.exec_command(self.host, f"cd '{self.target_dir}' && git pull origin {self._current_branch}")
+                out_res = out or err
+
+            def on_done():
+                if not self.winfo_exists():
+                    return
+                self.btn_pull.configure(state="normal", text=" Pull origin")
+                if ok:
+                    self.lbl_status.configure(text=f"Berhasil pull dari origin/{self._current_branch} ✓", text_color=COLORS["success_text"])
+                    self._refresh_all_data()
+                    messagebox.showinfo("Pull Success", f"Berhasil menarik perubahan terbaru dari remote:\n{out_res}", parent=self)
+                else:
+                    self.lbl_status.configure(text="Gagal pull dari remote origin!", text_color=COLORS["danger"])
+                    messagebox.showerror("Pull Error", f"Gagal pull dari origin:\n{out_res}", parent=self)
+
+            self.after(0, on_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    # -------------------------------------------------------------
+    # 8. HISTORY VIEW LOGIC (Commits, Log & Diff)
+    # -------------------------------------------------------------
+    def _load_git_log(self):
+        if self._is_loading:
+            return
+        self._is_loading = True
+        self.lbl_status.configure(text="Memuat commit history dari repository...", text_color=COLORS["muted"])
+        self.btn_refresh.configure(state="disabled")
+
+        use_all = self.switch_all.get() == 1
+
+        def worker():
+            current_branch = self._current_branch
+            ok_log = False
+            log_stdout = ""
+            log_stderr = ""
+
+            if self.is_local:
+                if HAS_GITPYTHON:
+                    try:
+                        repo = Repo(self.target_dir, search_parent_directories=True)
+                        args = [
+                            "--graph",
+                            "--date=relative",
+                            f"--format=format:COMMIT_DELIM\t%h\t%d\t%s\t%an\t%ar\t%H",
+                            "-n", "150"
+                        ]
+                        if use_all:
+                            args.insert(1, "--all")
+                        log_stdout = repo.git.log(*args)
+                        ok_log = True
+                    except Exception as e:
+                        log_stderr = str(e)
+                else:
+                    try:
+                        all_flag = "--all" if use_all else ""
+                        cmd = f"cd '{self.target_dir}' && git log --graph {all_flag} --date=relative --format=format:'COMMIT_DELIM%x09%h%x09%d%x09%s%x09%an%x09%ar%x09%H' -n 150"
+                        res_l = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                        ok_log = (res_l.returncode == 0)
+                        log_stdout = res_l.stdout
+                        log_stderr = res_l.stderr
+                    except Exception as e:
+                        log_stderr = str(e)
+            else:
+                all_flag = "--all" if use_all else ""
+                cmd = f"cd '{self.target_dir}' && git log --graph {all_flag} --date=relative --format=format:'COMMIT_DELIM%x09%h%x09%d%x09%s%x09%an%x09%ar%x09%H' -n 150"
+                ok_log, log_stdout, log_stderr = SFTPService.exec_command(self.host, cmd)
+
+            def on_done():
+                if not self.winfo_exists():
+                    return
+                self._is_loading = False
+                self.btn_refresh.configure(state="normal")
+
+                if not ok_log:
+                    self.lbl_status.configure(text=f"Gagal membaca history: {log_stderr.strip() or 'Error'}", text_color=COLORS["danger"])
+                    return
+
+                self._parse_and_populate_commits(log_stdout)
+
+            self.after(0, on_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _parse_and_populate_commits(self, raw_output: str):
+        self._commits.clear()
+        lines = raw_output.splitlines()
+
+        for line in lines:
+            if "COMMIT_DELIM\t" in line:
+                graph_part, meta_part = line.split("COMMIT_DELIM\t", 1)
+                parts = meta_part.split("\t")
+                if len(parts) >= 6:
+                    short_h, refs, subject, author, rel_date, full_h = parts[:6]
+                    clean_refs = refs.strip()
+                    if clean_refs.startswith("(") and clean_refs.endswith(")"):
+                        clean_refs = clean_refs[1:-1].strip()
+
+                    self._commits.append({
+                        "graph": graph_part.rstrip(),
+                        "hash": short_h.strip(),
+                        "refs": clean_refs,
+                        "message": subject.strip(),
+                        "author": author.strip(),
+                        "date": rel_date.strip(),
+                        "full_hash": full_h.strip()
+                    })
+            else:
+                stripped = line.rstrip()
+                if stripped:
+                    self._commits.append({
+                        "graph": stripped,
+                        "hash": "",
+                        "refs": "",
+                        "message": "",
+                        "author": "",
+                        "date": "",
+                        "full_hash": ""
+                    })
+
+        self._filter_displayed_commits()
+
+    def _filter_displayed_commits(self):
+        query = self.entry_filter.get().strip().lower()
+        for item in self.tree_history.get_children():
+            self.tree_history.delete(item)
+
+        first_selectable = None
+        for idx, c in enumerate(self._commits):
+            if not c["hash"]:
+                if not query:
+                    self.tree_history.insert("", "end", iid=str(idx), values=(c["graph"], "", "", ""))
+                continue
+
+            if query:
+                text_to_search = f"{c['hash']} {c['refs']} {c['message']} {c['author']}".lower()
+                if query not in text_to_search:
+                    continue
+
+            commit_text = c["message"]
+            if c["refs"]:
+                commit_text = f"[{c['refs']}] {commit_text}"
+
+            author_date = f"{c['author']} • {c['date']}"
+            iid = str(idx)
+            self.tree_history.insert("", "end", iid=iid, values=(c["graph"], commit_text, author_date, c["hash"]))
+
+            if first_selectable is None:
+                first_selectable = iid
+
+        if first_selectable and self._active_tab == "History":
+            self.tree_history.selection_set(first_selectable)
+            vals = self.tree_history.item(first_selectable, "values")
+            if vals and vals[3]:
+                self._load_history_commit_details(vals[3])
+
+    def _on_history_commit_selected(self, event=None):
+        sel = self.tree_history.selection()
+        if not sel:
+            return
+        vals = self.tree_history.item(sel[0], "values")
+        if vals and vals[3]:
+            self._load_history_commit_details(vals[3])
+
+    def _load_history_commit_details(self, commit_hash: str):
+        self._selected_commit_hash = commit_hash
+        self.btn_copy_sha.configure(text=f"{commit_hash} Copy")
+
+        def worker():
+            raw_show = ""
+            commit_obj = None
+
+            if self.is_local and HAS_GITPYTHON:
+                try:
+                    repo = Repo(self.target_dir, search_parent_directories=True)
+                    try:
+                        commit_obj = repo.commit(commit_hash)
+                    except Exception:
+                        pass
+                    raw_show = repo.git.show(commit_hash, "--stat", "--patch", "--color=never")
+                except Exception as e:
+                    raw_show = str(e)
+            elif self.is_local:
+                res = subprocess.run(f"cd '{self.target_dir}' && git show --stat --patch --color=never {commit_hash}", shell=True, capture_output=True, text=True)
+                raw_show = res.stdout or res.stderr
+            else:
+                ok, out, err = SFTPService.exec_command(self.host, f"cd '{self.target_dir}' && git show --stat --patch --color=never {commit_hash}")
+                raw_show = out or err
+
+            def on_done():
+                if not self.winfo_exists():
+                    return
+                self._render_history_commit_card(raw_show, commit_obj)
+
+            self.after(0, on_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _render_history_commit_card(self, raw_show: str, commit_obj: Any = None):
+        sections = re.split(r'(?=diff --git a/)', raw_show)
+        header_sec = sections[0] if sections else ""
+        diff_secs = sections[1:] if len(sections) > 1 else []
+
+        subject = ""
+        body_lines = []
+        author_name = "Unknown"
+        author_email = ""
+        commit_date = ""
+
+        if commit_obj:
+            subject = commit_obj.summary
+            body_lines = [l for l in commit_obj.message.splitlines()[1:] if l.strip()]
+            author_name = commit_obj.author.name
+            author_email = commit_obj.author.email
+            commit_date = str(commit_obj.authored_datetime)
+            full_sha = commit_obj.hexsha
+        else:
+            full_sha = self._selected_commit_hash
+            in_msg = False
+            for line in header_sec.splitlines():
+                if line.startswith("Author:"):
+                    m = re.match(r"Author:\s*(.*?)(?:<(.*?)>)?$", line)
+                    if m:
+                        author_name = m.group(1).strip()
+                        author_email = (m.group(2) or "").strip()
+                elif line.startswith("Date:"):
+                    commit_date = line.replace("Date:", "").strip()
+                    in_msg = True
+                elif in_msg:
+                    stripped = line.strip()
+                    if stripped == "---":
+                        break
+                    if stripped:
+                        if not subject:
+                            subject = stripped
+                        else:
+                            body_lines.append(stripped)
+
+        self.lbl_commit_title.configure(text=subject or f"Commit {self._selected_commit_hash}")
+        self.lbl_commit_body.configure(text="\n".join(body_lines[:3]))
+        self.lbl_author_info.configure(text=f"By {author_name}" + (f" <{author_email}>" if author_email else ""))
+        self.lbl_date_info.configure(text=f"• {commit_date}")
+        self.lbl_sha_full.configure(text=f"SHA: {full_sha[:10]}")
+
+        # Files changed list
+        self._history_files_data.clear()
+        total_adds = 0
+        total_dels = 0
+
+        for sec in diff_secs:
+            lines = sec.splitlines()
+            first_line = lines[0] if lines else ""
+            m_f = re.search(r"diff --git a/(.*?) b/(.*)", first_line)
+            fname = m_f.group(1) if m_f else "Unknown"
+
+            ftype = "M"
+            if "new file mode" in sec:
+                ftype = "A"
+            elif "deleted file mode" in sec:
+                ftype = "D"
+            elif "similarity index" in sec or "rename from" in sec:
+                ftype = "R"
+
+            adds = sum(1 for l in lines if l.startswith("+") and not l.startswith("+++"))
+            dels = sum(1 for l in lines if l.startswith("-") and not l.startswith("---"))
+            total_adds += adds
+            total_dels += dels
+
+            self._history_files_data.append({
+                "name": fname,
+                "type": ftype,
+                "add": adds,
+                "del": dels,
+                "diff": sec
+            })
+
+        self._history_all_diff = "\n".join(diff_secs) if diff_secs else raw_show
+        num_files = len(self._history_files_data)
+        self.lbl_summary_stats.configure(text=f"{num_files} changed files")
+        self.lbl_additions_badge.configure(text=f"+{total_adds}")
+        self.lbl_deletions_badge.configure(text=f"-{total_dels}")
+
+        for item in self.tree_files.get_children():
+            self.tree_files.delete(item)
+
+        self.tree_files.insert("", "end", iid="all", values=("ALL", f"All Files ({num_files})", f"+{total_adds} -{total_dels}"))
+        for idx, f in enumerate(self._history_files_data):
+            self.tree_files.insert("", "end", iid=str(idx), values=(f"[{f['type']}]", f["name"], f"+{f['add']} -{f['del']}"))
+
+        self.tree_files.selection_set("all")
+        self._render_diff_text("All Files", self._history_all_diff)
+
+    def _on_history_file_selected(self, event=None):
+        sel = self.tree_files.selection()
+        if not sel:
+            return
+        sel_id = sel[0]
+        if sel_id == "all":
+            self._render_diff_text("All Files", self._history_all_diff)
+        else:
+            idx = int(sel_id) if sel_id.isdigit() else -1
+            if 0 <= idx < len(self._history_files_data):
+                f = self._history_files_data[idx]
+                self._render_diff_text(f["name"], f["diff"])
+
+    # -------------------------------------------------------------
+    # 9. DIFF RENDERER & SYNTAX HIGHLIGHTING
+    # -------------------------------------------------------------
+    def _render_diff_text(self, title: str, diff_content: str):
+        self.lbl_diff_title.configure(text=f"Diff: {title}")
+        self.txt_diff.delete("1.0", "end")
+        self.txt_diff.insert("1.0", diff_content)
+        self._format_diff_tags()
+
+    def _format_diff_tags(self):
+        tb = getattr(self.txt_diff, "_textbox", self.txt_diff)
+        tb.tag_configure("diff_add", foreground="#3FB950", background="#12261E")        # Hijau GitHub
+        tb.tag_configure("diff_del", foreground="#F85149", background="#2E1518")        # Merah GitHub
+        tb.tag_configure("diff_hunk", foreground="#58A6FF", background="#161B22")       # Cyan/Blue Hunk
+        tb.tag_configure("diff_file", foreground="#E6EDF3", background="#21262D", font=("Menlo" if os.name != "nt" else "Consolas", 11, "bold"))
+        tb.tag_configure("diff_header", foreground="#8B949E")
+
+        lines = self.txt_diff.get("1.0", "end-1c").splitlines()
+        for idx, line in enumerate(lines, start=1):
+            line_start = f"{idx}.0"
+            line_end = f"{idx}.end"
+
+            if line.startswith("diff --git"):
+                tb.tag_add("diff_file", line_start, line_end)
+            elif line.startswith("@@"):
+                tb.tag_add("diff_hunk", line_start, line_end)
+            elif line.startswith("+++") or line.startswith("---"):
+                tb.tag_add("diff_header", line_start, line_end)
+            elif line.startswith("+"):
+                tb.tag_add("diff_add", line_start, line_end)
+            elif line.startswith("-"):
+                tb.tag_add("diff_del", line_start, line_end)
+            elif line.startswith("index ") or line.startswith("new file ") or line.startswith("deleted file "):
+                tb.tag_add("diff_header", line_start, line_end)
+
+    def _copy_selected_hash(self):
+        sel = self.tree_history.selection()
+        if not sel:
+            return
+        vals = self.tree_history.item(sel[0], "values")
+        if vals and vals[3]:
+            short_h = vals[3]
+            idx = int(sel[0]) if sel[0].isdigit() else -1
+            if 0 <= idx < len(self._commits) and self._commits[idx].get("full_hash"):
+                copy_val = self._commits[idx]["full_hash"]
+            else:
+                copy_val = short_h
+
+            self.clipboard_clear()
+            self.clipboard_append(copy_val)
+            self.lbl_status.configure(text=f"Copied SHA: {copy_val} ✓", text_color=COLORS["success_text"])
+
+    def _open_terminal_here(self):
+        """Membuka terminal langsung pada folder repositori."""
+        if self.is_local:
+            res = launch_local_terminal(initial_dir=self.target_dir)
+            if not res.get("success"):
+                messagebox.showerror("Terminal Error", res.get("error", "Gagal membuka terminal lokal"), parent=self)
+        else:
+            if not self.host:
+                messagebox.showwarning("Peringatan", "Informasi host remote tidak tersedia.", parent=self)
+                return
+            res = launch_ssh_terminal(host=self.host, initial_dir=self.target_dir)
+            if not res.get("success"):
+                messagebox.showerror("Terminal Error", res.get("error", "Gagal membuka terminal SSH"), parent=self)

@@ -13,6 +13,47 @@ TOAST_GAP = 10
 MAX_VISIBLE = 4
 
 
+_macos_delegate = None
+_pending_callbacks = {}
+
+
+def _get_macos_delegate():
+    """Menginisialisasi delegate notifikasi macOS agar saat notifikasi diklik, aplikasi Pullman otomatis fokus ke depan."""
+    global _macos_delegate
+    if _macos_delegate is not None:
+        return _macos_delegate
+    try:
+        import os
+        from Foundation import NSObject, NSUserNotificationCenter
+
+        class _PullmanNotificationDelegate(NSObject):
+            def userNotificationCenter_didActivateNotification_(self, center, notif):
+                try:
+                    pid = os.getpid()
+                    subprocess.run(
+                        ["osascript", "-e", f'tell application "System Events" to set frontmost of first process whose unix id is {pid} to true'],
+                        check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
+                except Exception:
+                    pass
+                ident = str(notif.identifier()) if notif.identifier() else ""
+                cb = _pending_callbacks.pop(ident, None)
+                if cb:
+                    try:
+                        cb()
+                    except Exception:
+                        pass
+
+            def userNotificationCenter_shouldPresentNotification_(self, center, notif):
+                return True
+
+        _macos_delegate = _PullmanNotificationDelegate.alloc().init()
+        NSUserNotificationCenter.defaultUserNotificationCenter().setDelegate_(_macos_delegate)
+        return _macos_delegate
+    except Exception:
+        return None
+
+
 def send_os_notification(title: str, message: str, subtitle: str = "", on_click: Optional[Callable[[], None]] = None) -> None:
     """Mengirim notifikasi murni ke Sistem Operasi (macOS Notification Center, Windows Toast/Balloon, Linux notify-send)."""
     def _worker():
@@ -26,16 +67,88 @@ def send_os_notification(title: str, message: str, subtitle: str = "", on_click:
                 icon_png = resource_path("src/assets/icon_512x512.png")
 
             if sys.platform == "darwin":
-                # macOS AppleScript via System Events
-                t = (title or "DO.MBA Pull Manager").replace('\\', '\\\\').replace('"', '\\"')
-                m = (message or "").replace('\\', '\\\\').replace('"', '\\"')
-                s = (subtitle or "").replace('\\', '\\\\').replace('"', '\\"')
-                sub_part = f' subtitle "{s}"' if s else ""
-                script = f'tell application "System Events" to display notification "{m}" with title "{t}"{sub_part} sound name "default"'
-                subprocess.run(
-                    ["osascript", "-e", script],
-                    check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                )
+                # macOS Native Notification via PyObjC Cocoa (bagian dari dependensi macos-notifications)
+                # Notifikasi dikirim langsung dari proses aplikasi Pullman dengan delegate aktif,
+                # sehingga saat diklik macOS akan membuka/memfokuskan aplikasi Pullman, BUKAN Script Editor.
+                sent = False
+                try:
+                    import uuid
+                    from Foundation import NSUserNotification, NSUserNotificationCenter, NSURL
+                    from AppKit import NSImage
+
+                    _get_macos_delegate()
+                    notif = NSUserNotification.alloc().init()
+                    uid = str(uuid.uuid4())
+                    notif.setIdentifier_(uid)
+                    notif.setTitle_(title or "DO.MBA Pull Manager")
+                    if subtitle:
+                        notif.setSubtitle_(subtitle)
+                    notif.setInformativeText_(message or "")
+                    notif.setSoundName_("default")
+
+                    # Memuat icon resmi Pullman (mengutamakan .icns untuk resolusi native macOS, lalu .png)
+                    icon_icns = resource_path("assets/icon.icns")
+                    if not icon_icns.exists():
+                        icon_icns = resource_path("src/assets/icon.icns")
+
+                    app_img = None
+                    if icon_icns.exists():
+                        app_img = NSImage.alloc().initWithContentsOfFile_(str(icon_icns.resolve()))
+                    elif icon_png.exists():
+                        app_img = NSImage.alloc().initWithContentsOfFile_(str(icon_png.resolve()))
+
+                    if app_img and app_img.isValid():
+                        # Ganti icon aplikasi di sebelah kiri notifikasi (identityImage)
+                        # agar menggantikan icon default Python menjadi icon resmi Pullman
+                        if hasattr(notif, "set_identityImage_"):
+                            notif.set_identityImage_(app_img)
+                        else:
+                            notif.setContentImage_(app_img)
+
+                        try:
+                            from AppKit import NSApplication
+                            NSApplication.sharedApplication().setApplicationIconImage_(app_img)
+                        except Exception:
+                            pass
+
+                    if on_click:
+                        if len(_pending_callbacks) > 50:
+                            _pending_callbacks.clear()
+                        _pending_callbacks[uid] = on_click
+
+                    NSUserNotificationCenter.defaultUserNotificationCenter().deliverNotification_(notif)
+                    sent = True
+                except Exception:
+                    sent = False
+
+                # Alternatif via macos-notifications package
+                if not sent:
+                    try:
+                        from mac_notifications import client as mac_notif_client
+                        kwargs = {
+                            "title": title or "DO.MBA Pull Manager",
+                            "subtitle": subtitle or None,
+                            "text": message or "",
+                            "sound": "default",
+                        }
+                        if icon_png.exists():
+                            kwargs["icon"] = str(icon_png.resolve())
+                        mac_notif_client.create_notification(**kwargs)
+                        sent = True
+                    except Exception:
+                        sent = False
+
+                # Fallback terakhir jika framework tidak tersedia
+                if not sent:
+                    t = (title or "DO.MBA Pull Manager").replace('\\', '\\\\').replace('"', '\\"')
+                    m = (message or "").replace('\\', '\\\\').replace('"', '\\"')
+                    s = (subtitle or "").replace('\\', '\\\\').replace('"', '\\"')
+                    sub_part = f' subtitle "{s}"' if s else ""
+                    script = f'tell application "System Events" to display notification "{m}" with title "{t}"{sub_part} sound name "default"'
+                    subprocess.run(
+                        ["osascript", "-e", script],
+                        check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
             elif sys.platform == "win32":
                 # Windows PowerShell Balloon / Toast notification
                 t = (title or "DO.MBA Pull Manager").replace("'", "''")

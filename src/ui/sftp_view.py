@@ -7,9 +7,10 @@ import stat
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import uuid
 
 import customtkinter as ctk
@@ -105,6 +106,10 @@ class SFTPView(ctk.CTkFrame):
         self._tabs: List[SFTPTabSession] = []
         self._active_tab_id: Optional[str] = None
 
+        # Performance & Navigation Cache
+        self._remote_dir_cache: Dict[Tuple[Any, str], Tuple[float, Dict[str, Any]]] = {}
+        self._hosts_search_timer: Optional[str] = None
+
         initial_tab = SFTPTabSession(tab_id=f"tab_{uuid.uuid4().hex[:6]}", local_path=self._local_path)
         self._tabs.append(initial_tab)
         self._active_tab_id = initial_tab.tab_id
@@ -130,6 +135,11 @@ class SFTPView(ctk.CTkFrame):
         self._all_hosts = self.db.get_all_hosts(decrypt_passwords=False)
         self._groups = self.db.get_groups()
         self._render_hosts_tree()
+
+    def _schedule_render_hosts(self, event=None):
+        if getattr(self, "_hosts_search_timer", None):
+            self.after_cancel(self._hosts_search_timer)
+        self._hosts_search_timer = self.after(150, self._render_hosts_tree)
 
     def _render_hosts_tree(self):
         """Render pohon daftar host berdasarkan grup dan pencarian."""
@@ -444,7 +454,7 @@ class SFTPView(ctk.CTkFrame):
             font=ctk.CTkFont(size=11)
         )
         self.host_search_entry.grid(row=0, column=0, sticky="ew")
-        self.host_search_entry.bind("<KeyRelease>", lambda e: self._render_hosts_tree())
+        self.host_search_entry.bind("<KeyRelease>", self._schedule_render_hosts)
 
         # Host Treeview Container
         tree_container = ctk.CTkFrame(host_sidebar, fg_color=COLORS["input_bg"], border_width=1, border_color=COLORS["line"], corner_radius=6)
@@ -958,6 +968,12 @@ class SFTPView(ctk.CTkFrame):
                     compound="left",
                     command=lambda p=item["path"]: self._action_open_local_terminal(p)
                 )
+                self.local_context_menu.add_command(
+                    label="  Git Graph in here",
+                    image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                    compound="left",
+                    command=lambda p=item["path"]: self._action_git_graph(p, is_local=True)
+                )
             else:
                 self.local_context_menu.add_command(
                     label="  Open with Default App",
@@ -970,6 +986,12 @@ class SFTPView(ctk.CTkFrame):
                     image=get_tk_image("terminal", (14, 14), COLORS["text"]),
                     compound="left",
                     command=lambda p=os.path.dirname(item["path"]): self._action_open_local_terminal(p)
+                )
+                self.local_context_menu.add_command(
+                    label="  Git Graph in folder",
+                    image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                    compound="left",
+                    command=lambda p=os.path.dirname(item["path"]): self._action_git_graph(p, is_local=True)
                 )
 
             if self._is_connected:
@@ -1000,13 +1022,21 @@ class SFTPView(ctk.CTkFrame):
                 command=self._action_local_delete
             )
             self.local_context_menu.add_separator()
+        else:
+            self.local_context_menu.add_command(
+                label="  Open Terminal in Here",
+                image=get_tk_image("terminal", (14, 14), COLORS["text"]),
+                compound="left",
+                command=lambda: self._action_open_local_terminal(self._local_path)
+            )
+            self.local_context_menu.add_command(
+                label="  Git Graph in here",
+                image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                compound="left",
+                command=lambda: self._action_git_graph(self._local_path, is_local=True)
+            )
+            self.local_context_menu.add_separator()
 
-        self.local_context_menu.add_command(
-            label="  Open Terminal in Here",
-            image=get_tk_image("terminal", (14, 14), COLORS["text"]),
-            compound="left",
-            command=lambda: self._action_open_local_terminal(self._local_path)
-        )
         self.local_context_menu.add_command(
             label="  New File...",
             image=get_tk_image("file-plus", (14, 14), COLORS["text"]),
@@ -1052,10 +1082,22 @@ class SFTPView(ctk.CTkFrame):
                     command=lambda: self._navigate_remote_to(item["path"])
                 )
                 self.remote_context_menu.add_command(
+                    label="  Open Editor in Here",
+                    image=get_tk_image("file-code", (14, 14), COLORS["accent_text"]),
+                    compound="left",
+                    command=lambda p=item["path"]: self._action_open_editor(p)
+                )
+                self.remote_context_menu.add_command(
                     label="  Open Terminal in Here (SSH)",
                     image=get_tk_image("terminal", (14, 14), COLORS["accent_text"]),
                     compound="left",
                     command=lambda p=item["path"]: self._action_open_remote_terminal(p)
+                )
+                self.remote_context_menu.add_command(
+                    label="  Git Graph in here",
+                    image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                    compound="left",
+                    command=lambda p=item["path"]: self._action_git_graph(p, is_local=False)
                 )
             else:
                 self.remote_context_menu.add_command(
@@ -1071,10 +1113,22 @@ class SFTPView(ctk.CTkFrame):
                     command=lambda: self._action_edit_file(as_sudo=True)
                 )
                 self.remote_context_menu.add_command(
+                    label="  Open Editor in Folder",
+                    image=get_tk_image("file-code", (14, 14), COLORS["accent_text"]),
+                    compound="left",
+                    command=lambda p=os.path.dirname(item["path"]): self._action_open_editor(p)
+                )
+                self.remote_context_menu.add_command(
                     label="  Open Terminal in Folder (SSH)",
                     image=get_tk_image("terminal", (14, 14), COLORS["accent_text"]),
                     compound="left",
                     command=lambda p=os.path.dirname(item["path"]): self._action_open_remote_terminal(p)
+                )
+                self.remote_context_menu.add_command(
+                    label="  Git Graph in folder",
+                    image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                    compound="left",
+                    command=lambda p=os.path.dirname(item["path"]): self._action_git_graph(p, is_local=False)
                 )
             self.remote_context_menu.add_command(
                 label="  Download to Current Local Folder",
@@ -1102,14 +1156,29 @@ class SFTPView(ctk.CTkFrame):
                 command=self._action_delete
             )
             self.remote_context_menu.add_separator()
+        else:
+            # General current directory actions (when right-clicking empty space)
+            if self._is_connected:
+                self.remote_context_menu.add_command(
+                    label="  Open Editor in Here",
+                    image=get_tk_image("file-code", (14, 14), COLORS["accent_text"]),
+                    compound="left",
+                    command=lambda: self._action_open_editor(self._remote_path)
+                )
+                self.remote_context_menu.add_command(
+                    label="  Open Terminal in Here (SSH)",
+                    image=get_tk_image("terminal", (14, 14), COLORS["accent_text"]),
+                    compound="left",
+                    command=lambda: self._action_open_remote_terminal(self._remote_path)
+                )
+                self.remote_context_menu.add_command(
+                    label="  Git Graph in here",
+                    image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                    compound="left",
+                    command=lambda: self._action_git_graph(self._remote_path, is_local=False)
+                )
+                self.remote_context_menu.add_separator()
 
-        if self._is_connected:
-            self.remote_context_menu.add_command(
-                label="  Open Terminal in Here (SSH)",
-                image=get_tk_image("terminal", (14, 14), COLORS["accent_text"]),
-                compound="left",
-                command=lambda: self._action_open_remote_terminal(self._remote_path)
-            )
         self.remote_context_menu.add_command(
             label="  New File...",
             image=get_tk_image("file-plus", (14, 14), COLORS["text"]),
@@ -1154,36 +1223,51 @@ class SFTPView(ctk.CTkFrame):
 
         self._local_path = target_path
         self.local_path_var.set(self._local_path)
-        self._local_items = []
 
-        try:
-            with os.scandir(self._local_path) as it:
-                for entry in it:
-                    try:
-                        st = entry.stat()
-                        is_dir = entry.is_dir()
-                        size = st.st_size if not is_dir else 0
-                        mtime = st.st_mtime
-                        mtime_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
-                        
-                        self._local_items.append({
-                            "name": entry.name,
-                            "path": entry.path,
-                            "is_dir": is_dir,
-                            "size_bytes": size,
-                            "size_str": "-" if is_dir else _format_size(size),
-                            "mtime": mtime,
-                            "mtime_str": mtime_str
-                        })
-                    except (PermissionError, FileNotFoundError):
-                        continue
-        except Exception as e:
-            self._set_status(f"Gagal membaca folder lokal: {e}")
+        def worker():
+            items = []
+            try:
+                with os.scandir(target_path) as it:
+                    for entry in it:
+                        try:
+                            is_dir = entry.is_dir(follow_symlinks=False)
+                            st = entry.stat(follow_symlinks=False)
+                            size = st.st_size if not is_dir else 0
+                            mtime = st.st_mtime
+                            mtime_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+                            
+                            items.append({
+                                "name": entry.name,
+                                "path": entry.path,
+                                "is_dir": is_dir,
+                                "size_bytes": size,
+                                "size_str": "-" if is_dir else _format_size(size),
+                                "mtime": mtime,
+                                "mtime_str": mtime_str
+                            })
+                        except (PermissionError, FileNotFoundError):
+                            continue
+            except Exception as e:
+                pass
 
-        self._render_local_table()
+            def on_done():
+                if not self.winfo_exists():
+                    return
+                if self._local_path == target_path:
+                    self._local_items = items
+                    self._render_local_table()
+
+            try:
+                self.after(0, on_done)
+            except Exception:
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _render_local_table(self):
-        self.local_tree.delete(*self.local_tree.get_children())
+        children = self.local_tree.get_children()
+        if children:
+            self.local_tree.delete(*children)
 
         def sort_key(item: Dict[str, Any]):
             is_folder = 0 if item.get("is_dir") else 1
@@ -1201,9 +1285,12 @@ class SFTPView(ctk.CTkFrame):
         dir_count = sum(1 for x in sorted_items if x.get("is_dir"))
         file_count = len(sorted_items) - dir_count
 
+        icon_folder = get_tk_image("folder", (14, 14), COLORS["accent"])
+        icon_file = get_tk_image("file", (14, 14), COLORS["text_secondary"])
+
         for item in sorted_items:
             is_dir = item.get("is_dir", False)
-            icon = get_tk_image("folder" if is_dir else "file", (14, 14), COLORS["accent"] if is_dir else COLORS["text_secondary"])
+            icon = icon_folder if is_dir else icon_file
             self.local_tree.insert(
                 "", "end",
                 iid=item.get("name"),
@@ -1828,21 +1915,44 @@ class SFTPView(ctk.CTkFrame):
     # Remote Navigation & Operations
     # ------------------------------------------------------------------
 
-    def _navigate_remote_to(self, path: str):
+    def _navigate_remote_to(self, path: str, force_refresh: bool = False):
         if not self._is_connected or not self._current_host:
             return
         if self._is_remote_busy:
             return
 
+        host_id = self._current_host.get("id") or self._current_host.get("hostname")
+        clean_path = path.strip() or "/"
+        cache_key = (host_id, clean_path.rstrip("/") or "/")
+        now = time.time()
+
+        # Cache hit: tampilkan segera jika direktori pernah dibaca < 30 detik lalu
+        if not force_refresh and cache_key in self._remote_dir_cache:
+            cache_time, cached_res = self._remote_dir_cache[cache_key]
+            if now - cache_time < 30:
+                self._on_remote_list_finished(cached_res)
+                return
+
         self._is_remote_busy = True
-        self._set_status(f"Memuat direktori remote: {path}...")
+        self._set_status(f"Memuat direktori remote: {clean_path}...")
         host_cfg = self._get_active_host_config() or self._current_host
 
         def worker():
-            res = SFTPService.list_dir(host_cfg, path)
+            res = SFTPService.list_dir(host_cfg, clean_path)
+            if res.get("success"):
+                self._remote_dir_cache[cache_key] = (time.time(), res)
             self.after(0, lambda: self._on_remote_list_finished(res))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _invalidate_remote_cache(self, path: Optional[str] = None):
+        """Hapus cache direktori remote saat ada operasi mutasi (upload, delete, rename)."""
+        if not path or not self._current_host:
+            self._remote_dir_cache.clear()
+            return
+        host_id = self._current_host.get("id") or self._current_host.get("hostname")
+        cache_key = (host_id, path.rstrip("/") or "/")
+        self._remote_dir_cache.pop(cache_key, None)
 
     def _on_remote_list_finished(self, res: Dict[str, Any]):
         self._is_remote_busy = False
@@ -1858,7 +1968,9 @@ class SFTPView(ctk.CTkFrame):
         self._render_remote_table()
 
     def _render_remote_table(self):
-        self.remote_tree.delete(*self.remote_tree.get_children())
+        children = self.remote_tree.get_children()
+        if children:
+            self.remote_tree.delete(*children)
 
         def sort_key(item: Dict[str, Any]):
             is_folder = 0 if item.get("is_dir") else 1
@@ -1878,9 +1990,12 @@ class SFTPView(ctk.CTkFrame):
         dir_count = sum(1 for x in sorted_items if x.get("is_dir"))
         file_count = len(sorted_items) - dir_count
 
+        icon_folder = get_tk_image("folder", (14, 14), COLORS["accent"])
+        icon_file = get_tk_image("file", (14, 14), COLORS["text_secondary"])
+
         for item in sorted_items:
             is_dir = item.get("is_dir", False)
-            icon = get_tk_image("folder" if is_dir else "file", (14, 14), COLORS["accent"] if is_dir else COLORS["text_secondary"])
+            icon = icon_folder if is_dir else icon_file
             self.remote_tree.insert(
                 "", "end",
                 iid=item.get("name"),
@@ -1919,7 +2034,8 @@ class SFTPView(ctk.CTkFrame):
             self._navigate_remote_to("/")
 
     def _refresh_remote_current_dir(self):
-        self._navigate_remote_to(self._remote_path)
+        self._invalidate_remote_cache(self._remote_path)
+        self._navigate_remote_to(self._remote_path, force_refresh=True)
 
     def _get_remote_item_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         return next((it for it in self._remote_items if it.get("name") == name), None)
@@ -2052,12 +2168,22 @@ class SFTPView(ctk.CTkFrame):
 
         host_config = self._get_active_host_config() or self._current_host
 
-        FileEditorDialog(
+        FileEditorDialog.open_file(
             parent=self.app,
             host=host_config,
             remote_file_path=item.get("path"),
             as_sudo=as_sudo,
             on_saved_callback=self._refresh_remote_current_dir
+        )
+
+    def _action_open_editor(self, remote_dir_path: str):
+        if not self._is_connected or not self._current_host:
+            return
+        host_config = self._get_active_host_config() or self._current_host
+        FileEditorDialog.open_directory(
+            parent=self.app,
+            host=host_config,
+            remote_dir_path=remote_dir_path
         )
 
     def _save_remote_file(self, file_path: str, new_content: str) -> bool:
@@ -2148,3 +2274,21 @@ class SFTPView(ctk.CTkFrame):
             self._set_status(f"🚀 {res.get('message', 'Membuka SSH Terminal')}")
         else:
             messagebox.showerror("Terminal Error", res.get("error", "Gagal membuka terminal"))
+
+    def _action_git_graph(self, target_dir: str, is_local: bool = False):
+        """Membuka dialog Git Graph interaktif untuk melihat riwayat commit & grafik git pada folder tujuan."""
+        from ui.git_graph_dialog import GitGraphDialog
+        host_cfg = None
+        if not is_local:
+            host_cfg = self._get_active_host_config() or self._current_host
+            if host_cfg and hasattr(self, "db") and "id" in host_cfg:
+                full_host = self.db.get_host_by_id(host_cfg["id"])
+                if full_host:
+                    host_cfg = full_host
+
+        GitGraphDialog(
+            parent=self.app,
+            host=host_cfg,
+            target_dir=target_dir,
+            is_local=is_local
+        )

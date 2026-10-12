@@ -1,6 +1,23 @@
-asyncssh==2.24.0
-cryptography==50.0.1
+# Core UI & Theming
 customtkinter==6.0.0
 darkdetect==0.8.0
 Pillow==12.3.0
+Pygments==2.21.0
+
+# Remote SSH & SFTP Connection
+asyncssh==2.24.0
+
+# Database Client
 PyMySQL==1.2.3
+
+# Data & Password Encryption
+cryptography==50.0.1
+
+# Native OS Notifications (macOS only)
+macos-notifications==0.2.1; sys_platform == 'darwin'
+
+# Build & Application Packaging (macOS .app / PyInstaller)
+pyinstaller==6.22.3
+
+# Git Repository & Log Management
+GitPython==3.2.0

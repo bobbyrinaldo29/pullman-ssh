@@ -293,10 +293,22 @@ class SFTPWindow(ctk.CTkToplevel):
         if item_data:
             if item_data["is_dir"]:
                 self.context_menu.add_command(
+                    label="  Open Editor in Here",
+                    image=get_tk_image("file-code", (14, 14), COLORS["accent_text"]),
+                    compound="left",
+                    command=lambda p=item_data["path"]: self._action_open_editor(p)
+                )
+                self.context_menu.add_command(
                     label="  Open Terminal in Here (SSH)",
                     image=get_tk_image("terminal", (14, 14), COLORS["accent_text"]),
                     compound="left",
                     command=lambda p=item_data["path"]: self._open_terminal_at(p)
+                )
+                self.context_menu.add_command(
+                    label="  Git Graph in here",
+                    image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                    compound="left",
+                    command=lambda p=item_data["path"]: self._action_git_graph(p)
                 )
             else:
                 self.context_menu.add_command(
@@ -312,10 +324,22 @@ class SFTPWindow(ctk.CTkToplevel):
                     command=lambda: self._edit_selected_file(as_sudo=True)
                 )
                 self.context_menu.add_command(
+                    label="  Open Editor in Folder",
+                    image=get_tk_image("file-code", (14, 14), COLORS["accent_text"]),
+                    compound="left",
+                    command=lambda p=os.path.dirname(item_data["path"]): self._action_open_editor(p)
+                )
+                self.context_menu.add_command(
                     label="  Open Terminal in Folder (SSH)",
                     image=get_tk_image("terminal", (14, 14), COLORS["accent_text"]),
                     compound="left",
                     command=lambda p=os.path.dirname(item_data["path"]): self._open_terminal_at(p)
+                )
+                self.context_menu.add_command(
+                    label="  Git Graph in folder",
+                    image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                    compound="left",
+                    command=lambda p=os.path.dirname(item_data["path"]): self._action_git_graph(p)
                 )
             self.context_menu.add_command(
                 label="  Download...",
@@ -343,14 +367,28 @@ class SFTPWindow(ctk.CTkToplevel):
                 command=lambda: self._copy_path_to_clipboard(item_data["path"])
             )
             self.context_menu.add_separator()
+        else:
+            # General directory actions (when right-clicking empty space)
+            self.context_menu.add_command(
+                label="  Open Editor in Here",
+                image=get_tk_image("file-code", (14, 14), COLORS["accent_text"]),
+                compound="left",
+                command=lambda: self._action_open_editor(self.current_path)
+            )
+            self.context_menu.add_command(
+                label="  Git Graph in here",
+                image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                compound="left",
+                command=lambda: self._action_git_graph(self.current_path)
+            )
+            self.context_menu.add_command(
+                label="  Open Terminal in Here (SSH)",
+                image=get_tk_image("terminal", (14, 14), COLORS["accent_text"]),
+                compound="left",
+                command=self._open_terminal_here
+            )
+            self.context_menu.add_separator()
 
-        # General directory actions
-        self.context_menu.add_command(
-            label="  Open Terminal in Here (SSH)",
-            image=get_tk_image("terminal", (14, 14), COLORS["accent_text"]),
-            compound="left",
-            command=self._open_terminal_here
-        )
         self.context_menu.add_command(
             label="  Upload File Here...",
             image=get_tk_image("upload", (14, 14), COLORS["accent_text"]),
@@ -500,12 +538,20 @@ class SFTPWindow(ctk.CTkToplevel):
 
     def _open_file_in_editor(self, remote_file_path: str, as_sudo: bool = False):
         full_host = self.app.db.get_host_by_id(self.host["id"]) or self.host
-        FileEditorDialog(
+        FileEditorDialog.open_file(
             parent=self,
             host=full_host,
             remote_file_path=remote_file_path,
             as_sudo=as_sudo,
             on_saved_callback=self._refresh_current_dir
+        )
+
+    def _action_open_editor(self, remote_dir_path: str):
+        full_host = self.app.db.get_host_by_id(self.host["id"]) or self.host
+        FileEditorDialog.open_directory(
+            parent=self,
+            host=full_host,
+            remote_dir_path=remote_dir_path
         )
 
     def _edit_selected_file(self, as_sudo: bool = False):
@@ -744,3 +790,14 @@ class SFTPWindow(ctk.CTkToplevel):
             self.lbl_status_msg.configure(text=f"Terminal opened: {target_path}", text_color=COLORS["success_text"])
         else:
             messagebox.showerror("Terminal Error", res.get("error", "Gagal membuka terminal"), parent=self)
+
+    def _action_git_graph(self, target_dir: str):
+        """Membuka dialog Git Graph interaktif untuk melihat riwayat commit & grafik git pada folder tujuan."""
+        from ui.git_graph_dialog import GitGraphDialog
+        full_host = self.app.db.get_host_by_id(self.host["id"]) if (hasattr(self.app, "db") and self.host and self.host.get("id")) else self.host
+        GitGraphDialog(
+            parent=self,
+            host=full_host,
+            target_dir=target_dir,
+            is_local=False
+        )

@@ -375,6 +375,10 @@ class DatabaseManager:
             credential["password"] = self._decrypt(credential["password"])
             return credential
 
+    def get_git_credentials(self) -> Optional[Dict[str, Any]]:
+        """Alias kompatibilitas untuk get_global_git_credential()."""
+        return self.get_global_git_credential()
+
     def delete_global_git_credential(self) -> None:
         with self._get_connection() as conn:
             conn.execute("DELETE FROM global_git_credential WHERE id = 1;")

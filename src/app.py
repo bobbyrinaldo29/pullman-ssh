@@ -235,7 +235,7 @@ class PullmanApp(ctk.CTk):
                 pass
 
     def _load_app_icon(self):
-        """Pasang icon aplikasi (Window Titlebar & Taskbar)."""
+        """Pasang icon aplikasi (Window Titlebar & Taskbar / macOS Dock)."""
         try:
             ico_file = resource_path("assets/app_icon.ico")
             png_file = resource_path("assets/icon_512x512.png")
@@ -246,6 +246,22 @@ class PullmanApp(ctk.CTk):
                 pil_image = Image.open(png_file)
                 self.icon_image = ImageTk.PhotoImage(pil_image.resize((256, 256), Image.Resampling.LANCZOS))
                 self.wm_iconphoto(True, self.icon_image)
+
+            if sys.platform == "darwin":
+                try:
+                    from AppKit import NSApplication, NSImage
+                    icns_file = resource_path("assets/icon.icns")
+                    if not icns_file.exists():
+                        icns_file = resource_path("src/assets/icon.icns")
+                    app_img = None
+                    if icns_file.exists():
+                        app_img = NSImage.alloc().initWithContentsOfFile_(str(icns_file.resolve()))
+                    elif png_file.exists():
+                        app_img = NSImage.alloc().initWithContentsOfFile_(str(png_file.resolve()))
+                    if app_img and app_img.isValid():
+                        NSApplication.sharedApplication().setApplicationIconImage_(app_img)
+                except Exception:
+                    pass
 
             if sys.platform == "win32" and ico_file.exists():
                 self.iconbitmap(default=str(ico_file))

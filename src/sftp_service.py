@@ -385,3 +385,18 @@ class SFTPService:
     @staticmethod
     def rename(host: Dict[str, Any], old_path: str, new_path: str) -> Tuple[bool, Optional[str]]:
         return asyncio.run(SFTPService._async_rename(host, old_path, new_path))
+
+    @staticmethod
+    async def _async_exec_command(host: Dict[str, Any], command: str) -> Tuple[bool, str, str]:
+        options, hostname, port = _get_connection_options(host)
+        try:
+            async with asyncssh.connect(hostname, port=port, options=options, login_timeout=20) as conn:
+                res = await conn.run(command, check=False)
+                return (res.exit_status == 0), (res.stdout or ""), (res.stderr or "")
+        except Exception as e:
+            return False, "", str(e)
+
+    @staticmethod
+    def exec_command(host: Dict[str, Any], command: str) -> Tuple[bool, str, str]:
+        """Menjalankan perintah arbitrary di remote host via SSH dan mengembalikan (success, stdout, stderr)."""
+        return asyncio.run(SFTPService._async_exec_command(host, command))
