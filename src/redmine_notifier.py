@@ -26,8 +26,21 @@ INTERVAL_OPTIONS = {
 }
 
 
+NOTIFY_TYPE_OPTIONS = {
+    "Sistem Operasi (OS)": "os",
+    "Bawaan Aplikasi": "app",
+    "Keduanya (OS & Aplikasi)": "both",
+}
+
+
 def notifications_enabled(db: Any) -> bool:
     return db.get_setting("redmine_notify_enabled", "1") == "1"
+
+
+def notify_type(db: Any) -> str:
+    """Mengembalikan tipe notifikasi yang aktif ('os', 'app', atau 'both')."""
+    val = db.get_setting("redmine_notify_type", "os")
+    return val if val in ("os", "app", "both") else "os"
 
 
 def notify_interval_seconds(db: Any) -> int:
@@ -50,6 +63,21 @@ def notify_interval_minutes(db: Any) -> int:
 
 def _user_name(user: Optional[Dict[str, Any]]) -> str:
     return (user or {}).get("name", "")
+
+
+def _make_snapshot_entry(issue: Dict[str, Any]) -> Dict[str, Any]:
+    status = issue.get("status") or {}
+    assignee = issue.get("assigned_to") or {}
+    priority = issue.get("priority") or {}
+    return {
+        "s": status.get("id"),
+        "n": status.get("name", ""),
+        "u": issue.get("updated_on", ""),
+        "a": assignee.get("name", ""),
+        "d": issue.get("done_ratio", 0),
+        "p": priority.get("name", ""),
+        "sub": issue.get("subject", ""),
+    }
 
 
 class RedmineNotifier:
@@ -79,9 +107,8 @@ class RedmineNotifier:
         for issue in issues:
             key = str(issue["id"])
             updated_on = issue.get("updated_on", "")
-            status = issue.get("status") or {}
             previous = snapshot.get(key)
-            snapshot[key] = {"s": status.get("id"), "n": status.get("name", ""), "u": updated_on}
+            snapshot[key] = _make_snapshot_entry(issue)
             if previous and previous.get("u") == updated_on:
                 continue
 
@@ -100,7 +127,7 @@ class RedmineNotifier:
     def _build_initial_snapshot(self, client: RedmineClient, owner: str) -> None:
         issues = client.list_my_issues("open")
         snapshot = {
-            str(i["id"]): {"s": (i.get("status") or {}).get("id"), "n": (i.get("status") or {}).get("name", ""), "u": i.get("updated_on", "")}
+            str(i["id"]): _make_snapshot_entry(i)
             for i in issues
         }
         cursor = max((i.get("updated_on", "") for i in issues), default="") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -134,65 +161,108 @@ class RedmineNotifier:
         my_id: Optional[int], fetch_detail: bool
     ) -> Optional[Dict[str, Any]]:
         status = issue.get("status") or {}
-        # Hanya notifikasi jika status berubah dari snapshot sebelumnya
-        if not previous or previous.get("s") == status.get("id"):
-            return None
-
-        old_status_name = previous.get("n") or "?"
         new_status_name = status.get("name") or "?"
+        old_status_name = (previous.get("n") if previous else None) or ""
+        status_changed = bool(previous and previous.get("s") != status.get("id"))
 
         change = {
             "issue_id": issue["id"],
             "subject": issue.get("subject", ""),
             "project": (issue.get("project") or {}).get("name", ""),
             "status": new_status_name,
-            "old_status": old_status_name,
+            "old_status": old_status_name if status_changed else "",
             "updated_on": issue.get("updated_on", ""),
             "actor": "",
             "notes": "",
-            "kind": "status",
+            "kind": "update",
+            "detail_text": "",
         }
 
+        # Kasus 1: Task baru ditugaskan ke user
+        if not previous:
+            change["kind"] = "assigned"
+            author = issue.get("author") or {}
+            actor_name = _user_name(author)
+            change["actor"] = actor_name
+            change["detail_text"] = "Task baru ditugaskan ke Anda"
+            return change
+
+        # Ambil detail journals jika budget mencukupi
+        detail = {}
         if fetch_detail:
             try:
                 detail = client.get_issue(issue["id"], include="journals")
             except RedmineError:
                 detail = {}
-            journals = detail.get("journals") or []
-            if journals:
-                # Urutkan berdasarkan waktu created_on atau id
-                sorted_journals = sorted(
-                    journals,
-                    key=lambda j: j.get("created_on") or str(j.get("id", 0))
-                )
-                # Cari journal TERAKHIR yang spesifik mengubah status_id
-                target_journal = None
-                for j in reversed(sorted_journals):
-                    details_list = j.get("details") or []
-                    if any(d.get("name") == "status_id" for d in details_list):
-                        target_journal = j
-                        break
 
-                # Jika tidak ditemukan detail spesifik status_id, ambil journal terakhir
-                if target_journal is None:
-                    target_journal = sorted_journals[-1]
+        journals = detail.get("journals") or []
+        target_journal = None
+        if journals:
+            sorted_journals = sorted(
+                journals,
+                key=lambda j: j.get("created_on") or str(j.get("id", 0))
+            )
+            # Ambil journal terakhir
+            target_journal = sorted_journals[-1]
 
-                actor_user = target_journal.get("user") or {}
-                actor_id = actor_user.get("id")
-                actor_name = _user_name(actor_user)
-                if my_id and actor_id == my_id:
-                    change["actor"] = f"{actor_name} (Anda)" if actor_name else "Anda"
-                else:
-                    change["actor"] = actor_name
-                change["notes"] = (target_journal.get("notes") or "").strip()
-            elif detail:
-                author_user = detail.get("author") or {}
-                author_id = author_user.get("id")
-                author_name = _user_name(author_user)
-                if my_id and author_id == my_id:
-                    change["actor"] = f"{author_name} (Anda)" if author_name else "Anda"
-                else:
-                    change["actor"] = author_name
+        if target_journal:
+            actor_user = target_journal.get("user") or {}
+            actor_id = actor_user.get("id")
+            actor_name = _user_name(actor_user)
+            if my_id and actor_id == my_id:
+                change["actor"] = f"{actor_name} (Anda)" if actor_name else "Anda"
+            else:
+                change["actor"] = actor_name
+            change["notes"] = (target_journal.get("notes") or "").strip()
+
+            # Periksa detail perubahan atribut dalam journal
+            details_list = target_journal.get("details") or []
+            attr_descriptions = []
+            for d in details_list:
+                prop = d.get("property")
+                name = d.get("name")
+                if prop == "attr":
+                    if name == "status_id":
+                        status_changed = True
+                    elif name == "done_ratio":
+                        attr_descriptions.append(f"Progress diubah: {d.get('old_value', '0')}% → {d.get('new_value', '0')}%")
+                    elif name == "assigned_to_id":
+                        attr_descriptions.append("Assignee diubah")
+                    elif name == "priority_id":
+                        attr_descriptions.append("Prioritas diubah")
+                elif prop == "attachment":
+                    att_name = d.get("new_value") or "baru"
+                    attr_descriptions.append(f"Lampiran ditambahkan ({att_name})")
+
+            if attr_descriptions:
+                change["detail_text"] = ", ".join(attr_descriptions)
+
+        elif detail:
+            author_user = detail.get("author") or {}
+            author_id = author_user.get("id")
+            author_name = _user_name(author_user)
+            if my_id and actor_id == my_id:
+                change["actor"] = f"{author_name} (Anda)" if actor_name else "Anda"
+            else:
+                change["actor"] = author_name
+
+        # Tentukan tipe/kind perubahan
+        if status_changed:
+            change["kind"] = "status"
+        elif change["notes"]:
+            change["kind"] = "notes"
+        elif change["detail_text"]:
+            change["kind"] = "update"
+        else:
+            # Bandingkan dengan snapshot sebelumnya jika journal tidak didapatkan
+            if previous.get("d") is not None and previous.get("d") != issue.get("done_ratio"):
+                change["detail_text"] = f"Progress diubah: {previous.get('d', 0)}% → {issue.get('done_ratio', 0)}%"
+            elif previous.get("a") and previous.get("a") != (issue.get("assigned_to") or {}).get("name", ""):
+                change["detail_text"] = f"Assignee: {(issue.get('assigned_to') or {}).get('name', '')}"
+            elif previous.get("p") and previous.get("p") != (issue.get("priority") or {}).get("name", ""):
+                change["detail_text"] = f"Prioritas diubah ke {(issue.get('priority') or {}).get('name', '')}"
+            else:
+                change["detail_text"] = "Task diperbarui"
 
         return change
 
@@ -209,7 +279,31 @@ def format_change(change: Dict[str, Any]) -> Dict[str, str]:
     """Ubah data perubahan menjadi judul & pesan notifikasi yang siap ditampilkan."""
     title = f"#{change['issue_id']} · {change['subject']}"
     actor = f" oleh {change['actor']}" if change.get("actor") else ""
-    message = f"Status berubah: {change.get('old_status', '?')} → {change.get('status', '?')}{actor}"
+    kind = change.get("kind", "")
+    notes = (change.get("notes") or "").strip()
+    old_status = change.get("old_status")
+    new_status = change.get("status")
+
+    if kind == "assigned":
+        message = f"Task baru ditugaskan ke Anda{actor}"
+    elif old_status and new_status and old_status != new_status:
+        message = f"Status: {old_status} → {new_status}{actor}"
+        if notes:
+            clean_notes = notes.replace("\r\n", " ").replace("\n", " ").strip()
+            if len(clean_notes) > 50:
+                clean_notes = clean_notes[:49] + "…"
+            message += f" · \"{clean_notes}\""
+    elif notes:
+        clean_notes = notes.replace("\r\n", " ").replace("\n", " ").strip()
+        if len(clean_notes) > 70:
+            clean_notes = clean_notes[:69] + "…"
+        actor_prefix = f"{change['actor']}: " if change.get("actor") else "Catatan baru: "
+        message = f"{actor_prefix}\"{clean_notes}\""
+    elif change.get("detail_text"):
+        message = f"{change['detail_text']}{actor}"
+    else:
+        message = f"Task diperbarui{actor}"
+
     return {"title": title, "message": message}
 
 

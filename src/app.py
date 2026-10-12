@@ -75,7 +75,7 @@ class PullmanApp(ctk.CTk):
         # Notifikasi perubahan task Redmine (polling di background)
         self.redmine_notifications = NotificationCenter()
         self.redmine_notifications.subscribe(lambda: self.sidebar.set_redmine_badge(self.redmine_notifications.unread))
-        self.toasts = ToastManager(self)
+        self.toasts = ToastManager(self, db=self.db)
         self._redmine_notifier = RedmineNotifier(self.db)
         self._redmine_poll_job = None
         self._redmine_polling = False

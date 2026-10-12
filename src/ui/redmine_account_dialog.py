@@ -5,7 +5,7 @@ from typing import Any, Callable, Optional
 from theme import COLORS
 from icons import get_icon
 from redmine_markup import FORMAT_OPTIONS
-from redmine_notifier import INTERVAL_OPTIONS, notifications_enabled, notify_interval_seconds
+from redmine_notifier import INTERVAL_OPTIONS, NOTIFY_TYPE_OPTIONS, notifications_enabled, notify_interval_seconds, notify_type
 from redmine_service import RedmineClient, RedmineError, normalize_base_url
 
 
@@ -18,7 +18,7 @@ class RedmineAccountDialog(ctk.CTkToplevel):
         self._on_saved = on_saved
 
         self.title("Akun Redmine")
-        self.geometry("520x510")
+        self.geometry("520x545")
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
@@ -51,7 +51,7 @@ class RedmineAccountDialog(ctk.CTkToplevel):
         notify_row = ctk.CTkFrame(frame, fg_color="transparent")
         notify_row.pack(fill="x", pady=(0, 10))
         self.notify_switch = ctk.CTkSwitch(
-            notify_row, text="Notifikasi OS saat task berubah", text_color=COLORS["text_secondary"],
+            notify_row, text="Notifikasi saat task berubah", text_color=COLORS["text_secondary"],
             font=ctk.CTkFont(size=12), progress_color=COLORS["accent"]
         )
         self.notify_switch.pack(side="left")
@@ -67,6 +67,23 @@ class RedmineAccountDialog(ctk.CTkToplevel):
         )
         self.interval_opt.set(interval_label)
         self.interval_opt.pack(side="right")
+        ctk.CTkLabel(notify_row, text="Cek tiap", text_color=COLORS["muted"], font=ctk.CTkFont(size=11)).pack(side="right", padx=(0, 6))
+
+        # Pilihan tipe/metode notifikasi: OS vs Bawaan Aplikasi
+        notify_type_row = ctk.CTkFrame(frame, fg_color="transparent")
+        notify_type_row.pack(fill="x", pady=(0, 10))
+        ctk.CTkLabel(notify_type_row, text="Tipe notifikasi", text_color=COLORS["text_secondary"], font=ctk.CTkFont(size=12)).pack(side="left")
+
+        current_type = notify_type(self.db)
+        type_label = next((k for k, v in NOTIFY_TYPE_OPTIONS.items() if v == current_type), "Sistem Operasi (OS)")
+        self.notify_type_opt = ctk.CTkOptionMenu(
+            notify_type_row, values=list(NOTIFY_TYPE_OPTIONS.keys()), width=180, height=28,
+            fg_color=COLORS["surface"], text_color=COLORS["text"], button_color=COLORS["surface_hover"],
+            button_hover_color=COLORS["line"]
+        )
+        self.notify_type_opt.set(type_label)
+        self.notify_type_opt.pack(side="right")
+
         format_row = ctk.CTkFrame(frame, fg_color="transparent")
         format_row.pack(fill="x", pady=(0, 10))
         ctk.CTkLabel(format_row, text="Format teks Redmine", text_color=COLORS["text_secondary"], font=ctk.CTkFont(size=12)).pack(side="left")
@@ -78,8 +95,6 @@ class RedmineAccountDialog(ctk.CTkToplevel):
         )
         self.format_opt.set(next((k for k, v in FORMAT_OPTIONS.items() if v == current_format), "Otomatis"))
         self.format_opt.pack(side="right")
-
-        ctk.CTkLabel(notify_row, text="Cek tiap", text_color=COLORS["muted"], font=ctk.CTkFont(size=11)).pack(side="right", padx=(0, 6))
 
         self.status_label = ctk.CTkLabel(frame, text="", text_color=COLORS["danger"], font=ctk.CTkFont(size=11), wraplength=460, justify="left")
         self.status_label.pack(anchor="w")
@@ -136,15 +151,22 @@ class RedmineAccountDialog(ctk.CTkToplevel):
     def _on_test_success(self, base_url: str, api_key: str, user: dict):
         if not self.winfo_exists():
             return
-        from ui.toast import send_os_notification
         full_name = f"{user.get('firstname', '')} {user.get('lastname', '')}".strip() or user.get("login", "")
+        chosen_type = NOTIFY_TYPE_OPTIONS.get(self.notify_type_opt.get(), "os")
         self.db.save_redmine_credential(base_url, api_key, full_name, user.get("id"))
         self.db.set_setting("redmine_notify_enabled", "1" if self.notify_switch.get() else "0")
+        self.db.set_setting("redmine_notify_type", chosen_type)
         self.db.set_setting("redmine_text_format", FORMAT_OPTIONS[self.format_opt.get()])
         self.db.set_setting("redmine_notify_interval", str(INTERVAL_OPTIONS[self.interval_opt.get()]))
         self.db.set_setting("redmine_notify_interval_unit", "sec")
         if self.notify_switch.get():
-            send_os_notification("DO.MBA Pull Manager", f"Akun Redmine ({full_name}) berhasil terhubung.")
+            top = self.winfo_toplevel()
+            mgr = getattr(top, "toasts", None)
+            if mgr:
+                mgr.show("DO.MBA Pull Manager", f"Akun Redmine ({full_name}) berhasil terhubung.")
+            else:
+                from ui.toast import ToastManager
+                ToastManager(top, db=self.db).show("DO.MBA Pull Manager", f"Akun Redmine ({full_name}) berhasil terhubung.")
         if self._on_saved:
             self._on_saved()
         self.destroy()
@@ -156,10 +178,22 @@ class RedmineAccountDialog(ctk.CTkToplevel):
         self.status_label.configure(text=message, text_color=COLORS["danger"])
 
     def _test_notification(self):
-        from ui.toast import send_os_notification
-        send_os_notification("DO.MBA Pull Manager", "Tes notifikasi: Akun Redmine terhubung dan aktif.")
+        selected_label = self.notify_type_opt.get()
+        chosen_type = NOTIFY_TYPE_OPTIONS.get(selected_label, "os")
+        from ui.toast import ToastManager, send_os_notification
+
+        if chosen_type in ("os", "both"):
+            send_os_notification("DO.MBA Pull Manager", "Tes notifikasi OS: Akun Redmine terhubung dan aktif.")
+
+        if chosen_type in ("app", "both"):
+            top = self.winfo_toplevel()
+            mgr = getattr(top, "toasts", None)
+            if not mgr:
+                mgr = ToastManager(top, db=self.db)
+            mgr.show_app_toast("DO.MBA Pull Manager", "Tes notifikasi Aplikasi: Akun Redmine terhubung dan aktif.")
+
         if hasattr(self, "status_label"):
-            self.status_label.configure(text="Notifikasi tes telah dikirim ke OS.", text_color=COLORS["muted"])
+            self.status_label.configure(text=f"Notifikasi tes telah dikirim ({selected_label}).", text_color=COLORS["muted"])
 
     def _delete(self):
         if not self.db.get_redmine_credential():

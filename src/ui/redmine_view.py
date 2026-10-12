@@ -1072,6 +1072,9 @@ class RedmineView(ctk.CTkFrame):
         self._load_issues()
         for panel in self._issue_panels.values():
             panel.refresh()
+        top = self.winfo_toplevel()
+        if hasattr(top, "_schedule_redmine_poll"):
+            top._schedule_redmine_poll(1000)
 
     def _quick_change_status(self, issue_id: int, status_id: int, status_name: str):
         if not self._client:
@@ -1099,6 +1102,9 @@ class RedmineView(ctk.CTkFrame):
         self._load_issues()
         if issue_id in self._issue_panels:
             self._issue_panels[issue_id].refresh()
+        top = self.winfo_toplevel()
+        if hasattr(top, "_schedule_redmine_poll"):
+            top._schedule_redmine_poll(1000)
 
     def _show_context_menu(self, event):
         item = self.tree.identify_row(event.y)

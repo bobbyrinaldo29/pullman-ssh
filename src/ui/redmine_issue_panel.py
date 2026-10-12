@@ -260,6 +260,9 @@ class RedmineIssuePanel(ctk.CTkFrame):
         self.refresh()
         if self._on_status_changed:
             self._on_status_changed(self.issue_id)
+        top = self.winfo_toplevel()
+        if hasattr(top, "_schedule_redmine_poll"):
+            top._schedule_redmine_poll(1000)
 
     def _on_loaded_issue(self, issue: Dict[str, Any]):
         if not self.winfo_exists():
