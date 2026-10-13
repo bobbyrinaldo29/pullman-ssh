@@ -8,6 +8,7 @@ from tkinter import ttk, messagebox
 from typing import Any, Dict, List, Optional, Tuple
 
 import customtkinter as ctk
+from PIL import Image, ImageDraw, ImageTk
 
 try:
     import git
@@ -20,6 +21,18 @@ from theme import COLORS, get_color
 from icons import get_icon, get_tk_image, get_file_type_icon, get_file_type_tk_image
 from sftp_service import SFTPService
 from terminal_launcher import launch_ssh_terminal, launch_local_terminal
+
+# Palet warna cabang Git Graph (bergaya GitHub Desktop & GitKraken)
+GRAPH_PALETTE = [
+    (88, 166, 255),   # Blue (#58A6FF)
+    (63, 185, 80),    # Emerald Green (#3FB950)
+    (210, 153, 34),   # Amber/Orange (#D29922)
+    (187, 128, 247),  # Purple (#BC8CFF)
+    (248, 81, 73),    # Coral Red (#F85149)
+    (57, 211, 239),   # Cyan (#39D3EF)
+    (247, 120, 186),  # Hot Pink (#F778BA)
+    (227, 179, 65),   # Gold Yellow (#E3B341)
+]
 
 
 class GitGraphDialog(ctk.CTkToplevel):
@@ -71,6 +84,7 @@ class GitGraphDialog(ctk.CTkToplevel):
 
         # State History
         self._commits: List[Dict[str, Any]] = []
+        self._graph_images: List[ImageTk.PhotoImage] = []
         self._current_branch = "main"
         self._is_loading = False
 
@@ -523,6 +537,7 @@ class GitGraphDialog(ctk.CTkToplevel):
             fieldbackground=get_color("input_bg"),
             borderwidth=0,
             rowheight=32,
+            indent=0,
             font=("Segoe UI" if os.name == "nt" else "SF Pro", 11)
         )
         style.configure(
@@ -544,23 +559,23 @@ class GitGraphDialog(ctk.CTkToplevel):
         tree_container.grid_columnconfigure(0, weight=1)
         tree_container.grid_rowconfigure(0, weight=1)
 
-        columns = ("graph", "commit", "author_date", "hash")
+        columns = ("commit", "author_date", "hash")
         self.tree_history = ttk.Treeview(
             tree_container,
             columns=columns,
-            show="headings",
+            show="tree headings",
             style="GitHub.History.Treeview",
             selectmode="browse"
         )
         self.tree_history.grid(row=0, column=0, sticky="nsew")
 
-        self.tree_history.heading("graph", text="Graph", anchor="w")
+        self.tree_history.heading("#0", text="Graph", anchor="w")
         self.tree_history.heading("commit", text="Commit Message", anchor="w")
         self.tree_history.heading("author_date", text="Author & Date", anchor="w")
         self.tree_history.heading("hash", text="SHA", anchor="w")
 
-        self.tree_history.column("graph", width=65, minwidth=45, stretch=False)
-        self.tree_history.column("commit", width=190, minwidth=140, stretch=True)
+        self.tree_history.column("#0", width=65, minwidth=50, stretch=False)
+        self.tree_history.column("commit", width=220, minwidth=140, stretch=True)
         self.tree_history.column("author_date", width=120, minwidth=90, stretch=False)
         self.tree_history.column("hash", width=65, minwidth=55, stretch=False)
 
@@ -1504,10 +1519,10 @@ class GitGraphDialog(ctk.CTkToplevel):
                         try:
                             repo = Repo(root_dir, search_parent_directories=True)
                             args = [
-                                "--graph",
+                                "--topo-order",
                                 "--date=relative",
-                                f"--format=format:COMMIT_DELIM\t%h\t%d\t%s\t%an\t%ar\t%H",
-                                "-n", "80"
+                                f"--format=format:COMMIT_DELIM\t%h\t%p\t%d\t%s\t%an\t%ar\t%H",
+                                "-n", "100"
                             ]
                             if use_all:
                                 args.insert(1, "--all")
@@ -1517,13 +1532,13 @@ class GitGraphDialog(ctk.CTkToplevel):
                             log_stderr = str(e)
                     else:
                         try:
-                            args = ["git", "-C", root_dir, "log", "--graph"]
+                            args = ["git", "-C", root_dir, "log", "--topo-order"]
                             if use_all:
                                 args.append("--all")
                             args.extend([
                                 "--date=relative",
-                                "--format=format:COMMIT_DELIM\t%h\t%d\t%s\t%an\t%ar\t%H",
-                                "-n", "80"
+                                "--format=format:COMMIT_DELIM\t%h\t%p\t%d\t%s\t%an\t%ar\t%H",
+                                "-n", "100"
                             ])
                             res_l = subprocess.run(args, capture_output=True, text=True)
                             ok_log = (res_l.returncode == 0)
@@ -1533,7 +1548,7 @@ class GitGraphDialog(ctk.CTkToplevel):
                             log_stderr = str(e)
                 else:
                     all_flag = "--all" if use_all else ""
-                    cmd = f"git -C '{root_dir}' -c safe.directory='*' log --graph {all_flag} --date=relative --format=format:'COMMIT_DELIM%x09%h%x09%d%x09%s%x09%an%x09%ar%x09%H' -n 80"
+                    cmd = f"git -C '{root_dir}' -c safe.directory='*' log --topo-order {all_flag} --date=relative --format=format:'COMMIT_DELIM%x09%h%x09%p%x09%d%x09%s%x09%an%x09%ar%x09%H' -n 100"
                     ok_log, log_stdout, log_stderr = self._exec_remote_cmd(cmd)
             except Exception as e:
                 log_stderr = str(e)
@@ -1563,37 +1578,182 @@ class GitGraphDialog(ctk.CTkToplevel):
 
         for line in lines:
             if "COMMIT_DELIM\t" in line:
-                graph_part, meta_part = line.split("COMMIT_DELIM\t", 1)
+                meta_part = line.split("COMMIT_DELIM\t", 1)[1]
                 parts = meta_part.split("\t")
-                if len(parts) >= 6:
+                if len(parts) >= 7:
+                    short_h, parents_raw, refs, subject, author, rel_date, full_h = parts[:7]
+                    parents_list = [p.strip() for p in parents_raw.strip().split() if p.strip()]
+                elif len(parts) >= 6:
                     short_h, refs, subject, author, rel_date, full_h = parts[:6]
-                    clean_refs = refs.strip()
-                    if clean_refs.startswith("(") and clean_refs.endswith(")"):
-                        clean_refs = clean_refs[1:-1].strip()
+                    parents_list = []
+                else:
+                    continue
 
-                    self._commits.append({
-                        "graph": graph_part.rstrip(),
-                        "hash": short_h.strip(),
-                        "refs": clean_refs,
-                        "message": subject.strip(),
-                        "author": author.strip(),
-                        "date": rel_date.strip(),
-                        "full_hash": full_h.strip()
-                    })
-            else:
-                stripped = line.rstrip()
-                if stripped:
-                    self._commits.append({
-                        "graph": stripped,
-                        "hash": "",
-                        "refs": "",
-                        "message": "",
-                        "author": "",
-                        "date": "",
-                        "full_hash": ""
-                    })
+                clean_refs = refs.strip()
+                if clean_refs.startswith("(") and clean_refs.endswith(")"):
+                    clean_refs = clean_refs[1:-1].strip()
 
+                self._commits.append({
+                    "hash": short_h.strip(),
+                    "parents": parents_list,
+                    "refs": clean_refs,
+                    "message": subject.strip(),
+                    "author": author.strip(),
+                    "date": rel_date.strip(),
+                    "full_hash": full_h.strip()
+                })
+
+        self._compute_and_render_graph()
         self._filter_displayed_commits()
+
+    def _compute_and_render_graph(self):
+        """
+        Menghitung topologi git graph (jalur branch, commit node, merge/fork connections)
+        dan merender gambar berkualitas tinggi untuk setiap baris commit.
+        """
+        self._graph_images.clear()
+        if not self._commits:
+            return
+
+        lanes: List[Optional[str]] = []
+        rows_info = []
+
+        for idx, c in enumerate(self._commits):
+            chash = c["hash"]
+            parents = c.get("parents", [])
+            entering_lanes = list(lanes)
+
+            if chash in lanes:
+                commit_lane = lanes.index(chash)
+            else:
+                if None in lanes:
+                    commit_lane = lanes.index(None)
+                    lanes[commit_lane] = chash
+                else:
+                    commit_lane = len(lanes)
+                    lanes.append(chash)
+
+            has_above = (commit_lane < len(entering_lanes) and entering_lanes[commit_lane] == chash)
+
+            down_connections = []
+            if not parents:
+                lanes[commit_lane] = None
+            else:
+                p0 = parents[0]
+                if p0 in lanes and lanes.index(p0) != commit_lane:
+                    down_connections.append((commit_lane, lanes.index(p0)))
+                    lanes[commit_lane] = None
+                else:
+                    lanes[commit_lane] = p0
+                    down_connections.append((commit_lane, commit_lane))
+
+                for pk in parents[1:]:
+                    if pk in lanes:
+                        down_connections.append((commit_lane, lanes.index(pk)))
+                    else:
+                        if None in lanes:
+                            pk_lane = lanes.index(None)
+                            lanes[pk_lane] = pk
+                        else:
+                            pk_lane = len(lanes)
+                            lanes.append(pk)
+                        down_connections.append((commit_lane, pk_lane))
+
+            exiting_lanes = list(lanes)
+            passing_lanes = []
+            max_active = max(len(entering_lanes), len(exiting_lanes), commit_lane + 1)
+            for l in range(max_active):
+                if l == commit_lane:
+                    continue
+                ent = entering_lanes[l] if l < len(entering_lanes) else None
+                ext = exiting_lanes[l] if l < len(exiting_lanes) else None
+                if ent is not None and ext is not None and ent == ext:
+                    passing_lanes.append(l)
+
+            while lanes and lanes[-1] is None:
+                lanes.pop()
+
+            rows_info.append({
+                "commit_lane": commit_lane,
+                "has_above": has_above,
+                "down_connections": down_connections,
+                "passing_lanes": passing_lanes,
+                "max_lanes": max_active
+            })
+
+        max_all_lanes = max((r["max_lanes"] for r in rows_info), default=1)
+        lane_width = 16
+        left_pad = 14
+        row_height = 32
+        col_width = max(55, min(260, left_pad + max_all_lanes * lane_width + 12))
+
+        try:
+            self.tree_history.column("#0", width=col_width, minwidth=col_width)
+        except Exception:
+            pass
+
+        scale = 2  # Supersampling 2x untuk antialiasing kristal jernih
+        W = col_width * scale
+        H = row_height * scale
+
+        for idx, (c, r) in enumerate(zip(self._commits, rows_info)):
+            im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(im)
+
+            c_lane = r["commit_lane"]
+            c_color = GRAPH_PALETTE[c_lane % len(GRAPH_PALETTE)]
+
+            # 1. Jalur passing lanes (garis lurus menerus dari atas ke bawah)
+            for p_lane in r["passing_lanes"]:
+                px = int((left_pad + p_lane * lane_width) * scale)
+                p_col = GRAPH_PALETTE[p_lane % len(GRAPH_PALETTE)]
+                draw.line([(px, 0), (px, H)], fill=p_col, width=int(2.2 * scale))
+
+            # 2. Garis masuk dari atas menuju node commit
+            cx = int((left_pad + c_lane * lane_width) * scale)
+            cy = int((row_height / 2) * scale)
+
+            if r["has_above"]:
+                draw.line([(cx, 0), (cx, cy)], fill=c_color, width=int(2.2 * scale))
+
+            # 3. Koneksi ke bawah (parent lanes)
+            for from_l, to_l in r["down_connections"]:
+                fx = int((left_pad + from_l * lane_width) * scale)
+                tx = int((left_pad + to_l * lane_width) * scale)
+                l_col = GRAPH_PALETTE[to_l % len(GRAPH_PALETTE)] if from_l != to_l else c_color
+
+                if fx == tx:
+                    draw.line([(fx, cy), (fx, H)], fill=c_color, width=int(2.2 * scale))
+                else:
+                    pts = []
+                    steps = 16
+                    for s in range(steps + 1):
+                        t = s / steps
+                        bx = (1 - t)**3 * fx + 3 * (1 - t)**2 * t * fx + 3 * (1 - t) * t**2 * tx + t**3 * tx
+                        by = (1 - t)**3 * cy + 3 * (1 - t)**2 * t * ((cy + H) / 2) + 3 * (1 - t) * t**2 * ((cy + H) / 2) + t**3 * H
+                        pts.append((bx, by))
+                    draw.line(pts, fill=l_col, width=int(2.2 * scale))
+
+            # 4. Simpul Node Commit (lingkaran elegan dengan cincin kontras)
+            radius = int(5.5 * scale)
+            draw.ellipse(
+                [(cx - radius, cy - radius), (cx + radius, cy + radius)],
+                fill=c_color,
+                outline=(240, 246, 252, 230),
+                width=int(1.6 * scale)
+            )
+            # Inti dot putih kecil di tengah
+            core_r = int(2.2 * scale)
+            draw.ellipse(
+                [(cx - core_r, cy - core_r), (cx + core_r, cy + core_r)],
+                fill=(255, 255, 255, 255)
+            )
+
+            # Downsample ke ukuran target
+            im_final = im.resize((col_width, row_height), Image.Resampling.LANCZOS)
+            tk_img = ImageTk.PhotoImage(im_final)
+            self._graph_images.append(tk_img)
+            c["graph_img"] = tk_img
 
     def _filter_displayed_commits(self):
         query = self.entry_filter.get().strip().lower()
@@ -1602,9 +1762,7 @@ class GitGraphDialog(ctk.CTkToplevel):
 
         first_selectable = None
         for idx, c in enumerate(self._commits):
-            if not c["hash"]:
-                if not query:
-                    self.tree_history.insert("", "end", iid=str(idx), values=(c["graph"], "", "", ""))
+            if not c.get("hash"):
                 continue
 
             if query:
@@ -1618,24 +1776,35 @@ class GitGraphDialog(ctk.CTkToplevel):
 
             author_date = f"{c['author']} • {c['date']}"
             iid = str(idx)
-            self.tree_history.insert("", "end", iid=iid, values=(c["graph"], commit_text, author_date, c["hash"]))
+            g_img = c.get("graph_img")
+            if g_img:
+                self.tree_history.insert("", "end", iid=iid, image=g_img, values=(commit_text, author_date, c["hash"]))
+            else:
+                self.tree_history.insert("", "end", iid=iid, values=(commit_text, author_date, c["hash"]))
 
             if first_selectable is None:
                 first_selectable = iid
 
         if first_selectable and self._active_tab == "History":
             self.tree_history.selection_set(first_selectable)
-            vals = self.tree_history.item(first_selectable, "values")
-            if vals and vals[3]:
-                self._load_history_commit_details(vals[3])
+            idx = int(first_selectable) if first_selectable.isdigit() else -1
+            if 0 <= idx < len(self._commits) and self._commits[idx].get("hash"):
+                self._load_history_commit_details(self._commits[idx]["hash"])
 
     def _on_history_commit_selected(self, event=None):
         sel = self.tree_history.selection()
         if not sel:
             return
-        vals = self.tree_history.item(sel[0], "values")
-        if vals and vals[3]:
-            self._load_history_commit_details(vals[3])
+        idx = int(sel[0]) if sel[0].isdigit() else -1
+        commit_hash = ""
+        if 0 <= idx < len(self._commits):
+            commit_hash = self._commits[idx].get("hash") or ""
+        else:
+            vals = self.tree_history.item(sel[0], "values")
+            if vals:
+                commit_hash = vals[-1]
+        if commit_hash:
+            self._load_history_commit_details(commit_hash)
 
     def _load_history_commit_details(self, commit_hash: str):
         self._selected_commit_hash = commit_hash
@@ -1832,15 +2001,16 @@ class GitGraphDialog(ctk.CTkToplevel):
         sel = self.tree_history.selection()
         if not sel:
             return
-        vals = self.tree_history.item(sel[0], "values")
-        if vals and vals[3]:
-            short_h = vals[3]
-            idx = int(sel[0]) if sel[0].isdigit() else -1
-            if 0 <= idx < len(self._commits) and self._commits[idx].get("full_hash"):
-                copy_val = self._commits[idx]["full_hash"]
-            else:
-                copy_val = short_h
+        idx = int(sel[0]) if sel[0].isdigit() else -1
+        copy_val = ""
+        if 0 <= idx < len(self._commits):
+            copy_val = self._commits[idx].get("full_hash") or self._commits[idx].get("hash") or ""
+        else:
+            vals = self.tree_history.item(sel[0], "values")
+            if vals:
+                copy_val = vals[-1]
 
+        if copy_val:
             self.clipboard_clear()
             self.clipboard_append(copy_val)
             self.lbl_status.configure(text=f"Copied SHA: {copy_val} ✓", text_color=COLORS["success_text"])
