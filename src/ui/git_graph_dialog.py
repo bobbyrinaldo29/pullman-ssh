@@ -17,7 +17,7 @@ except ImportError:
     HAS_GITPYTHON = False
 
 from theme import COLORS, get_color
-from icons import get_icon
+from icons import get_icon, get_tk_image, get_file_type_icon, get_file_type_tk_image
 from sftp_service import SFTPService
 from terminal_launcher import launch_ssh_terminal, launch_local_terminal
 
@@ -327,6 +327,20 @@ class GitGraphDialog(ctk.CTkToplevel):
         self.right_pane.grid_rowconfigure(1, weight=1)
 
         self._build_right_pane()
+
+        # Inisialisasi tampilan tab default (Changes) agar langsung tampil seketika saat dialog dibuka
+        self.frame_history.grid_forget()
+        self.frame_changes.grid(row=0, column=0, sticky="nsew")
+        self.btn_copy_sha.grid_remove()
+        self.lbl_sha_full.configure(text="")
+        self.lbl_date_info.configure(text="")
+        self.lbl_commit_body.configure(text="")
+        self.lbl_author_info.configure(text="Local Working Tree" if self.is_local else "Remote Working Tree")
+        self.lbl_commit_title.configure(text="Changes in Working Directory")
+        try:
+            self.diff_paned.forget(self.history_files_frame)
+        except Exception:
+            pass
 
         # ---------------------------------------------------------
         # BOTTOM STATUS BAR
@@ -775,6 +789,7 @@ class GitGraphDialog(ctk.CTkToplevel):
     # 5. TAB SWITCHING (Changes vs History)
     # -------------------------------------------------------------
     def _on_tab_changed(self, selected_tab: str):
+        prev_tab = self._active_tab
         self._active_tab = selected_tab
         if selected_tab == "Changes":
             self.frame_history.grid_forget()
@@ -785,7 +800,7 @@ class GitGraphDialog(ctk.CTkToplevel):
             self.lbl_sha_full.configure(text="")
             self.lbl_date_info.configure(text="")
             self.lbl_commit_body.configure(text="")
-            self.lbl_author_info.configure(text="Local Working Tree")
+            self.lbl_author_info.configure(text="Local Working Tree" if self.is_local else "Remote Working Tree")
             self.lbl_commit_title.configure(text=f"Changes in Working Directory ({len(self._working_changes)} files)")
 
             # Sembunyikan files frame history di diff_paned
@@ -794,7 +809,8 @@ class GitGraphDialog(ctk.CTkToplevel):
             except Exception:
                 pass
 
-            self._load_working_changes()
+            if prev_tab != "Changes":
+                self._load_working_changes()
         else:
             self.frame_changes.grid_forget()
             self.frame_history.grid(row=0, column=0, sticky="nsew")
@@ -961,6 +977,7 @@ class GitGraphDialog(ctk.CTkToplevel):
         self.seg_tabs.set(f"Changes")
         self.chk_select_all.configure(text=f"Select All ({count} changed files)")
         self.lbl_summary_stats.configure(text=f"{count} files changed")
+        self.lbl_commit_title.configure(text=f"Changes in Working Directory ({count} files)")
 
         if count == 0:
             lbl_empty = ctk.CTkLabel(
@@ -980,7 +997,7 @@ class GitGraphDialog(ctk.CTkToplevel):
             var_chk = ctk.BooleanVar(value=True)
             row_frame = ctk.CTkFrame(self.scroll_changes, fg_color="transparent", height=30)
             row_frame.pack(fill="x", padx=4, pady=2)
-            row_frame.grid_columnconfigure(2, weight=1)
+            row_frame.grid_columnconfigure(3, weight=1)
 
             # Checkbox
             chk = ctk.CTkCheckBox(
@@ -1004,7 +1021,12 @@ class GitGraphDialog(ctk.CTkToplevel):
                 corner_radius=4,
                 height=18
             )
-            lbl_badge.grid(row=0, column=1, padx=(0, 6), pady=4)
+            lbl_badge.grid(row=0, column=1, padx=(0, 4), pady=4)
+
+            # File Type Icon
+            f_icon = get_file_type_icon(f["path"], size=(14, 14))
+            lbl_f_icon = ctk.CTkLabel(row_frame, text="", image=f_icon, width=16)
+            lbl_f_icon.grid(row=0, column=2, padx=(0, 6), pady=4)
 
             # File Path Label
             fname = os.path.basename(f["path"])
@@ -1018,7 +1040,7 @@ class GitGraphDialog(ctk.CTkToplevel):
                 anchor="w",
                 cursor="hand2"
             )
-            lbl_name.grid(row=0, column=2, sticky="w", pady=4)
+            lbl_name.grid(row=0, column=3, sticky="w", pady=4)
 
             item_data = {
                 "path": f["path"],
@@ -1030,7 +1052,7 @@ class GitGraphDialog(ctk.CTkToplevel):
             self._working_changes.append(item_data)
 
             # Click & Right-click events
-            for widget in (row_frame, lbl_name, lbl_badge):
+            for widget in (row_frame, lbl_name, lbl_badge, lbl_f_icon):
                 widget.bind("<Button-1>", lambda e, item=item_data: self._on_working_file_clicked(item))
                 widget.bind("<Button-2>", lambda e, item=item_data: self._show_changes_context_menu(e, item))
                 widget.bind("<Button-3>", lambda e, item=item_data: self._show_changes_context_menu(e, item))
@@ -1749,9 +1771,10 @@ class GitGraphDialog(ctk.CTkToplevel):
         for item in self.tree_files.get_children():
             self.tree_files.delete(item)
 
-        self.tree_files.insert("", "end", iid="all", values=("ALL", f"All Files ({num_files})", f"+{total_adds} -{total_dels}"))
+        self.tree_files.insert("", "end", iid="all", image=get_tk_image("file-code", (14, 14), COLORS["accent"]), values=("ALL", f"All Files ({num_files})", f"+{total_adds} -{total_dels}"))
         for idx, f in enumerate(self._history_files_data):
-            self.tree_files.insert("", "end", iid=str(idx), values=(f"[{f['type']}]", f["name"], f"+{f['add']} -{f['del']}"))
+            f_img = get_file_type_tk_image(f["name"], size=(14, 14))
+            self.tree_files.insert("", "end", iid=str(idx), image=f_img, values=(f"[{f['type']}]", f["name"], f"+{f['add']} -{f['del']}"))
 
         self.tree_files.selection_set("all")
         self._render_diff_text("All Files", self._history_all_diff)

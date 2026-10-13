@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import customtkinter as ctk
 
 from theme import COLORS
-from icons import get_icon, get_tk_image
+from icons import get_icon, get_tk_image, get_file_type_tk_image
 from sftp_service import SFTPService
 from ui.tab_bar import HorizontalScrollableTabBar
 
@@ -825,7 +825,7 @@ class FileEditorDialog(ctk.CTkToplevel):
         self.btn_git_graph = ctk.CTkButton(
             btn_group,
             text=" Git Graph",
-            image=get_icon("activity", (12, 12), VSCODE["editor_fg"]),
+            image=get_icon("git-branch", (12, 12), VSCODE["editor_fg"]),
             width=86, height=28,
             corner_radius=4,
             fg_color="#333333",
@@ -1266,7 +1266,7 @@ class FileEditorDialog(ctk.CTkToplevel):
         btn_git_side = ctk.CTkButton(
             header_bar,
             text="",
-            image=get_icon("activity", (11, 11), "#888888"),
+            image=get_icon("git-branch", (11, 11), "#888888"),
             width=22, height=22,
             corner_radius=3,
             fg_color="transparent",
@@ -1450,12 +1450,7 @@ class FileEditorDialog(ctk.CTkToplevel):
             ext = item.get("ext", "").lower()
             name = item.get("name", "")
 
-            if is_dir:
-                img = self._tree_icons.get("folder")
-            elif ext in code_exts:
-                img = self._tree_icons.get("file_code")
-            else:
-                img = self._tree_icons.get("file")
+            img = get_file_type_tk_image(name, is_dir=is_dir, size=(14, 14))
 
             self.explorer_tree.insert(
                 "",

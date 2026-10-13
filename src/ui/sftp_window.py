@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional
 import customtkinter as ctk
 
 from theme import COLORS, get_color, apply_treeview_styles
-from icons import get_icon, get_tk_image
+from icons import get_icon, get_tk_image, get_file_type_tk_image
 from sftp_service import SFTPService
 from ui.file_editor_dialog import FileEditorDialog
 from terminal_launcher import launch_ssh_terminal
@@ -93,7 +93,16 @@ class SFTPWindow(ctk.CTkToplevel):
             text_color=COLORS["accent_text"], font=ctk.CTkFont(size=11, weight="bold"),
             command=self._open_terminal_here
         )
-        self.btn_terminal.pack(side="left", padx=(0, 6))
+        self.btn_terminal.pack(side="left", padx=(0, 3))
+
+        self.btn_git = ctk.CTkButton(
+            btn_box, text=" Git Graph", image=get_icon("git-branch", (13, 13), COLORS["accent_text"]),
+            width=85, height=32, corner_radius=6,
+            fg_color=COLORS["accent_subtle"], hover_color=COLORS["surface_hover"],
+            text_color=COLORS["accent_text"], font=ctk.CTkFont(size=11, weight="bold"),
+            command=self._open_git_graph_here
+        )
+        self.btn_git.pack(side="left", padx=(0, 6))
 
         # Path Entry & Go Button
         lbl_loc = ctk.CTkLabel(header, text="Remote Path:", font=ctk.CTkFont(size=11, weight="bold"), text_color=COLORS["muted"])
@@ -205,7 +214,17 @@ class SFTPWindow(ctk.CTkToplevel):
             font=ctk.CTkFont(size=11),
             command=self._open_terminal_here
         )
-        self.btn_term_toolbar.pack(side="left")
+        self.btn_term_toolbar.pack(side="left", padx=(0, 4))
+
+        self.btn_git_toolbar = ctk.CTkButton(
+            left_tools, text=" Git Graph", image=get_icon("git-branch", (13, 13), COLORS["text_secondary"]),
+            height=28, corner_radius=6,
+            fg_color=COLORS["surface"], hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text_secondary"], border_width=1, border_color=COLORS["line"],
+            font=ctk.CTkFont(size=11),
+            command=self._open_git_graph_here
+        )
+        self.btn_git_toolbar.pack(side="left")
 
     def _build_file_table(self):
         """Tabel Explorer File & Direktori berbasis TTK Treeview."""
@@ -306,7 +325,7 @@ class SFTPWindow(ctk.CTkToplevel):
                 )
                 self.context_menu.add_command(
                     label="  Git Graph in here",
-                    image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                    image=get_tk_image("git-branch", (14, 14), COLORS["accent_text"]),
                     compound="left",
                     command=lambda p=item_data["path"]: self._action_git_graph(p)
                 )
@@ -337,7 +356,7 @@ class SFTPWindow(ctk.CTkToplevel):
                 )
                 self.context_menu.add_command(
                     label="  Git Graph in folder",
-                    image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                    image=get_tk_image("git-branch", (14, 14), COLORS["accent_text"]),
                     compound="left",
                     command=lambda p=os.path.dirname(item_data["path"]): self._action_git_graph(p)
                 )
@@ -377,7 +396,7 @@ class SFTPWindow(ctk.CTkToplevel):
             )
             self.context_menu.add_command(
                 label="  Git Graph in here",
-                image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                image=get_tk_image("git-branch", (14, 14), COLORS["accent_text"]),
                 compound="left",
                 command=lambda: self._action_git_graph(self.current_path)
             )
@@ -474,7 +493,7 @@ class SFTPWindow(ctk.CTkToplevel):
         for idx, item in enumerate(self._items):
             item_id = str(idx)
             is_dir = item["is_dir"]
-            icon = get_tk_image("folder" if is_dir else "file", (14, 14), COLORS["accent"] if is_dir else COLORS["text_secondary"])
+            icon = get_file_type_tk_image(item["name"], is_dir=is_dir, size=(14, 14))
             
             if is_dir:
                 folders_count += 1
@@ -790,6 +809,16 @@ class SFTPWindow(ctk.CTkToplevel):
             self.lbl_status_msg.configure(text=f"Terminal opened: {target_path}", text_color=COLORS["success_text"])
         else:
             messagebox.showerror("Terminal Error", res.get("error", "Gagal membuka terminal"), parent=self)
+
+    def _open_git_graph_here(self):
+        """Membuka dialog Git Graph pada direktori remote yang sedang aktif atau dipilih."""
+        target_path = self.current_path
+        sel = self.tree.selection()
+        if sel:
+            item = self.items_data.get(sel[0])
+            if item and item.get("is_dir"):
+                target_path = item["path"]
+        self._action_git_graph(target_path)
 
     def _action_git_graph(self, target_dir: str):
         """Membuka dialog Git Graph interaktif untuk melihat riwayat commit & grafik git pada folder tujuan."""

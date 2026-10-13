@@ -16,7 +16,7 @@ import uuid
 import customtkinter as ctk
 
 from theme import COLORS, get_color, apply_treeview_styles
-from icons import get_icon, get_tk_image
+from icons import get_icon, get_tk_image, get_file_type_tk_image
 from sftp_service import SFTPService
 from ui.file_editor_dialog import FileEditorDialog
 from ui.tab_bar import HorizontalScrollableTabBar
@@ -539,6 +539,12 @@ class SFTPView(ctk.CTkFrame):
                 compound="left",
                 command=lambda h=host: self._open_terminal_for_host(h)
             )
+            self.host_tree_menu.add_command(
+                label="  Open Git Graph",
+                image=get_tk_image("git-branch", (13, 13), COLORS["text"]),
+                compound="left",
+                command=lambda h=host: self._open_git_graph_for_host(h)
+            )
             target_str = f"{host.get('username', 'root')}@{host.get('hostname')}:{host.get('port', 22)}"
             self.host_tree_menu.add_command(
                 label="  Copy Target (user@host:port)",
@@ -620,6 +626,13 @@ class SFTPView(ctk.CTkFrame):
             command=lambda: self._action_open_local_terminal()
         )
         btn_local_term.pack(side="left", padx=(0, 3))
+
+        btn_local_git = ctk.CTkButton(
+            btn_box, text="", image=get_icon("git-branch", (13, 13), COLORS["text"]),
+            width=28, height=28, corner_radius=6, fg_color=COLORS["surface_hover"], hover_color=COLORS["line"],
+            command=lambda: self._action_open_local_git_graph()
+        )
+        btn_local_git.pack(side="left", padx=(0, 3))
 
         self.local_path_var = ctk.StringVar(value=self._local_path)
         self.local_path_entry = ctk.CTkEntry(
@@ -724,6 +737,14 @@ class SFTPView(ctk.CTkFrame):
         )
         btn_local_term_bar.pack(side="left", padx=(0, 4))
 
+        btn_local_git_bar = ctk.CTkButton(
+            action_bar, text=" Git Graph", image=get_icon("git-branch", (12, 12), COLORS["text"]),
+            compound="left", height=26, corner_radius=6, fg_color=COLORS["surface_hover"],
+            hover_color=COLORS["line"], text_color=COLORS["text"], font=ctk.CTkFont(size=11),
+            command=lambda: self._action_open_local_git_graph()
+        )
+        btn_local_git_bar.pack(side="left", padx=(0, 4))
+
         self.btn_local_del = ctk.CTkButton(
             action_bar, text=" Delete", image=get_icon("trash", (12, 12), COLORS["danger_text"]),
             compound="left", height=26, corner_radius=6, fg_color=COLORS["danger_subtle"],
@@ -802,6 +823,14 @@ class SFTPView(ctk.CTkFrame):
             command=lambda: self._action_open_remote_terminal()
         )
         self.btn_remote_terminal.pack(side="left", padx=(0, 3))
+
+        self.btn_remote_git = ctk.CTkButton(
+            btn_box, text=" Git Graph", image=get_icon("git-branch", (12, 12), COLORS["accent_text"]),
+            compound="left", height=28, corner_radius=6, fg_color=COLORS["surface_hover"],
+            hover_color=COLORS["line"], text_color=COLORS["accent_text"], font=ctk.CTkFont(size=11, weight="bold"),
+            command=lambda: self._action_open_remote_git_graph()
+        )
+        self.btn_remote_git.pack(side="left", padx=(0, 3))
 
         self.remote_path_var = ctk.StringVar(value="/")
         self.remote_path_entry = ctk.CTkEntry(
@@ -916,6 +945,14 @@ class SFTPView(ctk.CTkFrame):
         )
         self.btn_remote_terminal_action.pack(side="left", padx=(0, 4))
 
+        self.btn_remote_git_bar = ctk.CTkButton(
+            action_bar, text=" Git Graph", image=get_icon("git-branch", (12, 12), COLORS["text"]),
+            compound="left", height=26, corner_radius=6, fg_color=COLORS["surface_hover"],
+            hover_color=COLORS["line"], text_color=COLORS["text"], font=ctk.CTkFont(size=11),
+            command=lambda: self._action_open_remote_git_graph()
+        )
+        self.btn_remote_git_bar.pack(side="left", padx=(0, 4))
+
         self.btn_remote_del = ctk.CTkButton(
             action_bar, text=" Delete", image=get_icon("trash", (12, 12), COLORS["danger_text"]),
             compound="left", height=26, corner_radius=6, fg_color=COLORS["danger_subtle"],
@@ -970,7 +1007,7 @@ class SFTPView(ctk.CTkFrame):
                 )
                 self.local_context_menu.add_command(
                     label="  Git Graph in here",
-                    image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                    image=get_tk_image("git-branch", (14, 14), COLORS["accent_text"]),
                     compound="left",
                     command=lambda p=item["path"]: self._action_git_graph(p, is_local=True)
                 )
@@ -989,7 +1026,7 @@ class SFTPView(ctk.CTkFrame):
                 )
                 self.local_context_menu.add_command(
                     label="  Git Graph in folder",
-                    image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                    image=get_tk_image("git-branch", (14, 14), COLORS["accent_text"]),
                     compound="left",
                     command=lambda p=os.path.dirname(item["path"]): self._action_git_graph(p, is_local=True)
                 )
@@ -1031,7 +1068,7 @@ class SFTPView(ctk.CTkFrame):
             )
             self.local_context_menu.add_command(
                 label="  Git Graph in here",
-                image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                image=get_tk_image("git-branch", (14, 14), COLORS["accent_text"]),
                 compound="left",
                 command=lambda: self._action_git_graph(self._local_path, is_local=True)
             )
@@ -1095,7 +1132,7 @@ class SFTPView(ctk.CTkFrame):
                 )
                 self.remote_context_menu.add_command(
                     label="  Git Graph in here",
-                    image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                    image=get_tk_image("git-branch", (14, 14), COLORS["accent_text"]),
                     compound="left",
                     command=lambda p=item["path"]: self._action_git_graph(p, is_local=False)
                 )
@@ -1126,7 +1163,7 @@ class SFTPView(ctk.CTkFrame):
                 )
                 self.remote_context_menu.add_command(
                     label="  Git Graph in folder",
-                    image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                    image=get_tk_image("git-branch", (14, 14), COLORS["accent_text"]),
                     compound="left",
                     command=lambda p=os.path.dirname(item["path"]): self._action_git_graph(p, is_local=False)
                 )
@@ -1173,7 +1210,7 @@ class SFTPView(ctk.CTkFrame):
                 )
                 self.remote_context_menu.add_command(
                     label="  Git Graph in here",
-                    image=get_tk_image("activity", (14, 14), COLORS["accent_text"]),
+                    image=get_tk_image("git-branch", (14, 14), COLORS["accent_text"]),
                     compound="left",
                     command=lambda: self._action_git_graph(self._remote_path, is_local=False)
                 )
@@ -1285,12 +1322,9 @@ class SFTPView(ctk.CTkFrame):
         dir_count = sum(1 for x in sorted_items if x.get("is_dir"))
         file_count = len(sorted_items) - dir_count
 
-        icon_folder = get_tk_image("folder", (14, 14), COLORS["accent"])
-        icon_file = get_tk_image("file", (14, 14), COLORS["text_secondary"])
-
         for item in sorted_items:
             is_dir = item.get("is_dir", False)
-            icon = icon_folder if is_dir else icon_file
+            icon = get_file_type_tk_image(item.get("name", ""), is_dir=is_dir, size=(14, 14))
             self.local_tree.insert(
                 "", "end",
                 iid=item.get("name"),
@@ -1990,12 +2024,9 @@ class SFTPView(ctk.CTkFrame):
         dir_count = sum(1 for x in sorted_items if x.get("is_dir"))
         file_count = len(sorted_items) - dir_count
 
-        icon_folder = get_tk_image("folder", (14, 14), COLORS["accent"])
-        icon_file = get_tk_image("file", (14, 14), COLORS["text_secondary"])
-
         for item in sorted_items:
             is_dir = item.get("is_dir", False)
-            icon = icon_folder if is_dir else icon_file
+            icon = get_file_type_tk_image(item.get("name", ""), is_dir=is_dir, size=(14, 14))
             self.remote_tree.insert(
                 "", "end",
                 iid=item.get("name"),
@@ -2232,6 +2263,10 @@ class SFTPView(ctk.CTkFrame):
             self.btn_remote_terminal.configure(state=state_conn)
         if hasattr(self, "btn_remote_terminal_action"):
             self.btn_remote_terminal_action.configure(state=state_conn)
+        if hasattr(self, "btn_remote_git"):
+            self.btn_remote_git.configure(state=state_conn)
+        if hasattr(self, "btn_remote_git_bar"):
+            self.btn_remote_git_bar.configure(state=state_conn)
 
     def _action_open_remote_terminal(self, target_path: Optional[str] = None):
         """Membuka sesi SSH terminal interaktif langsung pada direktori remote tertentu."""
@@ -2274,6 +2309,51 @@ class SFTPView(ctk.CTkFrame):
             self._set_status(f"🚀 {res.get('message', 'Membuka SSH Terminal')}")
         else:
             messagebox.showerror("Terminal Error", res.get("error", "Gagal membuka terminal"))
+
+    def _open_git_graph_for_host(self, host: Dict[str, Any]):
+        """Membuka dialog Git Graph untuk host yang dipilih dari sidebar."""
+        full_host = self.db.get_host_by_id(host["id"]) if (hasattr(self, "db") and "id" in host) else host
+        host_config = dict(full_host or host)
+        target_dir = host_config.get("repo_path") or "/var/www/html"
+        self._action_git_graph(target_dir, is_local=False)
+
+    def _action_open_remote_git_graph(self, target_path: Optional[str] = None):
+        """Membuka dialog Git Graph interaktif untuk remote server pada direktori aktif atau direktori yang dipilih."""
+        host = self._current_host
+        if not host:
+            active_tab = self._get_active_tab()
+            if active_tab and active_tab.host:
+                host = active_tab.host
+
+        if not host:
+            messagebox.showwarning("Pilih Server", "Pilih atau hubungkan ke server tujuan terlebih dahulu untuk membuka Git Graph.")
+            return
+
+        path_to_open = target_path
+        if not path_to_open:
+            sel = self.remote_tree.selection()
+            if sel:
+                item = self._get_remote_item_by_name(sel[0])
+                if item and item.get("is_dir"):
+                    path_to_open = item["path"]
+            if not path_to_open:
+                path_to_open = self._remote_path or host.get("repo_path") or "/"
+
+        self._action_git_graph(path_to_open, is_local=False)
+
+    def _action_open_local_git_graph(self, target_path: Optional[str] = None):
+        """Membuka dialog Git Graph interaktif untuk folder/repo lokal."""
+        path_to_open = target_path
+        if not path_to_open:
+            sel = self.local_tree.selection()
+            if sel:
+                item = self._get_local_item_by_name(sel[0])
+                if item and item.get("is_dir"):
+                    path_to_open = item["path"]
+            if not path_to_open:
+                path_to_open = self._local_path or os.path.expanduser("~")
+
+        self._action_git_graph(path_to_open, is_local=True)
 
     def _action_git_graph(self, target_dir: str, is_local: bool = False):
         """Membuka dialog Git Graph interaktif untuk melihat riwayat commit & grafik git pada folder tujuan."""
