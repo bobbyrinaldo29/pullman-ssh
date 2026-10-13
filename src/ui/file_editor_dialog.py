@@ -322,47 +322,53 @@ class FileEditorDialog(ctk.CTkToplevel):
 
     def _setup_keybindings(self):
         """Mendaftarkan shortcut keyboard standar VS Code."""
+        is_mac = (sys.platform == "darwin")
         # 1. Explorer & Git Graph
         for w in (self, self.code_text):
             w.bind("<Control-b>", lambda e: self._toggle_explorer_sidebar())
-            w.bind("<Command-b>", lambda e: self._toggle_explorer_sidebar())
             w.bind("<Control-Shift-G>", lambda e: self._open_git_graph())
-            w.bind("<Command-Shift-G>", lambda e: self._open_git_graph())
             w.bind("<Control-Shift-g>", lambda e: self._open_git_graph())
-            w.bind("<Command-Shift-g>", lambda e: self._open_git_graph())
+            if is_mac:
+                w.bind("<Command-b>", lambda e: self._toggle_explorer_sidebar())
+                w.bind("<Command-Shift-G>", lambda e: self._open_git_graph())
+                w.bind("<Command-Shift-g>", lambda e: self._open_git_graph())
 
             # 2. Quick Open (Ctrl+P / Cmd+P) & Go to Line (Ctrl+G / Cmd+G)
             w.bind("<Control-p>", self._quick_open_dialog)
-            w.bind("<Command-p>", self._quick_open_dialog)
             w.bind("<Control-g>", self._goto_line_dialog)
-            w.bind("<Command-g>", self._goto_line_dialog)
+            if is_mac:
+                w.bind("<Command-p>", self._quick_open_dialog)
+                w.bind("<Command-g>", self._goto_line_dialog)
 
             # 3. File Actions (Save, Find, Reload, Close Tab)
             w.bind("<Control-s>", lambda e: self._save_content())
-            w.bind("<Command-s>", lambda e: self._save_content())
             w.bind("<Control-f>", lambda e: self._toggle_find_bar())
-            w.bind("<Command-f>", lambda e: self._toggle_find_bar())
             w.bind("<Control-r>", lambda e: self._reload_active_tab())
-            w.bind("<Command-r>", lambda e: self._reload_active_tab())
             w.bind("<Control-w>", lambda e: self._close_active_tab())
-            w.bind("<Command-w>", lambda e: self._close_active_tab())
+            if is_mac:
+                w.bind("<Command-s>", lambda e: self._save_content())
+                w.bind("<Command-f>", lambda e: self._toggle_find_bar())
+                w.bind("<Command-r>", lambda e: self._reload_active_tab())
+                w.bind("<Command-w>", lambda e: self._close_active_tab())
 
             # 4. Font Zoom Shortcuts
             w.bind("<Control-equal>", lambda e: self._zoom_font(1))
             w.bind("<Control-plus>", lambda e: self._zoom_font(1))
             w.bind("<Control-minus>", lambda e: self._zoom_font(-1))
             w.bind("<Control-0>", lambda e: self._reset_font())
-            w.bind("<Command-equal>", lambda e: self._zoom_font(1))
-            w.bind("<Command-plus>", lambda e: self._zoom_font(1))
-            w.bind("<Command-minus>", lambda e: self._zoom_font(-1))
-            w.bind("<Command-0>", lambda e: self._reset_font())
+            if is_mac:
+                w.bind("<Command-equal>", lambda e: self._zoom_font(1))
+                w.bind("<Command-plus>", lambda e: self._zoom_font(1))
+                w.bind("<Command-minus>", lambda e: self._zoom_font(-1))
+                w.bind("<Command-0>", lambda e: self._reset_font())
 
         self.bind("<Escape>", lambda e: self._close_find_bar())
 
         # 5. Code Editing Shortcuts di Editor (Khusus code_text)
         # Toggle Comment: Ctrl+/ dan Cmd+/
         self.code_text.bind("<Control-slash>", self._toggle_comment)
-        self.code_text.bind("<Command-slash>", self._toggle_comment)
+        if is_mac:
+            self.code_text.bind("<Command-slash>", self._toggle_comment)
 
         # Move Line Up / Down: Alt+Up / Alt+Down / Option+Up / Option+Down
         self.code_text.bind("<Alt-Up>", self._move_line_up)
@@ -378,19 +384,22 @@ class FileEditorDialog(ctk.CTkToplevel):
 
         # Delete Line: Ctrl+Shift+K / Cmd+Shift+K
         self.code_text.bind("<Control-Shift-K>", self._delete_line)
-        self.code_text.bind("<Command-Shift-K>", self._delete_line)
         self.code_text.bind("<Control-Shift-k>", self._delete_line)
-        self.code_text.bind("<Command-Shift-k>", self._delete_line)
+        if is_mac:
+            self.code_text.bind("<Command-Shift-K>", self._delete_line)
+            self.code_text.bind("<Command-Shift-k>", self._delete_line)
 
         # Select Word / Add Next Occurrence: Ctrl+D / Cmd+D
         self.code_text.bind("<Control-d>", self._select_word_or_next_match)
-        self.code_text.bind("<Command-d>", self._select_word_or_next_match)
+        if is_mac:
+            self.code_text.bind("<Command-d>", self._select_word_or_next_match)
 
         # Indent / Outdent: Ctrl+] dan Ctrl+[
         self.code_text.bind("<Control-bracketright>", lambda e: self._on_tab_press(e))
-        self.code_text.bind("<Command-bracketright>", lambda e: self._on_tab_press(e))
         self.code_text.bind("<Control-bracketleft>", lambda e: self._on_shift_tab_press(e))
-        self.code_text.bind("<Command-bracketleft>", lambda e: self._on_shift_tab_press(e))
+        if is_mac:
+            self.code_text.bind("<Command-bracketright>", lambda e: self._on_tab_press(e))
+            self.code_text.bind("<Command-bracketleft>", lambda e: self._on_shift_tab_press(e))
 
     def _open_git_graph(self, target_dir: Optional[str] = None):
         """Membuka dialog Git Graph interaktif untuk folder yang sedang diakses saat ini."""
@@ -1002,13 +1011,23 @@ class FileEditorDialog(ctk.CTkToplevel):
         self.code_text.bind("<Shift-Tab>", self._on_shift_tab_press)
         self.code_text.bind("<Return>", self._on_return_press)
         self.code_text.bind("<Control-a>", self._select_all)
-        self.code_text.bind("<Command-a>", self._select_all)
+        if sys.platform == "darwin":
+            self.code_text.bind("<Command-a>", self._select_all)
+
+        # Zoom hanya saat Control ditekan (diperiksa eksplisit di _on_ctrl_mousewheel)
         self.code_text.bind("<Control-MouseWheel>", self._on_ctrl_mousewheel)
-        self.code_text.bind("<Command-MouseWheel>", self._on_ctrl_mousewheel)
+        if sys.platform == "darwin":
+            self.code_text.bind("<Command-MouseWheel>", self._on_ctrl_mousewheel)
+
+        # Normal Mouse Wheel Scrolling (vertikal & horizontal)
+        self.code_text.bind("<MouseWheel>", self._on_mousewheel)
+        self.code_text.bind("<Button-4>", self._on_mousewheel)
+        self.code_text.bind("<Button-5>", self._on_mousewheel)
+        self.code_text.bind("<Shift-MouseWheel>", self._on_shift_mousewheel)
 
         self.gutter.bind("<MouseWheel>", self._on_mousewheel)
-        self.gutter.bind("<Button-4>", lambda e: self.code_text.yview_scroll(-1, "units"))
-        self.gutter.bind("<Button-5>", lambda e: self.code_text.yview_scroll(1, "units"))
+        self.gutter.bind("<Button-4>", self._on_mousewheel)
+        self.gutter.bind("<Button-5>", self._on_mousewheel)
 
         self._setup_editor_tags()
 
@@ -2050,6 +2069,13 @@ class FileEditorDialog(ctk.CTkToplevel):
         return "break"
 
     def _on_ctrl_mousewheel(self, event):
+        # Periksa eksplisit apakah tombol Control (atau Command di macOS) benar-benar ditekan
+        state = getattr(event, "state", 0)
+        is_ctrl = bool(state & 0x4) if sys.platform != "darwin" else bool(state & 0x4 or state & 0x8)
+        if not is_ctrl:
+            # Jika Control tidak ditekan (misal karena NumLock bit 0x8 di Windows), lakukan scroll biasa
+            return self._on_mousewheel(event)
+
         delta = getattr(event, "delta", 0)
         if delta > 0:
             self._zoom_font(1)
@@ -2089,10 +2115,34 @@ class FileEditorDialog(ctk.CTkToplevel):
         self._schedule_scroll_highlight()
 
     def _on_mousewheel(self, event):
-        units = -1 if (getattr(event, "delta", 0) > 0 or getattr(event, "num", 0) == 4) else 1
+        delta = getattr(event, "delta", 0)
+        num = getattr(event, "num", 0)
+        if delta != 0:
+            # Di Windows delta umumnya +-120 per notch. Scroll 3 baris per notch.
+            if abs(delta) >= 120:
+                units = -1 * int(delta / 120) * 3
+            else:
+                units = -3 if delta > 0 else 3
+        elif num in (4, 5):
+            units = -3 if num == 4 else 3
+        else:
+            units = -3 if delta > 0 else 3
+
         self.code_text.yview_scroll(units, "units")
         self.gutter.yview_moveto(self.code_text.yview()[0])
         self._schedule_scroll_highlight()
+        return "break"
+
+    def _on_shift_mousewheel(self, event):
+        delta = getattr(event, "delta", 0)
+        num = getattr(event, "num", 0)
+        if delta != 0:
+            units = -1 * int(delta / 120) * 4 if abs(delta) >= 120 else (-4 if delta > 0 else 4)
+        elif num in (4, 5):
+            units = -4 if num == 4 else 4
+        else:
+            units = -4 if delta > 0 else 4
+        self.code_text.xview_scroll(units, "units")
         return "break"
 
     def _update_gutter_lines(self):

@@ -387,16 +387,18 @@ class SFTPService:
         return asyncio.run(SFTPService._async_rename(host, old_path, new_path))
 
     @staticmethod
-    async def _async_exec_command(host: Dict[str, Any], command: str) -> Tuple[bool, str, str]:
+    async def _async_exec_command(host: Dict[str, Any], command: str, timeout: int = 15) -> Tuple[bool, str, str]:
         options, hostname, port = _get_connection_options(host)
         try:
-            async with asyncssh.connect(hostname, port=port, options=options, login_timeout=20) as conn:
-                res = await conn.run(command, check=False)
+            async with asyncssh.connect(hostname, port=port, options=options, login_timeout=15) as conn:
+                res = await asyncio.wait_for(conn.run(command, check=False), timeout=timeout)
                 return (res.exit_status == 0), (res.stdout or ""), (res.stderr or "")
+        except asyncio.TimeoutError:
+            return False, "", f"Command timed out after {timeout} seconds"
         except Exception as e:
             return False, "", str(e)
 
     @staticmethod
-    def exec_command(host: Dict[str, Any], command: str) -> Tuple[bool, str, str]:
+    def exec_command(host: Dict[str, Any], command: str, timeout: int = 15) -> Tuple[bool, str, str]:
         """Menjalankan perintah arbitrary di remote host via SSH dan mengembalikan (success, stdout, stderr)."""
-        return asyncio.run(SFTPService._async_exec_command(host, command))
+        return asyncio.run(SFTPService._async_exec_command(host, command, timeout=timeout))

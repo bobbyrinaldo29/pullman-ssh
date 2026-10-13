@@ -42,11 +42,26 @@ class GitGraphDialog(ctk.CTkToplevel):
         super().__init__(parent)
         self.host = host or {}
         self.target_dir = target_dir
+        self.repo_root = target_dir
         self.is_local = is_local
+
+        if not is_local and self.host:
+            db = getattr(parent, "db", None) or getattr(getattr(parent, "app", None), "db", None)
+            host_id = self.host.get("id")
+            if db and host_id:
+                full_h = db.get_host_by_id(host_id)
+                if full_h:
+                    self.host = dict(full_h)
+            if db:
+                global_cred = db.get_global_git_credential()
+                if global_cred and not (self.host.get("git_user") and self.host.get("git_pass")):
+                    self.host["git_user"] = global_cred.get("username")
+                    self.host["git_pass"] = global_cred.get("password")
 
         dir_name = os.path.basename(target_dir.rstrip("/")) or target_dir
         host_label = "Local" if is_local else (self.host.get("label") or self.host.get("hostname") or "Remote")
-        self.title(f"GitHub Desktop - {dir_name} ({host_label})")
+        title_suffix = "" if is_local else " [sudo]"
+        self.title(f"GitHub Desktop - {dir_name} ({host_label}){title_suffix}")
         self.geometry("1200x780")
         self.minsize(920, 560)
         self.configure(fg_color=COLORS["window"])
@@ -65,12 +80,50 @@ class GitGraphDialog(ctk.CTkToplevel):
         self._history_all_diff = ""
 
         # State Changes (Working Tree Tab)
-        self._working_changes: List[Dict[str, Any]] = []  # dict: {path, status, type, checked_var, add, del}
+        self._working_changes: List[Dict[str, Any]] = []  # dict: {path, orig_path, status, type, checked_var, add, del}
         self._selected_working_file: Optional[Dict[str, Any]] = None
         self._active_tab = "Changes"
 
         self._build_ui()
         self._refresh_all_data()
+
+    def _wrap_remote_sudo(self, cmd: str) -> str:
+        """
+        Membungkus perintah remote agar dieksekusi dengan hak akses root (sudo) secara otomatis
+        tanpa pernah hanging (non-interactive sudo).
+        Menyisipkan git safe.directory='*', GIT_PAGER=cat, GIT_TERMINAL_PROMPT=0.
+        """
+        env_prefix = "export GIT_PAGER=cat PAGER=cat GIT_TERMINAL_PROMPT=0; "
+        full_script = f"{env_prefix}git() {{ command git -c safe.directory='*' \"$@\"; }}; {cmd}"
+        escaped_script = full_script.replace("'", "'\\''")
+        sh_cmd = f"sh -c '{escaped_script}'"
+
+        username = (self.host.get("username") or "").strip().lower()
+        if username == "root":
+            return sh_cmd
+
+        password = self.host.get("password")
+        if password:
+            escaped_pass = password.replace("'", "'\\''")
+            return f"(printf '%s\\n' '{escaped_pass}' | sudo -S -p '' {sh_cmd} 2>/dev/null) || {sh_cmd}"
+        else:
+            return f"(sudo -n {sh_cmd} 2>/dev/null) || {sh_cmd}"
+
+    def _exec_remote_cmd(self, cmd: str, timeout: int = 15) -> Tuple[bool, str, str]:
+        """Menjalankan perintah arbitrary di remote host via SSH otomatis menggunakan sudo."""
+        wrapped = self._wrap_remote_sudo(cmd)
+        return SFTPService.exec_command(self.host, wrapped, timeout=timeout)
+
+    def _get_git_credential_flag(self) -> str:
+        """Menyusun flag credential helper untuk git push/pull bila kredensial tersedia."""
+        git_user = self.host.get("git_user")
+        git_pass = self.host.get("git_pass")
+        if git_user and git_pass:
+            esc_u = str(git_user).replace("'", "'\\''").replace('"', '\\"')
+            esc_p = str(git_pass).replace("'", "'\\''").replace('"', '\\"')
+            helper_str = f'!f() {{ echo "username={esc_u}"; echo "password={esc_p}"; }}; f'
+            return f"-c credential.helper='{helper_str}' "
+        return ""
 
     # -------------------------------------------------------------
     # 1. UI BUILDER (GitHub Desktop Layout)
@@ -101,8 +154,8 @@ class GitGraphDialog(ctk.CTkToplevel):
         icon_repo = ctk.CTkLabel(repo_pill, text="", image=get_icon("folder", (15, 15), COLORS["accent"]))
         icon_repo.pack(side="left", padx=(8, 4), pady=4)
 
-        lbl_repo = ctk.CTkLabel(repo_pill, text=dir_name, font=ctk.CTkFont(size=12, weight="bold"), text_color=COLORS["text"])
-        lbl_repo.pack(side="left", padx=(0, 6))
+        self.lbl_repo = ctk.CTkLabel(repo_pill, text=dir_name, font=ctk.CTkFont(size=12, weight="bold"), text_color=COLORS["text"])
+        self.lbl_repo.pack(side="left", padx=(0, 6))
 
         tag_type = "Local" if self.is_local else (self.host.get("label") or self.host.get("hostname") or "Remote")
         lbl_type = ctk.CTkLabel(
@@ -114,7 +167,19 @@ class GitGraphDialog(ctk.CTkToplevel):
             corner_radius=4,
             height=18
         )
-        lbl_type.pack(side="left", padx=(0, 8), pady=4)
+        lbl_type.pack(side="left", padx=(0, 4 if not self.is_local else 8), pady=4)
+
+        if not self.is_local:
+            lbl_sudo = ctk.CTkLabel(
+                repo_pill,
+                text=" SUDO ",
+                font=ctk.CTkFont(size=10, weight="bold"),
+                fg_color=COLORS["danger_subtle"],
+                text_color=COLORS["danger_text"],
+                corner_radius=4,
+                height=18
+            )
+            lbl_sudo.pack(side="left", padx=(0, 8), pady=4)
 
         # Current Branch Pill
         branch_pill = ctk.CTkFrame(left_box, fg_color=COLORS["input_bg"], corner_radius=6, border_width=1, border_color=COLORS["line"])
@@ -744,110 +809,148 @@ class GitGraphDialog(ctk.CTkToplevel):
             self._load_git_log()
 
     def _refresh_all_data(self):
-        """Memperbarui branch, working changes, dan git history."""
-        self._detect_branch()
-        if self._active_tab == "Changes":
-            self._load_working_changes()
-        else:
-            self._load_git_log()
+        """Memperbarui branch, working changes, dan git history dalam 1 operasi cepat non-blocking."""
+        if self._is_loading:
+            return
+        self._is_loading = True
+        self.btn_refresh.configure(state="disabled")
+        self.lbl_status.configure(text="Memuat status repositori Git...", text_color=COLORS["muted"])
 
-    def _detect_branch(self):
         def worker():
             branch = "main"
-            if self.is_local:
-                if HAS_GITPYTHON:
+            repo_root = getattr(self, "repo_root", self.target_dir) or self.target_dir
+            status_raw = ""
+            files_data = []
+
+            try:
+                if self.is_local:
+                    # 1. Lokal: Gunakan git -C langsung tanpa cd command (aman di Windows)
                     try:
-                        repo = Repo(self.target_dir, search_parent_directories=True)
-                        try:
-                            branch = repo.active_branch.name
-                        except (TypeError, ValueError):
-                            branch = "HEAD (detached)"
+                        res_top = subprocess.run(
+                            ["git", "-C", self.target_dir, "rev-parse", "--show-toplevel"],
+                            capture_output=True, text=True
+                        )
+                        if res_top.returncode == 0 and res_top.stdout.strip():
+                            repo_root = res_top.stdout.strip()
                     except Exception:
                         pass
+
+                    try:
+                        res_br = subprocess.run(
+                            ["git", "-C", repo_root, "rev-parse", "--abbrev-ref", "HEAD"],
+                            capture_output=True, text=True
+                        )
+                        if res_br.returncode == 0 and res_br.stdout.strip():
+                            branch = res_br.stdout.strip()
+                    except Exception:
+                        pass
+
+                    try:
+                        res_st = subprocess.run(
+                            ["git", "-C", repo_root, "-c", "core.quotepath=false", "status", "--porcelain=v1"],
+                            capture_output=True, text=True
+                        )
+                        if res_st.returncode == 0:
+                            status_raw = res_st.stdout
+                    except Exception as e:
+                        status_raw = str(e)
                 else:
-                    try:
-                        res = subprocess.run(f"cd '{self.target_dir}' && git rev-parse --abbrev-ref HEAD", shell=True, capture_output=True, text=True)
-                        if res.returncode == 0:
-                            branch = res.stdout.strip()
-                    except Exception:
-                        pass
-            else:
+                    # 2. Remote: Jalankan dalam SATU round-trip SSH untuk kecepatan maksimal (<1 detik)
+                    esc_target = self.target_dir.replace("'", "'\\''")
+                    combined_cmd = (
+                        f"TARGET='{esc_target}'; "
+                        f"cd \"$TARGET\" 2>/dev/null || cd /; "
+                        f"TOP=$(git -c safe.directory='*' rev-parse --show-toplevel 2>/dev/null || pwd); "
+                        f"BR=$(git -C \"$TOP\" -c safe.directory='*' rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'main'); "
+                        f"echo '===PULLMAN_META==='; "
+                        f"echo \"$TOP\"; "
+                        f"echo \"$BR\"; "
+                        f"echo '===PULLMAN_STATUS==='; "
+                        f"git -C \"$TOP\" -c safe.directory='*' -c core.quotepath=false status --porcelain=v1 2>/dev/null"
+                    )
+                    ok, out, err = self._exec_remote_cmd(combined_cmd)
+                    if "===PULLMAN_META===" in out and "===PULLMAN_STATUS===" in out:
+                        try:
+                            meta_part, status_part = out.split("===PULLMAN_STATUS===", 1)
+                            meta_lines = [l.strip() for l in meta_part.splitlines() if l.strip()]
+                            m_idx = meta_lines.index("===PULLMAN_META===")
+                            if len(meta_lines) > m_idx + 1 and meta_lines[m_idx + 1]:
+                                repo_root = meta_lines[m_idx + 1]
+                            if len(meta_lines) > m_idx + 2 and meta_lines[m_idx + 2]:
+                                branch = meta_lines[m_idx + 2]
+                            status_raw = status_part
+                        except Exception:
+                            status_raw = out
+                    else:
+                        status_raw = out or err
+
+                # Parse baris status porcelain
+                if status_raw:
+                    for line in status_raw.splitlines():
+                        if len(line) < 3:
+                            continue
+                        st = line[:2]
+                        raw_path = line[3:].strip()
+                        if raw_path.startswith('"') and raw_path.endswith('"'):
+                            raw_path = raw_path[1:-1]
+
+                        orig_path = None
+                        if " -> " in raw_path:
+                            parts = raw_path.split(" -> ", 1)
+                            orig_path = parts[0].strip().strip('"')
+                            path_str = parts[1].strip().strip('"')
+                        else:
+                            path_str = raw_path
+
+                        ctype = "M"
+                        if "?" in st:
+                            ctype = "A"
+                        elif "D" in st:
+                            ctype = "D"
+                        elif "R" in st:
+                            ctype = "R"
+                        elif "A" in st:
+                            ctype = "A"
+
+                        files_data.append({
+                            "path": path_str,
+                            "orig_path": orig_path,
+                            "status": st,
+                            "type": ctype,
+                        })
+            except Exception as e:
+                status_raw = f"Error: {e}"
+            finally:
+                def on_done():
+                    if not self.winfo_exists():
+                        return
+                    self._is_loading = False
+                    self.btn_refresh.configure(state="normal")
+                    self.repo_root = repo_root
+                    self._current_branch = branch
+                    self.lbl_branch_name.configure(text=f"Branch: {branch}")
+                    self.btn_commit.configure(text=f"Commit to {branch}")
+                    dir_name = os.path.basename(repo_root.rstrip("/")) or repo_root
+                    if hasattr(self, "lbl_repo") and self.lbl_repo:
+                        self.lbl_repo.configure(text=dir_name)
+
+                    if self._active_tab == "Changes":
+                        self._populate_working_changes_ui(files_data)
+                    else:
+                        self._load_git_log()
+
                 try:
-                    ok, out, _ = SFTPService.exec_command(self.host, f"cd '{self.target_dir}' && git rev-parse --abbrev-ref HEAD")
-                    if ok and out.strip():
-                        branch = out.strip()
+                    self.after(0, on_done)
                 except Exception:
                     pass
 
-            def on_done():
-                if not self.winfo_exists():
-                    return
-                self._current_branch = branch
-                self.lbl_branch_name.configure(text=f"Branch: {branch}")
-                self.btn_commit.configure(text=f"Commit to {branch}")
-
-            self.after(0, on_done)
-
         threading.Thread(target=worker, daemon=True).start()
 
-    # -------------------------------------------------------------
-    # 6. WORKING CHANGES LOGIC (Staging, Diff, Commit)
-    # -------------------------------------------------------------
+    def _detect_branch(self, on_ready=None):
+        self._refresh_all_data()
+
     def _load_working_changes(self):
-        self.lbl_status.configure(text="Mengecek perubahan file (git status)...", text_color=COLORS["muted"])
-
-        def worker():
-            files_data = []
-            status_raw = ""
-            ok = False
-
-            if self.is_local:
-                if HAS_GITPYTHON:
-                    try:
-                        repo = Repo(self.target_dir, search_parent_directories=True)
-                        status_raw = repo.git.status("--porcelain=v1")
-                        ok = True
-                    except Exception as e:
-                        status_raw = str(e)
-                else:
-                    try:
-                        res = subprocess.run(f"cd '{self.target_dir}' && git status --porcelain=v1", shell=True, capture_output=True, text=True)
-                        ok = (res.returncode == 0)
-                        status_raw = res.stdout
-                    except Exception as e:
-                        status_raw = str(e)
-            else:
-                ok, status_raw, _ = SFTPService.exec_command(self.host, f"cd '{self.target_dir}' && git status --porcelain=v1")
-
-            if ok and status_raw:
-                for line in status_raw.splitlines():
-                    if len(line) < 3:
-                        continue
-                    st = line[:2]
-                    path_str = line[3:].strip('"')
-
-                    ctype = "M"
-                    if "?" in st:
-                        ctype = "A"
-                    elif "D" in st:
-                        ctype = "D"
-                    elif "R" in st:
-                        ctype = "R"
-
-                    files_data.append({
-                        "path": path_str,
-                        "status": st,
-                        "type": ctype,
-                    })
-
-            def on_done():
-                if not self.winfo_exists():
-                    return
-                self._populate_working_changes_ui(files_data)
-
-            self.after(0, on_done)
-
-        threading.Thread(target=worker, daemon=True).start()
+        self._refresh_all_data()
 
     def _populate_working_changes_ui(self, files_data: List[Dict[str, Any]]):
         self._working_changes.clear()
@@ -961,44 +1064,69 @@ class GitGraphDialog(ctk.CTkToplevel):
 
         def worker():
             diff_text = ""
-            if self.is_local:
-                if HAS_GITPYTHON:
-                    try:
-                        repo = Repo(self.target_dir, search_parent_directories=True)
+            root_dir = getattr(self, "repo_root", self.target_dir) or self.target_dir
+            clean_p = filepath.strip().lstrip("/").replace("'", "'\\''")
+
+            try:
+                if self.is_local:
+                    if HAS_GITPYTHON:
+                        try:
+                            repo = Repo(root_dir, search_parent_directories=True)
+                            if ftype == "A":
+                                full_p = os.path.join(root_dir, filepath)
+                                diff_text = self._generate_untracked_diff(filepath, full_p)
+                            else:
+                                try:
+                                    diff_text = repo.git.diff("HEAD", "--", filepath)
+                                except Exception:
+                                    diff_text = repo.git.diff("--", filepath)
+                        except Exception as e:
+                            diff_text = str(e)
+                    else:
                         if ftype == "A":
-                            full_p = os.path.join(self.target_dir, filepath)
+                            full_p = os.path.join(root_dir, filepath)
                             diff_text = self._generate_untracked_diff(filepath, full_p)
                         else:
-                            try:
-                                diff_text = repo.git.diff("HEAD", "--", filepath)
-                            except Exception:
-                                diff_text = repo.git.diff("--", filepath)
-                    except Exception as e:
-                        diff_text = str(e)
+                            res = subprocess.run(
+                                ["git", "-C", root_dir, "diff", "HEAD", "--", f":/{clean_p}"],
+                                capture_output=True, text=True
+                            )
+                            diff_text = res.stdout or res.stderr
+                            if not diff_text or "fatal" in diff_text or "error" in diff_text:
+                                res_fb = subprocess.run(
+                                    ["git", "-C", root_dir, "diff", "--", f":/{clean_p}"],
+                                    capture_output=True, text=True
+                                )
+                                diff_text = res_fb.stdout or res_fb.stderr
                 else:
                     if ftype == "A":
-                        full_p = os.path.join(self.target_dir, filepath)
-                        diff_text = self._generate_untracked_diff(filepath, full_p)
+                        cmd = f"head -n 300 '{root_dir}/{clean_p}' 2>/dev/null || cat '{root_dir}/{clean_p}' 2>/dev/null"
+                        ok, out, _ = self._exec_remote_cmd(cmd)
+                        lines = out.splitlines() if ok else []
+                        diff_text = f"diff --git a/{filepath} b/{filepath}\nnew file mode 100644\n--- /dev/null\n+++ b/{filepath}\n@@ -0,0 +1,{len(lines)} @@\n" + "\n".join("+" + l for l in lines)
                     else:
-                        res = subprocess.run(f"cd '{self.target_dir}' && git diff HEAD -- '{filepath}'", shell=True, capture_output=True, text=True)
-                        diff_text = res.stdout or res.stderr
-            else:
-                if ftype == "A":
-                    cmd = f"cd '{self.target_dir}' && head -n 300 '{filepath}'"
-                    ok, out, _ = SFTPService.exec_command(self.host, cmd)
-                    lines = out.splitlines() if ok else []
-                    diff_text = f"diff --git a/{filepath} b/{filepath}\nnew file mode 100644\n--- /dev/null\n+++ b/{filepath}\n@@ -0,0 +1,{len(lines)} @@\n" + "\n".join("+" + l for l in lines)
-                else:
-                    cmd = f"cd '{self.target_dir}' && git diff HEAD -- '{filepath}'"
-                    ok, out, err = SFTPService.exec_command(self.host, cmd)
-                    diff_text = out or err
+                        cmd = f"git -C '{root_dir}' -c safe.directory='*' diff HEAD -- ':/{clean_p}'"
+                        ok, out, err = self._exec_remote_cmd(cmd)
+                        if not out and not ok:
+                            cmd_fb = f"git -C '{root_dir}' -c safe.directory='*' diff -- ':/{clean_p}'"
+                            ok, out, err = self._exec_remote_cmd(cmd_fb)
+                        diff_text = out or err
 
-            def on_done():
-                if not self.winfo_exists():
-                    return
-                self._render_diff_text(filepath, diff_text or "No diff lines (file binary or empty).")
+                # Batasi diff jika terlalu besar agar Tkinter tidak freeze
+                if diff_text and len(diff_text) > 80000:
+                    diff_text = diff_text[:80000] + "\n\n... [Diff dipersingkat: file terlalu besar untuk dipratinjau lengkap]"
+            except Exception as e:
+                diff_text = f"Error loading diff: {e}"
+            finally:
+                def on_done():
+                    if not self.winfo_exists():
+                        return
+                    self._render_diff_text(filepath, diff_text or "No diff lines (file binary or empty).")
 
-            self.after(0, on_done)
+                try:
+                    self.after(0, on_done)
+                except Exception:
+                    pass
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1039,8 +1167,8 @@ class GitGraphDialog(ctk.CTkToplevel):
             messagebox.showwarning("Peringatan", "Harap isi ringkasan commit (Summary) terlebih dahulu.", parent=self)
             return
 
-        selected_files = [f["path"] for f in self._working_changes if f["checked_var"].get()]
-        if not selected_files:
+        selected_items = [f for f in self._working_changes if f["checked_var"].get()]
+        if not selected_items:
             messagebox.showwarning("Peringatan", "Pilih minimal satu file yang ingin di-commit.", parent=self)
             return
 
@@ -1048,25 +1176,51 @@ class GitGraphDialog(ctk.CTkToplevel):
         full_msg = summary if not desc else f"{summary}\n\n{desc}"
 
         self.btn_commit.configure(state="disabled", text="Committing...")
-        self.lbl_status.configure(text=f"Melakukan commit {len(selected_files)} file...", text_color=COLORS["accent"])
+        self.lbl_status.configure(text=f"Melakukan commit {len(selected_items)} file...", text_color=COLORS["accent"])
 
         def worker():
             ok = False
             msg_res = ""
+            root_dir = getattr(self, "repo_root", self.target_dir) or self.target_dir
+
+            # Re-verify true toplevel repo root
+            if not self.is_local:
+                ok_top, out_top, _ = self._exec_remote_cmd(f"cd '{self.target_dir}' && git rev-parse --show-toplevel")
+                if ok_top and out_top.strip():
+                    root_dir = out_top.strip()
+                    self.repo_root = root_dir
+            else:
+                try:
+                    res = subprocess.run(f"cd '{self.target_dir}' && git rev-parse --show-toplevel", shell=True, capture_output=True, text=True)
+                    if res.returncode == 0 and res.stdout.strip():
+                        root_dir = res.stdout.strip()
+                        self.repo_root = root_dir
+                except Exception:
+                    pass
+
+            author_name = self.host.get("git_user") or self.host.get("username") or "PullManager"
+            author_email = self.host.get("git_email") or f"{author_name}@pullmanager.local"
+            ident_flag = f"-c user.name='{author_name}' -c user.email='{author_email}' "
+
+            if self.is_local:
+                res_u = subprocess.run("git config user.name", shell=True, capture_output=True, text=True)
+                if res_u.returncode == 0 and res_u.stdout.strip():
+                    ident_flag = ""
+
+            all_checked = (len(selected_items) == len(self._working_changes))
 
             if self.is_local:
                 if HAS_GITPYTHON:
                     try:
-                        repo = Repo(self.target_dir, search_parent_directories=True)
-                        # Stage selected files
-                        repo.git.add("--", *selected_files)
-                        # Deleted files
-                        dels = [f["path"] for f in self._working_changes if f["checked_var"].get() and f["type"] == "D"]
-                        if dels:
-                            try:
-                                repo.git.rm("--cached", "--", *dels)
-                            except Exception:
-                                pass
+                        repo = Repo(root_dir, search_parent_directories=True)
+                        if all_checked:
+                            repo.git.add("-A")
+                        else:
+                            for item in selected_items:
+                                p = item["path"]
+                                repo.git.add("-A", "--", p)
+                                if item.get("orig_path"):
+                                    repo.git.add("-A", "--", item["orig_path"])
                         commit_res = repo.git.commit("-m", full_msg)
                         ok = True
                         msg_res = commit_res
@@ -1074,19 +1228,41 @@ class GitGraphDialog(ctk.CTkToplevel):
                         msg_res = str(e)
                 else:
                     try:
-                        files_arg = " ".join(f"'{p}'" for p in selected_files)
-                        cmd = f"cd '{self.target_dir}' && git add {files_arg} && git commit -m '{full_msg}'"
-                        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                        if all_checked:
+                            subprocess.run(["git", "-C", root_dir, "add", "-A"], capture_output=True, check=True)
+                        else:
+                            paths_to_stage = []
+                            for item in selected_items:
+                                paths_to_stage.append(item["path"].strip().lstrip("/"))
+                                if item.get("orig_path"):
+                                    paths_to_stage.append(item["orig_path"].strip().lstrip("/"))
+                            subprocess.run(["git", "-C", root_dir, "add", "-A", "--"] + paths_to_stage, capture_output=True, check=True)
+
+                        commit_args = ["git", "-C", root_dir]
+                        if ident_flag:
+                            commit_args.extend(["-c", f"user.name={author_name}", "-c", f"user.email={author_email}"])
+                        commit_args.extend(["commit", "-m", full_msg])
+                        res = subprocess.run(commit_args, capture_output=True, text=True)
                         ok = (res.returncode == 0)
                         msg_res = res.stdout or res.stderr
                     except Exception as e:
                         msg_res = str(e)
             else:
-                files_arg = " ".join(f"'{p}'" for p in selected_files)
-                # Escape single quote
+                if all_checked:
+                    add_cmd = f"git -C '{root_dir}' -c safe.directory='*' add -A"
+                else:
+                    paths_to_stage = []
+                    for item in selected_items:
+                        p = item["path"].strip().lstrip("/").replace("'", "'\\''")
+                        paths_to_stage.append(f"':/{p}'")
+                        if item.get("orig_path"):
+                            orig = item["orig_path"].strip().lstrip("/").replace("'", "'\\''")
+                            paths_to_stage.append(f"':/{orig}'")
+                    add_cmd = f"git -C '{root_dir}' -c safe.directory='*' add -A -- {' '.join(paths_to_stage)}"
+
                 esc_msg = full_msg.replace("'", "'\\''")
-                cmd = f"cd '{self.target_dir}' && git add {files_arg} && git commit -m '{esc_msg}'"
-                ok, out, err = SFTPService.exec_command(self.host, cmd)
+                cmd = f"{add_cmd} && git -C '{root_dir}' -c safe.directory='*' {ident_flag}commit -m '{esc_msg}'"
+                ok, out, err = self._exec_remote_cmd(cmd)
                 msg_res = out or err
 
             def on_done():
@@ -1140,33 +1316,37 @@ class GitGraphDialog(ctk.CTkToplevel):
         self.lbl_status.configure(text="Membatalkan perubahan file...", text_color=COLORS["danger"])
 
         def worker():
+            root_dir = getattr(self, "repo_root", self.target_dir) or self.target_dir
             for f in files_to_discard:
-                path = f["path"]
-                ftype = f["type"]
+                path = f["path"].strip().lstrip("/")
+                st = f.get("status", "")
+                esc_p = path.replace("'", "'\\''")
+                is_untracked = ("?" in st)
+
                 if self.is_local:
-                    if HAS_GITPYTHON:
-                        try:
-                            repo = Repo(self.target_dir, search_parent_directories=True)
-                            if ftype == "A":
-                                full_p = os.path.join(self.target_dir, path)
-                                if os.path.exists(full_p):
+                    if is_untracked:
+                        full_p = os.path.join(root_dir, path)
+                        if os.path.exists(full_p):
+                            try:
+                                if os.path.isdir(full_p):
+                                    import shutil
+                                    shutil.rmtree(full_p, ignore_errors=True)
+                                else:
                                     os.remove(full_p)
-                            else:
-                                repo.git.checkout("HEAD", "--", path)
-                        except Exception:
-                            pass
+                            except Exception:
+                                pass
                     else:
-                        if ftype == "A":
-                            full_p = os.path.join(self.target_dir, path)
-                            if os.path.exists(full_p):
-                                os.remove(full_p)
-                        else:
-                            subprocess.run(f"cd '{self.target_dir}' && git checkout HEAD -- '{path}'", shell=True)
+                        subprocess.run(["git", "-C", root_dir, "checkout", "HEAD", "--", f":/{path}"], capture_output=True)
+                        subprocess.run(["git", "-C", root_dir, "checkout", "--", f":/{path}"], capture_output=True)
                 else:
-                    if ftype == "A":
-                        SFTPService.exec_command(self.host, f"cd '{self.target_dir}' && rm -f '{path}'")
+                    if is_untracked:
+                        self._exec_remote_cmd(f"rm -rf '{root_dir}/{esc_p}'")
                     else:
-                        SFTPService.exec_command(self.host, f"cd '{self.target_dir}' && git checkout HEAD -- '{path}'")
+                        self._exec_remote_cmd(
+                            f"git -C '{root_dir}' -c safe.directory='*' rm -f --cached ':/{esc_p}' 2>/dev/null; "
+                            f"(git -C '{root_dir}' -c safe.directory='*' checkout HEAD -- ':/{esc_p}' 2>/dev/null || "
+                            f"git -C '{root_dir}' -c safe.directory='*' checkout -- ':/{esc_p}' 2>/dev/null)"
+                        )
 
             def on_done():
                 if not self.winfo_exists():
@@ -1196,22 +1376,24 @@ class GitGraphDialog(ctk.CTkToplevel):
         def worker():
             ok = False
             out_res = ""
+            root_dir = getattr(self, "repo_root", self.target_dir) or self.target_dir
+            cred_flag = self._get_git_credential_flag()
 
             if self.is_local:
                 if HAS_GITPYTHON:
                     try:
-                        repo = Repo(self.target_dir, search_parent_directories=True)
+                        repo = Repo(root_dir, search_parent_directories=True)
                         push_info = repo.git.push("origin", self._current_branch)
                         ok = True
                         out_res = push_info or "Push completed."
                     except Exception as e:
                         out_res = str(e)
                 else:
-                    res = subprocess.run(f"cd '{self.target_dir}' && git push origin {self._current_branch}", shell=True, capture_output=True, text=True)
+                    res = subprocess.run(f"git {cred_flag}push origin {self._current_branch}", cwd=root_dir, shell=True, capture_output=True, text=True)
                     ok = (res.returncode == 0)
                     out_res = res.stdout or res.stderr
             else:
-                ok, out, err = SFTPService.exec_command(self.host, f"cd '{self.target_dir}' && git push origin {self._current_branch}")
+                ok, out, err = self._exec_remote_cmd(f"git -C '{root_dir}' {cred_flag}push origin {self._current_branch}")
                 out_res = out or err
 
             def on_done():
@@ -1223,6 +1405,7 @@ class GitGraphDialog(ctk.CTkToplevel):
                     self._refresh_all_data()
                     messagebox.showinfo("Push Success", f"Commit berhasil di-push ke remote origin/{self._current_branch}!", parent=self)
                 else:
+                    self.btn_push.configure(state="normal", text=" Push origin")
                     self.lbl_status.configure(text="Gagal push ke remote origin!", text_color=COLORS["danger"])
                     messagebox.showerror("Push Error", f"Gagal push ke origin:\n{out_res}", parent=self)
 
@@ -1237,22 +1420,24 @@ class GitGraphDialog(ctk.CTkToplevel):
         def worker():
             ok = False
             out_res = ""
+            root_dir = getattr(self, "repo_root", self.target_dir) or self.target_dir
+            cred_flag = self._get_git_credential_flag()
 
             if self.is_local:
                 if HAS_GITPYTHON:
                     try:
-                        repo = Repo(self.target_dir, search_parent_directories=True)
+                        repo = Repo(root_dir, search_parent_directories=True)
                         pull_info = repo.git.pull("origin", self._current_branch)
                         ok = True
                         out_res = pull_info or "Pull completed."
                     except Exception as e:
                         out_res = str(e)
                 else:
-                    res = subprocess.run(f"cd '{self.target_dir}' && git pull origin {self._current_branch}", shell=True, capture_output=True, text=True)
+                    res = subprocess.run(f"git {cred_flag}pull origin {self._current_branch}", cwd=root_dir, shell=True, capture_output=True, text=True)
                     ok = (res.returncode == 0)
                     out_res = res.stdout or res.stderr
             else:
-                ok, out, err = SFTPService.exec_command(self.host, f"cd '{self.target_dir}' && git pull origin {self._current_branch}")
+                ok, out, err = self._exec_remote_cmd(f"git -C '{root_dir}' {cred_flag}pull origin {self._current_branch}")
                 out_res = out or err
 
             def on_done():
@@ -1264,6 +1449,7 @@ class GitGraphDialog(ctk.CTkToplevel):
                     self._refresh_all_data()
                     messagebox.showinfo("Pull Success", f"Berhasil menarik perubahan terbaru dari remote:\n{out_res}", parent=self)
                 else:
+                    self.btn_pull.configure(state="normal", text=" Pull origin")
                     self.lbl_status.configure(text="Gagal pull dari remote origin!", text_color=COLORS["danger"])
                     messagebox.showerror("Pull Error", f"Gagal pull dari origin:\n{out_res}", parent=self)
 
@@ -1288,51 +1474,64 @@ class GitGraphDialog(ctk.CTkToplevel):
             ok_log = False
             log_stdout = ""
             log_stderr = ""
+            root_dir = getattr(self, "repo_root", self.target_dir) or self.target_dir
 
-            if self.is_local:
-                if HAS_GITPYTHON:
-                    try:
-                        repo = Repo(self.target_dir, search_parent_directories=True)
-                        args = [
-                            "--graph",
-                            "--date=relative",
-                            f"--format=format:COMMIT_DELIM\t%h\t%d\t%s\t%an\t%ar\t%H",
-                            "-n", "150"
-                        ]
-                        if use_all:
-                            args.insert(1, "--all")
-                        log_stdout = repo.git.log(*args)
-                        ok_log = True
-                    except Exception as e:
-                        log_stderr = str(e)
+            try:
+                if self.is_local:
+                    if HAS_GITPYTHON:
+                        try:
+                            repo = Repo(root_dir, search_parent_directories=True)
+                            args = [
+                                "--graph",
+                                "--date=relative",
+                                f"--format=format:COMMIT_DELIM\t%h\t%d\t%s\t%an\t%ar\t%H",
+                                "-n", "80"
+                            ]
+                            if use_all:
+                                args.insert(1, "--all")
+                            log_stdout = repo.git.log(*args)
+                            ok_log = True
+                        except Exception as e:
+                            log_stderr = str(e)
+                    else:
+                        try:
+                            args = ["git", "-C", root_dir, "log", "--graph"]
+                            if use_all:
+                                args.append("--all")
+                            args.extend([
+                                "--date=relative",
+                                "--format=format:COMMIT_DELIM\t%h\t%d\t%s\t%an\t%ar\t%H",
+                                "-n", "80"
+                            ])
+                            res_l = subprocess.run(args, capture_output=True, text=True)
+                            ok_log = (res_l.returncode == 0)
+                            log_stdout = res_l.stdout
+                            log_stderr = res_l.stderr
+                        except Exception as e:
+                            log_stderr = str(e)
                 else:
-                    try:
-                        all_flag = "--all" if use_all else ""
-                        cmd = f"cd '{self.target_dir}' && git log --graph {all_flag} --date=relative --format=format:'COMMIT_DELIM%x09%h%x09%d%x09%s%x09%an%x09%ar%x09%H' -n 150"
-                        res_l = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-                        ok_log = (res_l.returncode == 0)
-                        log_stdout = res_l.stdout
-                        log_stderr = res_l.stderr
-                    except Exception as e:
-                        log_stderr = str(e)
-            else:
-                all_flag = "--all" if use_all else ""
-                cmd = f"cd '{self.target_dir}' && git log --graph {all_flag} --date=relative --format=format:'COMMIT_DELIM%x09%h%x09%d%x09%s%x09%an%x09%ar%x09%H' -n 150"
-                ok_log, log_stdout, log_stderr = SFTPService.exec_command(self.host, cmd)
+                    all_flag = "--all" if use_all else ""
+                    cmd = f"git -C '{root_dir}' -c safe.directory='*' log --graph {all_flag} --date=relative --format=format:'COMMIT_DELIM%x09%h%x09%d%x09%s%x09%an%x09%ar%x09%H' -n 80"
+                    ok_log, log_stdout, log_stderr = self._exec_remote_cmd(cmd)
+            except Exception as e:
+                log_stderr = str(e)
+            finally:
+                def on_done():
+                    if not self.winfo_exists():
+                        return
+                    self._is_loading = False
+                    self.btn_refresh.configure(state="normal")
 
-            def on_done():
-                if not self.winfo_exists():
-                    return
-                self._is_loading = False
-                self.btn_refresh.configure(state="normal")
+                    if not ok_log:
+                        self.lbl_status.configure(text=f"Gagal membaca history: {log_stderr.strip() or 'Error'}", text_color=COLORS["danger"])
+                        return
 
-                if not ok_log:
-                    self.lbl_status.configure(text=f"Gagal membaca history: {log_stderr.strip() or 'Error'}", text_color=COLORS["danger"])
-                    return
+                    self._parse_and_populate_commits(log_stdout)
 
-                self._parse_and_populate_commits(log_stdout)
-
-            self.after(0, on_done)
+                try:
+                    self.after(0, on_done)
+                except Exception:
+                    pass
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1423,30 +1622,43 @@ class GitGraphDialog(ctk.CTkToplevel):
         def worker():
             raw_show = ""
             commit_obj = None
+            root_dir = getattr(self, "repo_root", self.target_dir) or self.target_dir
 
-            if self.is_local and HAS_GITPYTHON:
-                try:
-                    repo = Repo(self.target_dir, search_parent_directories=True)
+            try:
+                if self.is_local and HAS_GITPYTHON:
                     try:
-                        commit_obj = repo.commit(commit_hash)
-                    except Exception:
-                        pass
-                    raw_show = repo.git.show(commit_hash, "--stat", "--patch", "--color=never")
-                except Exception as e:
-                    raw_show = str(e)
-            elif self.is_local:
-                res = subprocess.run(f"cd '{self.target_dir}' && git show --stat --patch --color=never {commit_hash}", shell=True, capture_output=True, text=True)
-                raw_show = res.stdout or res.stderr
-            else:
-                ok, out, err = SFTPService.exec_command(self.host, f"cd '{self.target_dir}' && git show --stat --patch --color=never {commit_hash}")
-                raw_show = out or err
+                        repo = Repo(root_dir, search_parent_directories=True)
+                        try:
+                            commit_obj = repo.commit(commit_hash)
+                        except Exception:
+                            pass
+                        raw_show = repo.git.show(commit_hash, "--stat", "--patch", "--color=never")
+                    except Exception as e:
+                        raw_show = str(e)
+                elif self.is_local:
+                    res = subprocess.run(
+                        ["git", "-C", root_dir, "show", "--stat", "--patch", "--color=never", commit_hash],
+                        capture_output=True, text=True
+                    )
+                    raw_show = res.stdout or res.stderr
+                else:
+                    ok, out, err = self._exec_remote_cmd(f"git -C '{root_dir}' -c safe.directory='*' show --stat --patch --color=never {commit_hash}")
+                    raw_show = out or err
 
-            def on_done():
-                if not self.winfo_exists():
-                    return
-                self._render_history_commit_card(raw_show, commit_obj)
+                if raw_show and len(raw_show) > 120000:
+                    raw_show = raw_show[:120000] + "\n\n... [Commit diff dipersingkat: output terlalu besar]"
+            except Exception as e:
+                raw_show = f"Error loading commit: {e}"
+            finally:
+                def on_done():
+                    if not self.winfo_exists():
+                        return
+                    self._render_history_commit_card(raw_show, commit_obj)
 
-            self.after(0, on_done)
+                try:
+                    self.after(0, on_done)
+                except Exception:
+                    pass
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1575,7 +1787,8 @@ class GitGraphDialog(ctk.CTkToplevel):
         tb.tag_configure("diff_header", foreground="#8B949E")
 
         lines = self.txt_diff.get("1.0", "end-1c").splitlines()
-        for idx, line in enumerate(lines, start=1):
+        # Batasi pewarnaan sintaks maksimal 300 baris agar antarmuka tidak freeze
+        for idx, line in enumerate(lines[:300], start=1):
             line_start = f"{idx}.0"
             line_end = f"{idx}.end"
 
@@ -1611,14 +1824,15 @@ class GitGraphDialog(ctk.CTkToplevel):
 
     def _open_terminal_here(self):
         """Membuka terminal langsung pada folder repositori."""
+        root_dir = getattr(self, "repo_root", self.target_dir) or self.target_dir
         if self.is_local:
-            res = launch_local_terminal(initial_dir=self.target_dir)
+            res = launch_local_terminal(initial_dir=root_dir)
             if not res.get("success"):
                 messagebox.showerror("Terminal Error", res.get("error", "Gagal membuka terminal lokal"), parent=self)
         else:
             if not self.host:
                 messagebox.showwarning("Peringatan", "Informasi host remote tidak tersedia.", parent=self)
                 return
-            res = launch_ssh_terminal(host=self.host, initial_dir=self.target_dir)
+            res = launch_ssh_terminal(host=self.host, initial_dir=root_dir)
             if not res.get("success"):
                 messagebox.showerror("Terminal Error", res.get("error", "Gagal membuka terminal SSH"), parent=self)

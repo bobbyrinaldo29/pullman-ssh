@@ -22,8 +22,9 @@ class HorizontalScrollableTabBar(ctk.CTkScrollableFrame):
         # Bind all global scroll events (termasuk <Shift-MouseWheel> untuk horizontal swipe trackpad di macOS)
         try:
             self.bind_all("<Shift-MouseWheel>", self._mouse_wheel_all, add=True)
-            self.bind_all("<Option-MouseWheel>", self._mouse_wheel_all, add=True)
-            self.bind_all("<Command-MouseWheel>", self._mouse_wheel_all, add=True)
+            if sys.platform == "darwin":
+                self.bind_all("<Option-MouseWheel>", self._mouse_wheel_all, add=True)
+                self.bind_all("<Command-MouseWheel>", self._mouse_wheel_all, add=True)
             if "linux" in sys.platform:
                 self.bind_all("<Shift-Button-4>", self._mouse_wheel_all, add=True)
                 self.bind_all("<Shift-Button-5>", self._mouse_wheel_all, add=True)
@@ -117,8 +118,9 @@ class HorizontalScrollableTabBar(ctk.CTkScrollableFrame):
         try:
             widget.bind("<MouseWheel>", self._on_mouse_scroll, add="+")
             widget.bind("<Shift-MouseWheel>", self._on_mouse_scroll, add="+")
-            widget.bind("<Option-MouseWheel>", self._on_mouse_scroll, add="+")
-            widget.bind("<Command-MouseWheel>", self._on_mouse_scroll, add="+")
+            if sys.platform == "darwin":
+                widget.bind("<Option-MouseWheel>", self._on_mouse_scroll, add="+")
+                widget.bind("<Command-MouseWheel>", self._on_mouse_scroll, add="+")
             widget.bind("<Button-4>", self._on_mouse_scroll, add="+")
             widget.bind("<Button-5>", self._on_mouse_scroll, add="+")
             widget.bind("<Button-6>", self._on_mouse_scroll, add="+")

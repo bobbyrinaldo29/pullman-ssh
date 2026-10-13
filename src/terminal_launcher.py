@@ -89,6 +89,63 @@ def _find_windows_git_bash() -> Optional[str]:
     return None
 
 
+def _generate_windows_ssh_batch(
+    title: str,
+    ssh_bin: str,
+    port: str,
+    username: str,
+    hostname: str,
+    auth_type: str,
+    key_file: str,
+    remote_cmd: str,
+    extra_opts: str
+) -> str:
+    """
+    Membuat file batch temporer (.bat) untuk menjalankan sesi SSH interaktif di Windows
+    tanpa gangguan quote stripping, delimiter semicolon pada Windows Terminal,
+    maupun error parser cmd.exe.
+    """
+    import tempfile
+    import uuid
+
+    temp_dir = tempfile.gettempdir()
+    unique_name = f"pullman_ssh_{uuid.uuid4().hex[:8]}.bat"
+    bat_path = os.path.join(temp_dir, unique_name)
+
+    ssh_args = [f'"{ssh_bin}"', extra_opts, "-p", str(port)]
+    if auth_type == "key" and key_file:
+        ssh_args.extend(["-i", f'"{key_file}"'])
+
+    ssh_args.append(f"{username}@{hostname}")
+
+    if remote_cmd:
+        safe_remote = remote_cmd.replace("%", "%%")
+        ssh_args.extend(["-t", f'"{safe_remote}"'])
+
+    full_ssh_cmd = " ".join(ssh_args)
+
+    bat_content = f"""@echo off
+title {title}
+cls
+echo [DO.MBA Pull Manager] Menghubungkan ke {username}@{hostname}:{port}...
+echo.
+{full_ssh_cmd}
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo ========================================================
+    echo [Koneksi SSH terputus atau gagal, Exit Code: %ERRORLEVEL%]
+    echo ========================================================
+    pause
+)
+(goto) 2>nul & del "%~f0"
+"""
+
+    with open(bat_path, "w", encoding="utf-8") as f:
+        f.write(bat_content)
+
+    return bat_path
+
+
 def launch_ssh_terminal(
     host: Dict[str, Any],
     initial_dir: Optional[str] = None,
@@ -115,11 +172,11 @@ def launch_ssh_terminal(
         except Exception:
             pass
 
-    # Siapkan perintah direktori remote
+    # Siapkan perintah direktori remote (menggunakan format POSIX universal tanpa blok 'if ... fi' yang memicu syntax error di Windows)
     target_dir = initial_dir.strip() if initial_dir and initial_dir.strip() else ""
     if target_dir:
         safe_dir = target_dir.replace("'", "'\\''")
-        remote_cmd = f"cd '{safe_dir}' 2>/dev/null || cd /; if [ -x /bin/bash ]; then exec /bin/bash -l; elif [ -x /bin/sh ]; then exec /bin/sh -l; else exec sh -l; fi"
+        remote_cmd = f"cd '{safe_dir}' 2>/dev/null || cd ~; exec ${{SHELL:-bash}} -l"
     else:
         remote_cmd = ""
 
@@ -131,39 +188,35 @@ def launch_ssh_terminal(
         ssh_bin = _find_windows_ssh_binary()
 
         if ssh_bin:
-            ssh_bin_quoted = f'"{ssh_bin}"' if " " in ssh_bin else ssh_bin
             extra_opts = "-o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa"
+            bat_path = _generate_windows_ssh_batch(
+                title=title,
+                ssh_bin=ssh_bin,
+                port=port,
+                username=username,
+                hostname=hostname,
+                auth_type=auth_type,
+                key_file=key_file,
+                remote_cmd=remote_cmd,
+                extra_opts=extra_opts
+            )
 
-            if remote_cmd:
-                safe_rc = remote_cmd.replace('"', '\\"')
-                if auth_type == "key" and key_file:
-                    ssh_target = f'{ssh_bin_quoted} -t -i "{key_file}" {extra_opts} -p {port} {username}@{hostname} "{safe_rc}"'
-                else:
-                    ssh_target = f'{ssh_bin_quoted} -t {extra_opts} -p {port} {username}@{hostname} "{safe_rc}"'
-            else:
-                if auth_type == "key" and key_file:
-                    ssh_target = f'{ssh_bin_quoted} -i "{key_file}" {extra_opts} -p {port} {username}@{hostname}'
-                else:
-                    ssh_target = f'{ssh_bin_quoted} {extra_opts} -p {port} {username}@{hostname}'
-
-            # A. Coba Windows Terminal (wt.exe) jika tersedia
+            # A. Coba Windows Terminal (wt.exe) jika tersedia dengan argumen separator '--'
             if shutil.which("wt"):
                 try:
-                    subprocess.Popen(["wt", "--title", title, "cmd", "/k", ssh_target])
+                    subprocess.Popen(["wt", "--title", title, "--", "cmd.exe", "/c", bat_path])
                     return {"success": True, "message": f"Membuka Windows Terminal untuk {label}"}
                 except Exception:
                     pass
 
             # B. Standard Command Prompt Windows (cmd.exe)
             try:
-                full_cmd = f'start "{title}" cmd.exe /k "{ssh_target}"'
-                subprocess.Popen(full_cmd, shell=True)
+                subprocess.Popen(f'start "{title}" cmd.exe /c "{bat_path}"', shell=True)
                 return {"success": True, "message": f"Membuka Command Prompt SSH untuk {label}"}
             except Exception as e:
                 # C. Fallback ke PowerShell jika cmd gagal
                 try:
-                    ps_cmd = f'Start-Process powershell -ArgumentList \'-NoExit\', \'-Command\', \'{ssh_target}\''
-                    subprocess.Popen(["powershell.exe", "-Command", ps_cmd])
+                    subprocess.Popen(["powershell.exe", "-NoExit", "-Command", f'& "{bat_path}"'])
                     return {"success": True, "message": f"Membuka PowerShell SSH untuk {label}"}
                 except Exception:
                     return {"success": False, "error": f"Gagal membuka Command Prompt/PowerShell: {e}"}
@@ -317,14 +370,13 @@ def launch_local_terminal(
 
         # B. Standard Command Prompt (cmd.exe)
         try:
-            full_cmd = f'start "Command Prompt - {target_dir}" cmd.exe /k "cd /d \"{target_dir}\""'
+            full_cmd = f'start "Command Prompt - {target_dir}" /d "{target_dir}" cmd.exe'
             subprocess.Popen(full_cmd, shell=True)
             return {"success": True, "message": f"Membuka Command Prompt di: {target_dir}"}
         except Exception as e:
             # C. Fallback ke PowerShell
             try:
-                ps_cmd = f'Start-Process powershell -ArgumentList \'-NoExit\', \'-Command\', \'Set-Location -LiteralPath "{target_dir}"\''
-                subprocess.Popen(["powershell.exe", "-Command", ps_cmd])
+                subprocess.Popen(["powershell.exe", "-NoExit", "-Command", f"Set-Location -LiteralPath '{target_dir}'"])
                 return {"success": True, "message": f"Membuka PowerShell di: {target_dir}"}
             except Exception:
                 return {"success": False, "error": f"Gagal membuka Command Prompt/PowerShell: {e}"}
