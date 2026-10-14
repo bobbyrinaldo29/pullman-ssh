@@ -15,6 +15,7 @@ from icons import get_icon
 from redmine_notifier import NotificationCenter
 from redmine_service import DEFAULT_STATUS_FILTER, RedmineClient, RedmineError, STATUS_FILTERS
 from ui.redmine_account_dialog import RedmineAccountDialog
+from ui.redmine_column_dialog import RedmineColumnSettingsDialog
 from ui.redmine_edit_task_dialog import RedmineEditTaskDialog
 from ui.redmine_issue_panel import RedmineIssuePanel, format_date, format_datetime
 from ui.tab_bar import HorizontalScrollableTabBar
@@ -33,21 +34,103 @@ ALL_PROJECTS = "Semua project"
 ALL_TRACKERS = "Semua tracker"
 ALL_PRIORITIES = "Semua priority"
 
-# kolom tabel -> (judul, lebar, anchor, stretch, sort key Redmine)
+
+def extract_tanggal_deploy(issue: Dict[str, Any]) -> str:
+    """Ekstraksi nilai 'Tanggal Deploy' dari custom fields atau atribut issue Redmine."""
+    custom_fields = issue.get("custom_fields") or []
+    # 1. Pencocokan langsung / nama persis
+    for cf in custom_fields:
+        name = (cf.get("name") or "").strip().lower()
+        if name in ("tanggal deploy", "tgl deploy", "tanggal deployment", "tgl deployment", "deploy date", "date deploy", "tgl_deploy", "tanggal_deploy"):
+            val = cf.get("value")
+            if isinstance(val, list):
+                val = ", ".join(str(v) for v in val if v not in (None, ""))
+            if val not in (None, ""):
+                return format_date(str(val))
+
+    # 2. Nama mengandung 'deploy' dan kata tanggal ('tgl', 'tanggal', 'date')
+    for cf in custom_fields:
+        name = (cf.get("name") or "").strip().lower()
+        if "deploy" in name and any(w in name for w in ("tanggal", "tgl", "date")):
+            val = cf.get("value")
+            if isinstance(val, list):
+                val = ", ".join(str(v) for v in val if v not in (None, ""))
+            if val not in (None, ""):
+                return format_date(str(val))
+
+    # 3. Fallback jika ada key langsung pada issue dict
+    for key in ("tanggal_deploy", "tgl_deploy", "deploy_date", "date_deploy"):
+        if issue.get(key) not in (None, ""):
+            return format_date(str(issue[key]))
+
+    return "-"
+
+
+def extract_jam_deploy(issue: Dict[str, Any]) -> str:
+    """Ekstraksi nilai 'Jam Deploy' dari custom fields atau atribut issue Redmine."""
+    custom_fields = issue.get("custom_fields") or []
+    # 1. Pencocokan langsung / nama persis
+    for cf in custom_fields:
+        name = (cf.get("name") or "").strip().lower()
+        if name in ("jam deploy", "jam deployment", "waktu deploy", "waktu deployment"):
+            val = cf.get("value")
+            if isinstance(val, list):
+                val = ", ".join(str(v) for v in val if v not in (None, ""))
+            if val not in (None, ""):
+                return str(val)
+
+    # 2. Nama mengandung 'deploy' dan kata waktu ('jam', 'time', 'waktu', 'jadwal')
+    for cf in custom_fields:
+        name = (cf.get("name") or "").strip().lower()
+        if "deploy" in name and any(w in name for w in ("jam", "time", "waktu", "jadwal")) and not any(w in name for w in ("tanggal", "tgl", "date")):
+            val = cf.get("value")
+            if isinstance(val, list):
+                val = ", ".join(str(v) for v in val if v not in (None, ""))
+            if val not in (None, ""):
+                return str(val)
+
+    # 3. Custom field lain yang mengandung 'deploy' (tapi bukan tanggal)
+    for cf in custom_fields:
+        name = (cf.get("name") or "").strip().lower()
+        if "deploy" in name and not any(w in name for w in ("tanggal", "tgl", "date")):
+            val = cf.get("value")
+            if isinstance(val, list):
+                val = ", ".join(str(v) for v in val if v not in (None, ""))
+            if val not in (None, ""):
+                return str(val)
+
+    # 4. Fallback jika ada key langsung pada issue dict
+    for key in ("jam_deploy", "deploy_time", "jam_deployment"):
+        if issue.get(key) not in (None, ""):
+            return str(issue[key])
+
+    return "-"
+
+
+# kolom tabel -> (judul, lebar, anchor, stretch, sort key Redmine, label setting, extractor)
 COLUMNS = {
-    "id": ("#", 65, "center", False, "id"),
-    "project": ("Project", 140, "w", False, "project"),
-    "tracker": ("Tracker", 85, "center", False, "tracker"),
-    "status": ("Status", 110, "center", False, "status"),
-    "priority": ("Priority", 75, "center", False, "priority"),
-    "subject": ("Subject", 320, "w", True, "subject"),
-    "due": ("Due Date", 95, "center", False, "due_date"),
-    "done": ("Done", 55, "center", False, "done_ratio"),
-    "updated": ("Updated", 125, "center", False, "updated_on"),
+    "id": ("#", 65, "center", False, "id", "ID Task (#)", lambda i: f"#{i.get('id')}"),
+    "project": ("Project", 140, "w", False, "project", "Project", lambda i: (i.get("project") or {}).get("name", "-")),
+    "tracker": ("Tracker", 85, "center", False, "tracker", "Tracker", lambda i: (i.get("tracker") or {}).get("name", "-")),
+    "status": ("Status", 110, "center", False, "status", "Status", lambda i: (i.get("status") or {}).get("name", "-")),
+    "priority": ("Priority", 75, "center", False, "priority", "Priority", lambda i: (i.get("priority") or {}).get("name", "-")),
+    "subject": ("Subject", 320, "w", True, "subject", "Subject (Judul)", lambda i: i.get("subject", "")),
+    "tanggal_deploy": ("Tgl Deploy", 100, "center", False, "tanggal_deploy", "Tanggal Deploy", extract_tanggal_deploy),
+    "jam_deploy": ("Jam Deploy", 95, "center", False, "jam_deploy", "Jam Deploy", extract_jam_deploy),
+    "author": ("Author", 130, "w", False, "author", "Author (Pembuat)", lambda i: (i.get("author") or {}).get("name", "-")),
+    "assigned_to": ("Assigned To", 130, "w", False, "assigned_to", "Assigned To (Penerima)", lambda i: (i.get("assigned_to") or {}).get("name", "-")),
+    "start_date": ("Start Date", 95, "center", False, "start_date", "Start Date (Mulai)", lambda i: format_date(i.get("start_date"))),
+    "due": ("Due Date", 95, "center", False, "due_date", "Due Date (Batas Waktu)", lambda i: format_date(i.get("due_date"))),
+    "done": ("Done", 55, "center", False, "done_ratio", "Done (%)", lambda i: f"{i.get('done_ratio', 0)}%"),
+    "estimated_hours": ("Estimasi", 75, "center", False, "estimated_hours", "Estimated Hours (Estimasi)", lambda i: f"{i.get('estimated_hours')}h" if i.get("estimated_hours") is not None else "-"),
+    "created": ("Created", 125, "center", False, "created_on", "Created On (Dibuat)", lambda i: format_datetime(i.get("created_on"))),
+    "updated": ("Updated", 125, "center", False, "updated_on", "Updated On (Diperbarui)", lambda i: format_datetime(i.get("updated_on"))),
 }
+DEFAULT_COLUMNS = ["id", "project", "tracker", "status", "priority", "subject", "tanggal_deploy", "jam_deploy", "due", "done", "updated"]
 MAX_ISSUE_TABS = 8
 LIST_TAB = "list"
 SETTINGS_KEY = "redmine_filters"
+SETTINGS_COLUMNS_KEY = "redmine_columns"
 
 
 class RedmineView(ctk.CTkFrame):
@@ -93,6 +176,9 @@ class RedmineView(ctk.CTkFrame):
         self._active_tab: Any = LIST_TAB
 
         self._saved_filters = self._load_saved_filters()
+        self._jam_deploy_cf_id: Optional[int] = None
+        self._tgl_deploy_cf_id: Optional[int] = None
+        self._visible_columns: List[str] = self._load_visible_columns()
         if self._saved_filters.get("sort_col") in COLUMNS:
             self._sort_col = self._saved_filters["sort_col"]
             self._sort_desc = bool(self._saved_filters.get("sort_desc", True))
@@ -209,11 +295,18 @@ class RedmineView(ctk.CTkFrame):
         self.btn_bell.grid(row=0, column=1, sticky="e", padx=(5, 0))
 
         ctk.CTkButton(
+            header, text=" Atur Kolom", image=get_icon("table", (14, 14), COLORS["text"]), compound="left",
+            width=115, height=34, corner_radius=8, fg_color=COLORS["surface"], hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"], border_width=1, border_color=COLORS["line"],
+            font=ctk.CTkFont(size=12, weight="bold"), command=self._open_column_dialog
+        ).grid(row=0, column=2, sticky="e", padx=(5, 0))
+
+        ctk.CTkButton(
             header, text=" Akun Redmine", image=get_icon("settings", (14, 14), COLORS["text"]), compound="left",
             width=130, height=34, corner_radius=8, fg_color=COLORS["surface"], hover_color=COLORS["surface_hover"],
             text_color=COLORS["text"], border_width=1, border_color=COLORS["line"],
             font=ctk.CTkFont(size=12, weight="bold"), command=self._open_account_dialog
-        ).grid(row=0, column=2, sticky="e", padx=(5, 0))
+        ).grid(row=0, column=3, sticky="e", padx=(5, 0))
 
         # 2. TAB STRIP (Scrollable horizontal frame with nav buttons)
         self.tab_bar_frame = ctk.CTkFrame(self, fg_color="transparent", height=38)
@@ -363,18 +456,21 @@ class RedmineView(ctk.CTkFrame):
 
         apply_treeview_styles()
         self.tree = ttk.Treeview(
-            self.table_container, columns=tuple(COLUMNS.keys()), show="headings",
+            self.table_container, columns=tuple(self._visible_columns), show="headings",
             style="Pullman.Treeview", selectmode="browse"
         )
-        for key, (label, width, anchor, stretch, _sort) in COLUMNS.items():
+        for key in self._visible_columns:
+            label, width, anchor, stretch, _sort = COLUMNS[key][:5]
             self.tree.heading(key, text=label, anchor=anchor, command=lambda k=key: self._on_sort_clicked(k))
             self.tree.column(key, width=width, anchor=anchor, stretch=stretch)
         self._update_sort_headings()
 
         vsb = ttk.Scrollbar(self.table_container, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=vsb.set)
+        hsb = ttk.Scrollbar(self.table_container, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
         self.tree.grid(row=0, column=0, sticky="nsew")
         vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
         self._apply_tag_colors()
 
         self.tree.bind("<Double-Button-1>", self._on_tree_double_click)
@@ -494,6 +590,8 @@ class RedmineView(ctk.CTkFrame):
         self.context_menu.add_command(label="Copy ID Task", command=lambda: self._copy_selected("id"))
         self.context_menu.add_command(label="Copy Subject", command=lambda: self._copy_selected("subject"))
         self.context_menu.add_command(label="Copy URL Task", command=lambda: self._copy_selected("url"))
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Atur Kolom Tabel...", command=self._open_column_dialog)
 
     def _show_empty_state(self, show: bool):
         if show:
@@ -605,6 +703,67 @@ class RedmineView(ctk.CTkFrame):
     # Filters & paging
     # ------------------------------------------------------------------
 
+    def _load_visible_columns(self) -> List[str]:
+        saved = self.db.get_setting(SETTINGS_COLUMNS_KEY)
+        if saved:
+            try:
+                cols = json.loads(saved)
+                if isinstance(cols, list):
+                    valid = [c for c in cols if c in COLUMNS]
+                    if valid:
+                        # Otomatis sisipkan tanggal_deploy jika belum ada di konfigurasi tersimpan
+                        if "tanggal_deploy" not in valid and "tanggal_deploy" in COLUMNS:
+                            if "jam_deploy" in valid:
+                                idx = valid.index("jam_deploy")
+                                valid.insert(idx, "tanggal_deploy")
+                            elif "subject" in valid:
+                                idx = valid.index("subject") + 1
+                                valid.insert(idx, "tanggal_deploy")
+                            else:
+                                valid.append("tanggal_deploy")
+
+                        # Otomatis sisipkan jam_deploy jika belum ada di konfigurasi tersimpan
+                        if "jam_deploy" not in valid and "jam_deploy" in COLUMNS:
+                            if "tanggal_deploy" in valid:
+                                idx = valid.index("tanggal_deploy") + 1
+                                valid.insert(idx, "jam_deploy")
+                            elif "subject" in valid:
+                                idx = valid.index("subject") + 1
+                                valid.insert(idx, "jam_deploy")
+                            else:
+                                valid.append("jam_deploy")
+                        return valid
+            except Exception:
+                pass
+        return list(DEFAULT_COLUMNS)
+
+    def _save_visible_columns(self, cols: List[str]):
+        self._visible_columns = [c for c in cols if c in COLUMNS]
+        self.db.set_setting(SETTINGS_COLUMNS_KEY, json.dumps(self._visible_columns))
+
+    def _apply_columns(self):
+        """Konfigurasi ulang kolom Treeview dan render ulang data."""
+        self.tree.configure(columns=tuple(self._visible_columns))
+        for key in self._visible_columns:
+            label, width, anchor, stretch, _sort = COLUMNS[key][:5]
+            self.tree.heading(key, text=label, anchor=anchor, command=lambda k=key: self._on_sort_clicked(k))
+            self.tree.column(key, width=width, anchor=anchor, stretch=stretch)
+        self._update_sort_headings()
+        self._render_issues()
+
+    def _open_column_dialog(self):
+        RedmineColumnSettingsDialog(
+            parent=self.winfo_toplevel(),
+            all_columns=COLUMNS,
+            visible_columns=self._visible_columns,
+            default_columns=DEFAULT_COLUMNS,
+            on_save=self._on_columns_saved,
+        )
+
+    def _on_columns_saved(self, visible_columns: List[str]):
+        self._save_visible_columns(visible_columns)
+        self._apply_columns()
+
     def _load_saved_filters(self) -> Dict[str, Any]:
         try:
             return json.loads(self.db.get_setting(SETTINGS_KEY, "{}") or "{}")
@@ -661,7 +820,10 @@ class RedmineView(ctk.CTkFrame):
         self._on_filter_changed()
 
     def _update_sort_headings(self):
-        for key, (label, *_rest) in COLUMNS.items():
+        for key in self._visible_columns:
+            if key not in COLUMNS:
+                continue
+            label = COLUMNS[key][0]
             arrow = (" ▼" if self._sort_desc else " ▲") if key == self._sort_col else ""
             self.tree.heading(key, text=f"{label}{arrow}")
 
@@ -743,7 +905,18 @@ class RedmineView(ctk.CTkFrame):
         elif query:
             params["subject"] = f"~{query}"
 
-        sort_key = COLUMNS[self._sort_col][4]
+        if self._sort_col == "jam_deploy":
+            if self._jam_deploy_cf_id:
+                sort_key = f"cf_{self._jam_deploy_cf_id}"
+            else:
+                sort_key = "updated_on"
+        elif self._sort_col == "tanggal_deploy":
+            if self._tgl_deploy_cf_id:
+                sort_key = f"cf_{self._tgl_deploy_cf_id}"
+            else:
+                sort_key = "updated_on"
+        else:
+            sort_key = COLUMNS[self._sort_col][4]
         params["sort"] = f"{sort_key}:desc" if self._sort_desc else sort_key
         return params
 
@@ -903,6 +1076,12 @@ class RedmineView(ctk.CTkFrame):
             for ref in (issue.get("assigned_to"), issue.get("author")):
                 if ref and ref.get("id"):
                     self._lookups["assigned_to_id"][str(ref["id"])] = ref.get("name", "")
+            for cf in issue.get("custom_fields") or []:
+                name = (cf.get("name") or "").strip().lower()
+                if not self._tgl_deploy_cf_id and ("deploy" in name and any(w in name for w in ("tanggal", "tgl", "date"))):
+                    self._tgl_deploy_cf_id = cf.get("id")
+                elif not self._jam_deploy_cf_id and ("deploy" in name and any(w in name for w in ("jam", "time", "waktu", "jadwal"))):
+                    self._jam_deploy_cf_id = cf.get("id")
         self._render_issues()
         self._update_pager()
 
@@ -924,16 +1103,10 @@ class RedmineView(ctk.CTkFrame):
             status_name = status.get("name", "-")
             is_closed = bool(status.get("is_closed"))
 
-            values = (
-                f"#{issue.get('id')}",
-                (issue.get("project") or {}).get("name", "-"),
-                (issue.get("tracker") or {}).get("name", "-"),
-                status_name,
-                (issue.get("priority") or {}).get("name", "-"),
-                issue.get("subject", ""),
-                format_date(issue.get("due_date")),
-                f"{issue.get('done_ratio', 0)}%",
-                format_datetime(issue.get("updated_on")),
+            values = tuple(
+                COLUMNS[col][6](issue)
+                for col in self._visible_columns
+                if col in COLUMNS
             )
 
             status_tag = self._get_status_tag(status_name, is_closed)
@@ -1109,7 +1282,17 @@ class RedmineView(ctk.CTkFrame):
     def _show_context_menu(self, event):
         item = self.tree.identify_row(event.y)
         if not item:
+            # Menu klik kanan pada area kosong tabel
+            menu = tk.Menu(
+                self, tearoff=0, bg=get_color("surface"), fg=get_color("text"),
+                activebackground=get_color("accent"), activeforeground="#FFFFFF", bd=1
+            )
+            menu.add_command(label="Atur Kolom Tabel...", command=self._open_column_dialog)
+            menu.add_separator()
+            menu.add_command(label="Muat Ulang (Refresh)", command=self.refresh)
+            menu.tk_popup(event.x_root, event.y_root)
             return
+
         self.tree.selection_set(item)
         issue = self._selected_issue()
         if not issue:
@@ -1143,5 +1326,7 @@ class RedmineView(ctk.CTkFrame):
         menu.add_command(label="Copy ID Task", command=lambda: self._copy_selected("id"))
         menu.add_command(label="Copy Subject", command=lambda: self._copy_selected("subject"))
         menu.add_command(label="Copy URL Task", command=lambda: self._copy_selected("url"))
+        menu.add_separator()
+        menu.add_command(label="Atur Kolom Tabel...", command=self._open_column_dialog)
 
         menu.tk_popup(event.x_root, event.y_root)
