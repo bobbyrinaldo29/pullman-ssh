@@ -78,31 +78,28 @@ class SFTPWindow(ctk.CTkToplevel):
 
         repo = self.host.get("repo_path") or "/var/www/html"
         self.btn_repo = ctk.CTkButton(
-            btn_box, text=" Repo", image=get_icon("rocket", (13, 13), COLORS["accent_text"]),
-            width=70, height=32, corner_radius=6,
-            fg_color=COLORS["accent_subtle"], hover_color=COLORS["surface_hover"],
-            text_color=COLORS["accent_text"], font=ctk.CTkFont(size=11, weight="bold"),
+            btn_box, text="", image=get_icon("folder", (14, 14), COLORS["text"]),
+            width=32, height=32, corner_radius=6,
+            fg_color=COLORS["surface_hover"], hover_color=COLORS["line"],
             command=lambda: self._navigate_to(repo)
         )
-        self.btn_repo.pack(side="left", padx=(2, 3))
+        self.btn_repo.pack(side="left", padx=2)
 
         self.btn_terminal = ctk.CTkButton(
-            btn_box, text=" SSH", image=get_icon("terminal", (13, 13), COLORS["accent_text"]),
-            width=65, height=32, corner_radius=6,
-            fg_color=COLORS["accent_subtle"], hover_color=COLORS["surface_hover"],
-            text_color=COLORS["accent_text"], font=ctk.CTkFont(size=11, weight="bold"),
+            btn_box, text="", image=get_icon("terminal", (14, 14), COLORS["text"]),
+            width=32, height=32, corner_radius=6,
+            fg_color=COLORS["surface_hover"], hover_color=COLORS["line"],
             command=self._open_terminal_here
         )
-        self.btn_terminal.pack(side="left", padx=(0, 3))
+        self.btn_terminal.pack(side="left", padx=2)
 
         self.btn_git = ctk.CTkButton(
-            btn_box, text=" Git Graph", image=get_icon("git-branch", (13, 13), COLORS["accent_text"]),
-            width=85, height=32, corner_radius=6,
-            fg_color=COLORS["accent_subtle"], hover_color=COLORS["surface_hover"],
-            text_color=COLORS["accent_text"], font=ctk.CTkFont(size=11, weight="bold"),
+            btn_box, text="", image=get_icon("git-branch", (14, 14), COLORS["text"]),
+            width=32, height=32, corner_radius=6,
+            fg_color=COLORS["surface_hover"], hover_color=COLORS["line"],
             command=self._open_git_graph_here
         )
-        self.btn_git.pack(side="left", padx=(0, 6))
+        self.btn_git.pack(side="left", padx=(2, 6))
 
         # Path Entry & Go Button
         lbl_loc = ctk.CTkLabel(header, text="Remote Path:", font=ctk.CTkFont(size=11, weight="bold"), text_color=COLORS["muted"])

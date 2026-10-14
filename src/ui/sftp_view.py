@@ -809,25 +809,25 @@ class SFTPView(ctk.CTkFrame):
         self.btn_remote_home.pack(side="left", padx=(0, 3))
 
         self.btn_remote_repo = ctk.CTkButton(
-            btn_box, text=" Repo", image=get_icon("folder", (12, 12), COLORS["text"]),
-            compound="left", height=28, corner_radius=6, fg_color=COLORS["surface_hover"],
-            hover_color=COLORS["line"], text_color=COLORS["text"], font=ctk.CTkFont(size=11),
+            btn_box, text="", image=get_icon("folder", (13, 13), COLORS["text"]),
+            width=28, height=28, corner_radius=6, fg_color=COLORS["surface_hover"],
+            hover_color=COLORS["line"],
             command=self._nav_remote_repo
         )
         self.btn_remote_repo.pack(side="left", padx=(0, 3))
 
         self.btn_remote_terminal = ctk.CTkButton(
-            btn_box, text=" SSH", image=get_icon("terminal", (12, 12), COLORS["accent_text"]),
-            compound="left", height=28, corner_radius=6, fg_color=COLORS["surface_hover"],
-            hover_color=COLORS["line"], text_color=COLORS["accent_text"], font=ctk.CTkFont(size=11, weight="bold"),
+            btn_box, text="", image=get_icon("terminal", (13, 13), COLORS["text"]),
+            width=28, height=28, corner_radius=6, fg_color=COLORS["surface_hover"],
+            hover_color=COLORS["line"],
             command=lambda: self._action_open_remote_terminal()
         )
         self.btn_remote_terminal.pack(side="left", padx=(0, 3))
 
         self.btn_remote_git = ctk.CTkButton(
-            btn_box, text=" Git Graph", image=get_icon("git-branch", (12, 12), COLORS["accent_text"]),
-            compound="left", height=28, corner_radius=6, fg_color=COLORS["surface_hover"],
-            hover_color=COLORS["line"], text_color=COLORS["accent_text"], font=ctk.CTkFont(size=11, weight="bold"),
+            btn_box, text="", image=get_icon("git-branch", (13, 13), COLORS["text"]),
+            width=28, height=28, corner_radius=6, fg_color=COLORS["surface_hover"],
+            hover_color=COLORS["line"],
             command=lambda: self._action_open_remote_git_graph()
         )
         self.btn_remote_git.pack(side="left", padx=(0, 3))
