@@ -405,9 +405,6 @@ class FileEditorDialog(ctk.CTkToplevel):
     def _open_git_graph(self, target_dir: Optional[str] = None):
         """Membuka dialog Git Graph interaktif untuk folder yang sedang diakses saat ini."""
         from ui.git_graph_dialog import GitGraphDialog
-        if hasattr(self, "_git_graph_dialog") and self._git_graph_dialog and self._git_graph_dialog.winfo_exists():
-            self._git_graph_dialog._bring_to_front()
-            return
 
         if not target_dir:
             target_dir = self._explorer_current_dir
@@ -416,12 +413,24 @@ class FileEditorDialog(ctk.CTkToplevel):
         if not target_dir:
             target_dir = "/"
 
-        self._git_graph_dialog = GitGraphDialog(
+        host_id = str(self.host.get("id") or self.host.get("hostname") or "remote") if self.host else "local"
+        graph_key = f"{host_id}::{target_dir}"
+
+        if not hasattr(self, "_git_graph_dialogs"):
+            self._git_graph_dialogs = {}
+
+        existing_dialog = self._git_graph_dialogs.get(graph_key)
+        if existing_dialog and existing_dialog.winfo_exists():
+            existing_dialog._bring_to_front()
+            return
+
+        dialog = GitGraphDialog(
             parent=self,
             host=self.host,
             target_dir=target_dir,
             is_local=False
         )
+        self._git_graph_dialogs[graph_key] = dialog
 
     def _toggle_comment(self, event=None):
         """Toggle komentar baris gaya VS Code (Ctrl+/ atau Cmd+/)."""

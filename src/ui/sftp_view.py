@@ -231,7 +231,7 @@ class SFTPView(ctk.CTkFrame):
             existing_tab.host = host
             self._switch_to_tab(existing_tab.tab_id)
             if not self._is_connected:
-                self._connect_to_selected_host()
+                self._connect_to_selected_host(target_host=host)
             return
 
         active_tab = self._get_active_tab()
@@ -239,7 +239,7 @@ class SFTPView(ctk.CTkFrame):
             active_tab.host = host
             active_tab.category = (host.get("group_name") or "All Categories").strip() or "All Categories"
             self._restore_tab_state(active_tab)
-            self._connect_to_selected_host()
+            self._connect_to_selected_host(target_host=host)
             self._render_tabs()
         else:
             self._add_new_tab(host=host)
@@ -533,9 +533,10 @@ class SFTPView(ctk.CTkFrame):
         if raw_host:
             full_host = self.db.get_host_by_id(raw_host["id"]) if hasattr(self, "db") else raw_host
             host = full_host or raw_host
-            self._current_host = host
             active_tab = self._get_active_tab()
-            if active_tab and not self._is_connected:
+            # Hanya set host ke tab aktif jika tab aktif belum terhubung
+            if active_tab and not active_tab.is_connected:
+                self._current_host = host
                 active_tab.host = host
                 repo_path = (host.get("repo_path") or "").strip() or "/var/www/html"
                 active_tab.remote_path = repo_path
@@ -567,13 +568,13 @@ class SFTPView(ctk.CTkFrame):
                 label=f"  Connect to {label}",
                 image=get_tk_image("play", (13, 13), COLORS["accent"]),
                 compound="left",
-                command=lambda: self.select_host(host)
+                command=lambda h=host: self.select_host(h)
             )
             self.host_tree_menu.add_command(
                 label="  Open in New Tab",
                 image=get_tk_image("plus", (13, 13), COLORS["text"]),
                 compound="left",
-                command=lambda: self._add_new_tab(host=host)
+                command=lambda h=host: self._add_new_tab(host=h)
             )
             self.host_tree_menu.add_separator()
             self.host_tree_menu.add_command(
@@ -1692,8 +1693,21 @@ class SFTPView(ctk.CTkFrame):
 
         active_tab_widget = None
 
+        # Hitung kemunculan judul agar tab dengan nama sama otomatis dibedakan dengan hostname / IP
+        title_counts: Dict[str, int] = {}
+        for t in self._tabs:
+            base = t.title
+            title_counts[base] = title_counts.get(base, 0) + 1
+
         for idx, tab in enumerate(self._tabs):
             is_active = (tab.tab_id == self._active_tab_id)
+
+            # Jika ada lebih dari satu tab dengan label persis sama, tampilkan hostname / IP pembeda
+            base_title = tab.title
+            if title_counts.get(base_title, 0) > 1 and tab.host and tab.host.get("hostname"):
+                display_title = f"{base_title} ({tab.host.get('hostname')})"
+            else:
+                display_title = base_title
 
             # Inactive divider before tab (jika bukan tab pertama dan tab sebelumnya tidak aktif)
             if idx > 0 and not is_active and (self._tabs[idx - 1].tab_id != self._active_tab_id):
@@ -1735,7 +1749,7 @@ class SFTPView(ctk.CTkFrame):
             # 2. Tab Title Label
             lbl_title = ctk.CTkLabel(
                 content_frame,
-                text=tab.title,
+                text=display_title,
                 text_color=COLORS["text"] if is_active else COLORS["muted"],
                 font=ctk.CTkFont(size=12, weight="bold" if is_active else "normal"),
                 cursor="hand2"
@@ -1807,7 +1821,7 @@ class SFTPView(ctk.CTkFrame):
         active_tab = self._get_active_tab()
         if not active_tab:
             return
-        active_tab.host = self._current_host
+        # Note: active_tab.host adalah identitas tab dan TIDAK BOLEH ditimpa dari global _current_host
         active_tab.local_path = self._local_path
         active_tab.local_items = list(self._local_items)
         active_tab.local_sort_col = self._local_sort_col
@@ -1910,7 +1924,7 @@ class SFTPView(ctk.CTkFrame):
         self._restore_tab_state(new_tab)
         self._render_tabs()
         if host:
-            self._connect_to_selected_host()
+            self._connect_to_selected_host(target_host=host)
 
     def _close_tab(self, tab_id: str):
         tab_to_close = next((t for t in self._tabs if t.tab_id == tab_id), None)
@@ -1945,12 +1959,8 @@ class SFTPView(ctk.CTkFrame):
             self._connect_to_selected_host()
 
     def _connect_to_selected_host(self, target_host: Optional[Dict[str, Any]] = None):
-        host = target_host or self._current_host
-        if not host:
-            active_tab = self._get_active_tab()
-            if active_tab and active_tab.host:
-                host = active_tab.host
-
+        active_tab = self._get_active_tab()
+        host = target_host or (active_tab.host if active_tab else None) or self._current_host
         if not host:
             messagebox.showwarning("Pilih Server", "Pilih server tujuan dari daftar host di sebelah kiri terlebih dahulu.")
             return
@@ -1961,13 +1971,14 @@ class SFTPView(ctk.CTkFrame):
             if full_host:
                 host = full_host
 
-        self._current_host = host
-        self._is_connecting = True
-        active_tab = self._get_active_tab()
+        target_tab_id = active_tab.tab_id if active_tab else None
         if active_tab:
             active_tab.host = host
             active_tab.is_connecting = True
-            self._render_tabs()
+
+        self._current_host = host
+        self._is_connecting = True
+        self._render_tabs()
 
         self.btn_connect.configure(state="disabled", text=" Connecting...")
         self.conn_badge.configure(text="Connecting...", fg_color=COLORS["surface"], text_color=COLORS["accent_text"])
@@ -1975,63 +1986,77 @@ class SFTPView(ctk.CTkFrame):
         self.lbl_status_server.configure(text=f"{host['label']} ({host['hostname']})")
 
         # Ambil remote path dari input remote_path_var atau repository path host
-        initial_path = self.remote_path_var.get().strip() or (host.get("repo_path") or "").strip() or "/var/www/html"
+        initial_path = (host.get("repo_path") or "").strip() or self.remote_path_var.get().strip() or "/var/www/html"
         self._remote_path = initial_path
         self.remote_path_var.set(initial_path)
 
         def worker():
-            host_cfg = self._get_active_host_config() or self._current_host
+            host_cfg = self.db.get_host_by_id(host["id"]) if (hasattr(self, "db") and host.get("id")) else host
             res = SFTPService.list_dir(host_cfg, initial_path)
-            self.after(0, lambda: self._on_connect_finished(res))
+            self.after(0, lambda: self._on_connect_finished(res, target_tab_id=target_tab_id, target_host=host))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_connect_finished(self, res: Dict[str, Any]):
-        self._is_connecting = False
-        active_tab = self._get_active_tab()
+    def _on_connect_finished(self, res: Dict[str, Any], target_tab_id: Optional[str] = None, target_host: Optional[Dict[str, Any]] = None):
+        target_tab = next((t for t in self._tabs if t.tab_id == target_tab_id), None) if target_tab_id else self._get_active_tab()
+        is_current_active = bool(target_tab and target_tab.tab_id == self._active_tab_id)
+
+        if target_tab:
+            target_tab.is_connecting = False
+            if target_host:
+                target_tab.host = target_host
+
         if res.get("success"):
-            self._is_connected = True
-            if active_tab:
-                active_tab.is_connected = True
-                active_tab.is_connecting = False
-                active_tab.host = self._current_host
-            self.btn_connect.configure(
-                state="normal",
-                text=" Disconnect",
-                fg_color=COLORS["danger_subtle"],
-                hover_color=COLORS["danger_hover"],
-                text_color=COLORS["danger_text"],
-                image=get_icon("x", (13, 13), COLORS["danger_text"])
-            )
-            self.conn_badge.configure(text="Connected", fg_color=COLORS["accent"], text_color="#FFFFFF")
-            self._set_status("Koneksi SFTP berhasil.")
-            
-            self._remote_path = res.get("current_path", "/")
-            self.remote_path_var.set(self._remote_path)
-            self._remote_items = res.get("items", [])
-            if active_tab:
-                active_tab.remote_path = self._remote_path
-                active_tab.remote_items = list(self._remote_items)
-            self._render_remote_table()
+            if target_tab:
+                target_tab.is_connected = True
+                target_tab.remote_path = res.get("current_path", "/")
+                target_tab.remote_items = res.get("items", [])
+                target_tab.status_msg = "Koneksi SFTP berhasil."
+                if target_host:
+                    target_tab.status_server = f"{target_host.get('label', '')} ({target_host.get('hostname', '')})"
+
+            if is_current_active:
+                self._is_connecting = False
+                self._is_connected = True
+                self._current_host = target_tab.host if target_tab else target_host
+                self._remote_path = res.get("current_path", "/")
+                self.remote_path_var.set(self._remote_path)
+                self._remote_items = res.get("items", [])
+                self.btn_connect.configure(
+                    state="normal",
+                    text=" Disconnect",
+                    fg_color=COLORS["danger_subtle"],
+                    hover_color=COLORS["danger_hover"],
+                    text_color=COLORS["danger_text"],
+                    image=get_icon("x", (13, 13), COLORS["danger_text"])
+                )
+                self.conn_badge.configure(text="Connected", fg_color=COLORS["accent"], text_color="#FFFFFF")
+                self._set_status("Koneksi SFTP berhasil.")
+                if target_host:
+                    self.lbl_status_server.configure(text=f"{target_host.get('label', '')} ({target_host.get('hostname', '')})")
+                self._render_remote_table()
             self._render_tabs()
         else:
-            self._is_connected = False
-            if active_tab:
-                active_tab.is_connected = False
-                active_tab.is_connecting = False
-            error = res.get("error", "Unknown error")
-            self.btn_connect.configure(
-                state="normal",
-                text=" Connect",
-                fg_color=COLORS["accent"],
-                hover_color=COLORS["accent_hover"],
-                text_color="#FFFFFF",
-                image=get_icon("play", (13, 13), "#FFFFFF")
-            )
-            self.conn_badge.configure(text="Offline", fg_color=COLORS["danger_subtle"], text_color=COLORS["danger_text"])
-            self._set_status(f"Gagal terhubung: {error}")
+            if target_tab:
+                target_tab.is_connected = False
+                target_tab.status_msg = f"Gagal terhubung: {res.get('error', 'Unknown error')}"
+
+            if is_current_active:
+                self._is_connecting = False
+                self._is_connected = False
+                error = res.get("error", "Unknown error")
+                self.btn_connect.configure(
+                    state="normal",
+                    text=" Connect",
+                    fg_color=COLORS["accent"],
+                    hover_color=COLORS["accent_hover"],
+                    text_color="#FFFFFF",
+                    image=get_icon("play", (13, 13), "#FFFFFF")
+                )
+                self.conn_badge.configure(text="Offline", fg_color=COLORS["danger_subtle"], text_color=COLORS["danger_text"])
+                self._set_status(f"Gagal terhubung: {error}")
+                messagebox.showerror("SFTP Connection Failed", f"Gagal terhubung ke {target_host.get('label') if target_host else 'Server'}:\n\n{error}")
             self._render_tabs()
-            messagebox.showerror("SFTP Connection Failed", f"Gagal terhubung ke {self._current_host.get('label') if self._current_host else 'Server'}:\n\n{error}")
 
     def _disconnect(self):
         self._is_connected = False
@@ -2472,9 +2497,6 @@ class SFTPView(ctk.CTkFrame):
     def _action_git_graph(self, target_dir: str, is_local: bool = False):
         """Membuka dialog Git Graph interaktif untuk melihat riwayat commit & grafik git pada folder tujuan."""
         from ui.git_graph_dialog import GitGraphDialog
-        if hasattr(self, "_git_graph_dialog") and self._git_graph_dialog and self._git_graph_dialog.winfo_exists():
-            self._git_graph_dialog._bring_to_front()
-            return
 
         host_cfg = None
         if not is_local:
@@ -2484,9 +2506,21 @@ class SFTPView(ctk.CTkFrame):
                 if full_host:
                     host_cfg = full_host
 
-        self._git_graph_dialog = GitGraphDialog(
+        host_id = "local" if is_local else (str(host_cfg.get("id") or host_cfg.get("hostname") or "remote") if host_cfg else "remote")
+        graph_key = f"{host_id}::{target_dir}"
+
+        if not hasattr(self, "_git_graph_dialogs"):
+            self._git_graph_dialogs = {}
+
+        existing_dialog = self._git_graph_dialogs.get(graph_key)
+        if existing_dialog and existing_dialog.winfo_exists():
+            existing_dialog._bring_to_front()
+            return
+
+        dialog = GitGraphDialog(
             parent=self.app,
             host=host_cfg,
             target_dir=target_dir,
             is_local=is_local
         )
+        self._git_graph_dialogs[graph_key] = dialog

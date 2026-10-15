@@ -883,14 +883,23 @@ class SFTPWindow(ctk.CTkToplevel):
     def _action_git_graph(self, target_dir: str):
         """Membuka dialog Git Graph interaktif untuk melihat riwayat commit & grafik git pada folder tujuan."""
         from ui.git_graph_dialog import GitGraphDialog
-        if hasattr(self, "_git_graph_dialog") and self._git_graph_dialog and self._git_graph_dialog.winfo_exists():
-            self._git_graph_dialog._bring_to_front()
-            return
 
         full_host = self.app.db.get_host_by_id(self.host["id"]) if (hasattr(self.app, "db") and self.host and self.host.get("id")) else self.host
-        self._git_graph_dialog = GitGraphDialog(
+        host_id = str(full_host.get("id") or full_host.get("hostname") or "remote") if full_host else "remote"
+        graph_key = f"{host_id}::{target_dir}"
+
+        if not hasattr(self, "_git_graph_dialogs"):
+            self._git_graph_dialogs = {}
+
+        existing_dialog = self._git_graph_dialogs.get(graph_key)
+        if existing_dialog and existing_dialog.winfo_exists():
+            existing_dialog._bring_to_front()
+            return
+
+        dialog = GitGraphDialog(
             parent=self,
             host=full_host,
             target_dir=target_dir,
             is_local=False
         )
+        self._git_graph_dialogs[graph_key] = dialog

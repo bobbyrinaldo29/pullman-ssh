@@ -257,6 +257,7 @@ class GitGraphDialog(ctk.CTkToplevel):
             command=self._do_pull
         )
         self.btn_pull.pack(side="left", padx=(0, 6))
+        self.btn_pull.bind("<Button-3>", self._show_pull_menu)
 
         # Push origin button
         self.btn_push = ctk.CTkButton(
@@ -568,7 +569,21 @@ class GitGraphDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=11, weight="bold"),
             command=self._do_cherry_pick
         )
-        self.btn_hist_cherry_pick.grid(row=0, column=2, padx=(0, 6), pady=4)
+        self.btn_hist_cherry_pick.grid(row=0, column=2, padx=(0, 4), pady=4)
+
+        self.btn_hist_cherry_pick_hash = ctk.CTkButton(
+            filter_box,
+            text=" SHA...",
+            image=get_icon("copy", (11, 11), COLORS["text"]),
+            width=65, height=28,
+            corner_radius=4,
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(size=10),
+            command=self._open_cherry_pick_by_hash_dialog
+        )
+        self.btn_hist_cherry_pick_hash.grid(row=0, column=3, padx=(0, 6), pady=4)
 
         # Treeview History
         style = ttk.Style()
@@ -669,7 +684,7 @@ class GitGraphDialog(ctk.CTkToplevel):
             self.action_btn_box,
             text=" Cherry-pick",
             image=get_icon("git-branch", (12, 12), COLORS["accent_text"]),
-            width=100, height=26,
+            width=95, height=26,
             corner_radius=4,
             fg_color=COLORS["accent_subtle"],
             hover_color=COLORS["surface_hover"],
@@ -677,7 +692,21 @@ class GitGraphDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=11, weight="bold"),
             command=self._do_cherry_pick
         )
-        self.btn_cherry_pick.pack(side="left", padx=(0, 6))
+        self.btn_cherry_pick.pack(side="left", padx=(0, 4))
+
+        self.btn_card_cherry_pick_hash = ctk.CTkButton(
+            self.action_btn_box,
+            text="Cherry-pick SHA...",
+            image=get_icon("git-branch", (11, 11), COLORS["text"]),
+            width=120, height=26,
+            corner_radius=4,
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(size=10),
+            command=self._open_cherry_pick_by_hash_dialog
+        )
+        self.btn_card_cherry_pick_hash.pack(side="left", padx=(0, 4))
 
         self.btn_copy_sha = ctk.CTkButton(
             self.action_btn_box,
@@ -1515,9 +1544,9 @@ class GitGraphDialog(ctk.CTkToplevel):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _do_pull(self):
+    def _do_pull(self, fetch_all: bool = True):
         self.btn_pull.configure(state="disabled", text="Pulling...")
-        self.lbl_status.configure(text=f"Menarik perubahan dari remote origin/{self._current_branch}...", text_color=COLORS["accent"])
+        self.lbl_status.configure(text=f"Menarik perubahan & fetch branch dari origin...", text_color=COLORS["accent"])
 
         def worker():
             ok = False
@@ -1529,17 +1558,28 @@ class GitGraphDialog(ctk.CTkToplevel):
                 if HAS_GITPYTHON:
                     try:
                         repo = Repo(root_dir, search_parent_directories=True)
+                        if fetch_all:
+                            try:
+                                repo.git.fetch("--all", "--prune")
+                            except Exception:
+                                pass
                         pull_info = repo.git.pull("origin", self._current_branch)
                         ok = True
                         out_res = pull_info or "Pull completed."
                     except Exception as e:
                         out_res = str(e)
                 else:
+                    if fetch_all:
+                        subprocess.run(f"git {cred_flag}fetch --all --prune", cwd=root_dir, shell=True, capture_output=True)
                     res = subprocess.run(f"git {cred_flag}pull origin {self._current_branch}", cwd=root_dir, shell=True, capture_output=True, text=True)
                     ok = (res.returncode == 0)
                     out_res = res.stdout or res.stderr
             else:
-                ok, out, err = self._exec_remote_cmd(f"git -C '{root_dir}' {cred_flag}pull origin {self._current_branch}")
+                if fetch_all:
+                    cmd = f"git -C '{root_dir}' {cred_flag}fetch --all --prune 2>/dev/null; git -C '{root_dir}' {cred_flag}pull origin {self._current_branch}"
+                else:
+                    cmd = f"git -C '{root_dir}' {cred_flag}pull origin {self._current_branch}"
+                ok, out, err = self._exec_remote_cmd(cmd, timeout=30)
                 out_res = out or err
 
             def on_done():
@@ -1547,13 +1587,46 @@ class GitGraphDialog(ctk.CTkToplevel):
                     return
                 self.btn_pull.configure(state="normal", text=" Pull origin")
                 if ok:
-                    self.lbl_status.configure(text=f"Berhasil pull dari origin/{self._current_branch} ✓", text_color=COLORS["success_text"])
+                    self.lbl_status.configure(text=f"Berhasil pull & fetch all dari origin ✓", text_color=COLORS["success_text"])
                     self._refresh_all_data()
-                    messagebox.showinfo("Pull Success", f"Berhasil menarik perubahan terbaru dari remote:\n{out_res}", parent=self)
+                    messagebox.showinfo("Pull Success", f"Berhasil menarik perubahan dan fetch semua branch dari origin:\n{out_res}", parent=self)
                 else:
                     self.btn_pull.configure(state="normal", text=" Pull origin")
                     self.lbl_status.configure(text="Gagal pull dari remote origin!", text_color=COLORS["danger"])
                     messagebox.showerror("Pull Error", f"Gagal pull dari origin:\n{out_res}", parent=self)
+
+            self.after(0, on_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_pull_menu(self, event=None):
+        menu = tk.Menu(self, tearoff=False, bg=get_color("surface"), fg=get_color("text"), activebackground=get_color("accent"))
+        menu.add_command(label=f"Pull origin/{self._current_branch} & Fetch All (Default)", command=lambda: self._do_pull(fetch_all=True))
+        menu.add_command(label=f"Pull origin/{self._current_branch} saja", command=lambda: self._do_pull(fetch_all=False))
+        menu.add_command(label="Fetch All from Origin (Semua Branch)", command=self._do_fetch_all_only)
+        try:
+            x = event.x_root if event else self.btn_pull.winfo_rootx()
+            y = event.y_root if event else (self.btn_pull.winfo_rooty() + self.btn_pull.winfo_height())
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
+
+    def _do_fetch_all_only(self):
+        self.lbl_status.configure(text="Menjalankan git fetch --all --prune...", text_color=COLORS["accent"])
+        root_dir = getattr(self, "repo_root", self.target_dir) or self.target_dir
+        cred_flag = self._get_git_credential_flag()
+
+        def worker():
+            if self.is_local:
+                subprocess.run(f"git {cred_flag}fetch --all --prune", cwd=root_dir, shell=True, capture_output=True)
+            else:
+                self._exec_remote_cmd(f"git -C '{root_dir}' {cred_flag}fetch --all --prune", timeout=25)
+
+            def on_done():
+                if not self.winfo_exists():
+                    return
+                self.lbl_status.configure(text="Fetch all branch berhasil ✓", text_color=COLORS["success_text"])
+                self._refresh_all_data()
 
             self.after(0, on_done)
 
@@ -2108,9 +2181,10 @@ class GitGraphDialog(ctk.CTkToplevel):
     # -------------------------------------------------------------
     def _build_history_context_menu(self):
         self.menu_history = tk.Menu(self, tearoff=False, bg=get_color("surface"), fg=get_color("text"), activebackground=get_color("accent"))
-        self.menu_history.add_command(label="Cherry-pick Commit...", command=self._do_cherry_pick)
-        self.menu_history.add_command(label="Salin Commit SHA", command=self._copy_selected_hash)
+        self.menu_history.add_command(label="Cherry-pick Commit Terpilih...", command=self._do_cherry_pick)
+        self.menu_history.add_command(label="Cherry-pick dari Commit Hash (Input/Paste)...", command=self._open_cherry_pick_by_hash_dialog)
         self.menu_history.add_separator()
+        self.menu_history.add_command(label="Salin Commit SHA", command=self._copy_selected_hash)
         self.menu_history.add_command(label="Buka Terminal di Sini", command=self._open_terminal_here)
         self.menu_history.add_command(label="Refresh Git Graph", command=self._refresh_all_data)
 
@@ -2139,11 +2213,8 @@ class GitGraphDialog(ctk.CTkToplevel):
                         commit_hash = vals[-1]
 
         if not commit_hash:
-            messagebox.showwarning(
-                "Peringatan",
-                "Silakan pilih commit pada Git Graph terlebih dahulu untuk melakukan Cherry-pick.",
-                parent=self
-            )
+            # Jika belum ada commit yang terpilih di list, langsung buka dialog input hash
+            self._open_cherry_pick_by_hash_dialog()
             return
 
         commit_info = next(
@@ -2186,7 +2257,7 @@ class GitGraphDialog(ctk.CTkToplevel):
 
         self._execute_cherry_pick(commit_hash, short_hash, msg, target_branch)
 
-    def _execute_cherry_pick(self, commit_hash: str, short_hash: str, msg: str, target_branch: str):
+    def _execute_cherry_pick(self, commit_hash: str, short_hash: str, msg: str, target_branch: str, append_x: bool = False):
         if hasattr(self, "btn_cherry_pick"):
             self.btn_cherry_pick.configure(state="disabled", text=" Cherry-picking...")
         if hasattr(self, "btn_hist_cherry_pick"):
@@ -2201,18 +2272,23 @@ class GitGraphDialog(ctk.CTkToplevel):
             ok = False
             output = ""
             root_dir = getattr(self, "repo_root", self.target_dir) or self.target_dir
+            x_flag = "-x" if append_x else ""
 
             try:
                 if self.is_local:
+                    args = ["git", "-C", root_dir, "cherry-pick"]
+                    if append_x:
+                        args.append("-x")
+                    args.append(commit_hash)
                     res = subprocess.run(
-                        ["git", "-C", root_dir, "cherry-pick", commit_hash],
+                        args,
                         capture_output=True,
                         text=True
                     )
                     ok = (res.returncode == 0)
                     output = (res.stdout or "") + ("\n" + res.stderr if res.stderr else "")
                 else:
-                    cmd = f"git -C '{root_dir}' -c safe.directory='*' cherry-pick {commit_hash}"
+                    cmd = f"git -C '{root_dir}' -c safe.directory='*' cherry-pick {x_flag} {commit_hash}".strip()
                     ok_remote, out, err = self._exec_remote_cmd(cmd)
                     ok = ok_remote
                     output = (out or "") + ("\n" + err if err else "")
@@ -2399,3 +2475,290 @@ class GitGraphDialog(ctk.CTkToplevel):
             self.after(0, on_done)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _open_cherry_pick_by_hash_dialog(self, initial_hash: str = ""):
+        """
+        Membuka dialog interaktif untuk melakukan cherry-pick dari commit hash/SHA tertentu.
+        Mendukung auto-paste clipboard, preview commit, dan tombol fetch all dari origin.
+        """
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Cherry-pick Commit by Hash")
+        dialog.geometry("560x430")
+        dialog.minsize(500, 390)
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.configure(fg_color=COLORS["window"])
+
+        target_branch = self._current_branch or "HEAD"
+        host_label = "Local" if self.is_local else (self.host.get("label") or self.host.get("hostname") or "Remote")
+
+        pad = 16
+
+        # Header Info
+        header_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        header_frame.pack(fill="x", padx=pad, pady=(pad, 6))
+
+        ctk.CTkLabel(
+            header_frame,
+            text=f"Cherry-pick ke Branch: {target_branch}",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=COLORS["text"]
+        ).pack(side="left")
+
+        lbl_badge = ctk.CTkLabel(
+            header_frame,
+            text=f" {host_label} ",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            fg_color=COLORS["accent_subtle"],
+            text_color=COLORS["accent_text"],
+            corner_radius=4,
+            height=20
+        )
+        lbl_badge.pack(side="right")
+
+        ctk.CTkLabel(
+            dialog,
+            text=(
+                f"Masukkan atau tempel (paste) Commit Hash dari branch/host lain untuk diterapkan ke branch aktif '{target_branch}'.\n"
+                f"Contoh: Commit yang di-push ke staging dari Host lain."
+            ),
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["muted"],
+            justify="left",
+            wraplength=520
+        ).pack(anchor="w", padx=pad, pady=(0, 10))
+
+        # Input Box + Paste Button
+        input_frame = ctk.CTkFrame(dialog, fg_color=COLORS["input_bg"], corner_radius=6, border_width=1, border_color=COLORS["line"])
+        input_frame.pack(fill="x", padx=pad, pady=(0, 10))
+        input_frame.grid_columnconfigure(0, weight=1)
+
+        entry_hash = ctk.CTkEntry(
+            input_frame,
+            placeholder_text="Tempel Commit Hash di sini (misal: a1b2c3d atau 40 karakter SHA)...",
+            height=34,
+            font=ctk.CTkFont(family="Consolas" if os.name == "nt" else "Menlo", size=11),
+            fg_color="transparent",
+            border_width=0
+        )
+        entry_hash.grid(row=0, column=0, sticky="ew", padx=(10, 6), pady=4)
+
+        btn_paste = ctk.CTkButton(
+            input_frame,
+            text=" Paste",
+            image=get_icon("copy", (12, 12), COLORS["text"]),
+            width=75, height=26,
+            corner_radius=4,
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(size=10),
+            command=lambda: _paste_from_clipboard()
+        )
+        btn_paste.grid(row=0, column=1, padx=(0, 6), pady=4)
+
+        # Card Preview Info Commit
+        card_preview = ctk.CTkFrame(dialog, fg_color=COLORS["surface"], corner_radius=6, border_width=1, border_color=COLORS["line"])
+        card_preview.pack(fill="both", expand=True, padx=pad, pady=(0, 10))
+
+        lbl_preview_title = ctk.CTkLabel(
+            card_preview,
+            text="Status Commit:",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=COLORS["text_secondary"]
+        )
+        lbl_preview_title.pack(anchor="w", padx=12, pady=(8, 4))
+
+        lbl_preview_details = ctk.CTkLabel(
+            card_preview,
+            text="Ketik atau tempel hash di atas untuk memeriksa commit.",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["muted"],
+            anchor="w",
+            justify="left",
+            wraplength=510
+        )
+        lbl_preview_details.pack(anchor="w", padx=12, pady=(0, 8))
+
+        btn_fetch_all = ctk.CTkButton(
+            card_preview,
+            text=" Fetch All from Origin",
+            image=get_icon("download", (11, 11), COLORS["text"]),
+            width=160, height=26,
+            corner_radius=4,
+            fg_color=COLORS["input_bg"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(size=10),
+            command=lambda: _do_fetch_remote()
+        )
+
+        def _do_fetch_remote():
+            btn_fetch_all.configure(state="disabled", text=" Fetching...")
+            lbl_preview_details.configure(text="Menjalankan 'git fetch --all --prune' dari remote origin...", text_color=COLORS["accent"])
+
+            def worker_fetch():
+                root_dir = getattr(self, "repo_root", self.target_dir) or self.target_dir
+                cred_flag = self._get_git_credential_flag()
+                if self.is_local:
+                    subprocess.run(f"git {cred_flag}fetch --all --prune", cwd=root_dir, shell=True, capture_output=True)
+                else:
+                    self._exec_remote_cmd(f"git -C '{root_dir}' {cred_flag}fetch --all --prune", timeout=30)
+
+                def on_fetch_done():
+                    if not dialog.winfo_exists():
+                        return
+                    btn_fetch_all.configure(state="normal", text=" Fetch All from Origin")
+                    _check_commit_preview()
+
+                self.after(0, on_fetch_done)
+
+            threading.Thread(target=worker_fetch, daemon=True).start()
+
+        def _check_commit_preview():
+            raw_hash = entry_hash.get().strip()
+            if not raw_hash or len(raw_hash) < 4:
+                lbl_preview_title.configure(text="Status Commit:", text_color=COLORS["text_secondary"])
+                lbl_preview_details.configure(text="Ketik atau tempel hash di atas untuk memeriksa commit.", text_color=COLORS["muted"])
+                btn_fetch_all.pack_forget()
+                return
+
+            def worker_preview():
+                root_dir = getattr(self, "repo_root", self.target_dir) or self.target_dir
+                info = None
+                clean_hash = raw_hash.replace("'", "").replace('"', '').strip()
+                if self.is_local:
+                    res = subprocess.run(
+                        ["git", "-C", root_dir, "log", "-1", "--format=%h\t%s\t%an\t%ar", clean_hash],
+                        capture_output=True, text=True
+                    )
+                    if res.returncode == 0 and res.stdout.strip():
+                        info = res.stdout.strip().split("\t")
+                else:
+                    cmd = f"git -C '{root_dir}' -c safe.directory='*' log -1 --format='%h%x09%s%x09%an%x09%ar' '{clean_hash}' 2>/dev/null"
+                    ok, out, _ = self._exec_remote_cmd(cmd, timeout=8)
+                    if ok and out.strip():
+                        info = out.strip().split("\t")
+
+                def on_preview_done():
+                    if not dialog.winfo_exists():
+                        return
+                    if info and len(info) >= 2:
+                        sh, subj = info[0], info[1]
+                        author = info[2] if len(info) > 2 else ""
+                        rel_date = info[3] if len(info) > 3 else ""
+                        lbl_preview_title.configure(text=f"✅ Commit Ditemukan ({sh})", text_color="#3FB950")
+                        lbl_preview_details.configure(
+                            text=f"• Pesan: {subj}\n• Author: {author} ({rel_date})",
+                            text_color=COLORS["text"]
+                        )
+                        btn_fetch_all.pack_forget()
+                    else:
+                        lbl_preview_title.configure(text="⚠️ Commit Belum Ditemukan di Repo Lokal", text_color="#D29922")
+                        lbl_preview_details.configure(
+                            text="Commit ini belum ada di repositori lokal host ini.\n"
+                                 "Jika baru saja di-push ke staging dari host lain, klik tombol di bawah untuk fetch dari origin:",
+                            text_color=COLORS["muted"]
+                        )
+                        btn_fetch_all.pack(anchor="w", padx=12, pady=(0, 8))
+
+                self.after(0, on_preview_done)
+
+            threading.Thread(target=worker_preview, daemon=True).start()
+
+        def _paste_from_clipboard():
+            try:
+                txt = self.clipboard_get().strip()
+                if txt:
+                    entry_hash.delete(0, "end")
+                    entry_hash.insert(0, txt)
+                    _check_commit_preview()
+            except Exception:
+                pass
+
+        # Cek clipboard otomatis saat dialog dibuka
+        cb_text = ""
+        try:
+            cb_text = self.clipboard_get().strip()
+        except Exception:
+            pass
+
+        if initial_hash:
+            entry_hash.insert(0, initial_hash.strip())
+            _check_commit_preview()
+        elif cb_text and len(cb_text) >= 6 and len(cb_text) <= 40 and re.match(r'^[0-9a-fA-F]+$', cb_text):
+            entry_hash.insert(0, cb_text)
+            _check_commit_preview()
+
+        entry_hash.bind("<KeyRelease>", lambda e: _check_commit_preview())
+
+        # Options: -x flag
+        var_x = ctk.BooleanVar(value=True)
+        chk_x = ctk.CTkCheckBox(
+            dialog,
+            text="Tambahkan baris keterangan sumber (-x: '(cherry picked from commit ...)')",
+            variable=var_x,
+            font=ctk.CTkFont(size=10),
+            text_color=COLORS["text"],
+            checkbox_width=16, checkbox_height=16
+        )
+        chk_x.pack(anchor="w", padx=pad, pady=(0, 10))
+
+        # Bottom buttons
+        btn_bar = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_bar.pack(fill="x", padx=pad, pady=(0, pad))
+
+        btn_cancel = ctk.CTkButton(
+            btn_bar,
+            text="Batal",
+            width=80, height=32,
+            corner_radius=6,
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(size=11),
+            command=dialog.destroy
+        )
+        btn_cancel.pack(side="left")
+
+        def _confirm_and_run():
+            target_hash = entry_hash.get().strip()
+            if not target_hash:
+                messagebox.showwarning("Peringatan", "Harap masukkan commit hash terlebih dahulu.", parent=dialog)
+                return
+
+            if self._working_changes:
+                dirty_count = len(self._working_changes)
+                confirm_dirty = messagebox.askyesno(
+                    "Working Directory Tidak Bersih",
+                    f"Terdapat {dirty_count} file yang berubah di working tree.\n\n"
+                    f"Apakah Anda ingin tetap melanjutkan Cherry-pick?",
+                    icon="warning",
+                    parent=dialog
+                )
+                if not confirm_dirty:
+                    return
+
+            short_h = target_hash[:8]
+            dialog.destroy()
+            self._execute_cherry_pick(
+                target_hash,
+                short_h,
+                f"Commit {short_h}",
+                target_branch,
+                append_x=var_x.get()
+            )
+
+        btn_exec = ctk.CTkButton(
+            btn_bar,
+            text=" Jalankan Cherry-pick",
+            image=get_icon("git-branch", (13, 13), "#FFFFFF"),
+            height=32,
+            corner_radius=6,
+            fg_color="#238636",
+            hover_color="#2EA043",
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=_confirm_and_run
+        )
+        btn_exec.pack(side="right")

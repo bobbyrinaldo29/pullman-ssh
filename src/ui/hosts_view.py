@@ -685,6 +685,7 @@ class HostsView(ctk.CTkFrame):
         col = self.tree.identify_column(event.x)
         if col == "#1":  # Klik kolom checkbox
             self._toggle_row_check(item_id)
+            self.tree.selection_set(item_id)
         self._on_tree_select_change()
 
     def _on_tree_double_click(self, event):
@@ -898,6 +899,9 @@ class HostsView(ctk.CTkFrame):
     def _get_selected_host(self) -> Optional[Dict[str, Any]]:
         sel = self.tree.selection()
         if not sel:
+            if hasattr(self, "selected_host_ids") and len(self.selected_host_ids) == 1:
+                h_id = list(self.selected_host_ids)[0]
+                return next((h for h in self._all_hosts if h["id"] == h_id), None)
             return None
         h_id = int(sel[0])
         return next((h for h in self._all_hosts if h["id"] == h_id), None)
