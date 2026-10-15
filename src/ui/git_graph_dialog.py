@@ -101,6 +101,33 @@ class GitGraphDialog(ctk.CTkToplevel):
         self._build_ui()
         self._refresh_all_data()
 
+        try:
+            self.state("zoomed")
+        except Exception:
+            pass
+        self._bring_to_front()
+
+    def _bring_to_front(self):
+        """Memunculkan window Git Graph di paling depan dan memastikan status full screen / maximized."""
+        try:
+            self.deiconify()
+            self.lift()
+            self.focus_force()
+            self.attributes("-topmost", True)
+            self.after(250, lambda: self.attributes("-topmost", False) if self.winfo_exists() else None)
+        except Exception:
+            pass
+        self.after(60, self._ensure_zoomed)
+
+    def _ensure_zoomed(self):
+        try:
+            if self.winfo_exists():
+                self.state("zoomed")
+                self.lift()
+                self.focus_force()
+        except Exception:
+            pass
+
     def _wrap_remote_sudo(self, cmd: str) -> str:
         """
         Membungkus perintah remote agar dieksekusi dengan hak akses root (sudo) secara otomatis
@@ -345,7 +372,8 @@ class GitGraphDialog(ctk.CTkToplevel):
         # Inisialisasi tampilan tab default (Changes) agar langsung tampil seketika saat dialog dibuka
         self.frame_history.grid_forget()
         self.frame_changes.grid(row=0, column=0, sticky="nsew")
-        self.btn_copy_sha.grid_remove()
+        if hasattr(self, "action_btn_box"):
+            self.action_btn_box.grid_remove()
         self.lbl_sha_full.configure(text="")
         self.lbl_date_info.configure(text="")
         self.lbl_commit_body.configure(text="")
@@ -527,6 +555,21 @@ class GitGraphDialog(ctk.CTkToplevel):
         self.switch_all.grid(row=0, column=1, padx=(0, 6), pady=4)
         self.switch_all.select()
 
+        # Cherry-pick button di toolbar History
+        self.btn_hist_cherry_pick = ctk.CTkButton(
+            filter_box,
+            text=" Cherry-pick",
+            image=get_icon("git-branch", (12, 12), COLORS["accent_text"]),
+            width=96, height=28,
+            corner_radius=4,
+            fg_color=COLORS["accent_subtle"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["accent_text"],
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=self._do_cherry_pick
+        )
+        self.btn_hist_cherry_pick.grid(row=0, column=2, padx=(0, 6), pady=4)
+
         # Treeview History
         style = ttk.Style()
         style.theme_use("default")
@@ -583,8 +626,11 @@ class GitGraphDialog(ctk.CTkToplevel):
         hist_scroll.grid(row=0, column=1, sticky="ns")
         self.tree_history.configure(yscrollcommand=hist_scroll.set)
 
+        self._build_history_context_menu()
         self.tree_history.bind("<<TreeviewSelect>>", self._on_history_commit_selected)
         self.tree_history.bind("<Double-Button-1>", lambda e: self._copy_selected_hash())
+        self.tree_history.bind("<Button-2>", self._show_history_context_menu)
+        self.tree_history.bind("<Button-3>", self._show_history_context_menu)
 
     # -------------------------------------------------------------
     # 4. RIGHT PANE: COMMIT CARD & DIFF VIEWER
@@ -616,11 +662,28 @@ class GitGraphDialog(ctk.CTkToplevel):
         )
         self.lbl_commit_title.grid(row=0, column=0, sticky="w")
 
+        self.action_btn_box = ctk.CTkFrame(title_row, fg_color="transparent")
+        self.action_btn_box.grid(row=0, column=1, sticky="e", padx=(8, 0))
+
+        self.btn_cherry_pick = ctk.CTkButton(
+            self.action_btn_box,
+            text=" Cherry-pick",
+            image=get_icon("git-branch", (12, 12), COLORS["accent_text"]),
+            width=100, height=26,
+            corner_radius=4,
+            fg_color=COLORS["accent_subtle"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["accent_text"],
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=self._do_cherry_pick
+        )
+        self.btn_cherry_pick.pack(side="left", padx=(0, 6))
+
         self.btn_copy_sha = ctk.CTkButton(
-            title_row,
+            self.action_btn_box,
             text="Copy SHA",
             image=get_icon("copy", (11, 11), COLORS["text_secondary"]),
-            width=90, height=24,
+            width=85, height=26,
             corner_radius=4,
             fg_color=COLORS["surface"],
             hover_color=COLORS["surface_hover"],
@@ -628,7 +691,7 @@ class GitGraphDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=10),
             command=self._copy_selected_hash
         )
-        self.btn_copy_sha.grid(row=0, column=1, sticky="e", padx=(8, 0))
+        self.btn_copy_sha.pack(side="left")
 
         self.lbl_commit_body = ctk.CTkLabel(
             self.card_overview,
@@ -811,7 +874,8 @@ class GitGraphDialog(ctk.CTkToplevel):
             self.frame_changes.grid(row=0, column=0, sticky="nsew")
 
             # Atur Right Pane untuk Changes
-            self.btn_copy_sha.grid_remove()
+            if hasattr(self, "action_btn_box"):
+                self.action_btn_box.grid_remove()
             self.lbl_sha_full.configure(text="")
             self.lbl_date_info.configure(text="")
             self.lbl_commit_body.configure(text="")
@@ -830,7 +894,8 @@ class GitGraphDialog(ctk.CTkToplevel):
             self.frame_changes.grid_forget()
             self.frame_history.grid(row=0, column=0, sticky="nsew")
 
-            self.btn_copy_sha.grid()
+            if hasattr(self, "action_btn_box"):
+                self.action_btn_box.grid()
             # Tampilkan kembali files frame history di diff_paned
             try:
                 self.diff_paned.add(self.history_files_frame, minsize=180, width=220, before=self.diff_view_frame)
@@ -1503,6 +1568,10 @@ class GitGraphDialog(ctk.CTkToplevel):
         self._is_loading = True
         self.lbl_status.configure(text="Memuat commit history dari repository...", text_color=COLORS["muted"])
         self.btn_refresh.configure(state="disabled")
+        if hasattr(self, "btn_cherry_pick"):
+            self.btn_cherry_pick.configure(state="disabled")
+        if hasattr(self, "btn_hist_cherry_pick"):
+            self.btn_hist_cherry_pick.configure(state="disabled")
 
         use_all = self.switch_all.get() == 1
 
@@ -1809,6 +1878,10 @@ class GitGraphDialog(ctk.CTkToplevel):
     def _load_history_commit_details(self, commit_hash: str):
         self._selected_commit_hash = commit_hash
         self.btn_copy_sha.configure(text=f"{commit_hash} Copy")
+        if hasattr(self, "btn_cherry_pick"):
+            self.btn_cherry_pick.configure(state="normal", text=" Cherry-pick")
+        if hasattr(self, "btn_hist_cherry_pick"):
+            self.btn_hist_cherry_pick.configure(state="normal", text=" Cherry-pick")
 
         def worker():
             raw_show = ""
@@ -2029,3 +2102,300 @@ class GitGraphDialog(ctk.CTkToplevel):
             res = launch_ssh_terminal(host=self.host, initial_dir=root_dir)
             if not res.get("success"):
                 messagebox.showerror("Terminal Error", res.get("error", "Gagal membuka terminal SSH"), parent=self)
+
+    # -------------------------------------------------------------
+    # 10. CHERRY-PICK ACTIONS & CONFLICT HANDLING
+    # -------------------------------------------------------------
+    def _build_history_context_menu(self):
+        self.menu_history = tk.Menu(self, tearoff=False, bg=get_color("surface"), fg=get_color("text"), activebackground=get_color("accent"))
+        self.menu_history.add_command(label="Cherry-pick Commit...", command=self._do_cherry_pick)
+        self.menu_history.add_command(label="Salin Commit SHA", command=self._copy_selected_hash)
+        self.menu_history.add_separator()
+        self.menu_history.add_command(label="Buka Terminal di Sini", command=self._open_terminal_here)
+        self.menu_history.add_command(label="Refresh Git Graph", command=self._refresh_all_data)
+
+    def _show_history_context_menu(self, event):
+        item = self.tree_history.identify_row(event.y)
+        if item:
+            self.tree_history.selection_set(item)
+            self._on_history_commit_selected()
+        try:
+            self.menu_history.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.menu_history.grab_release()
+
+    def _do_cherry_pick(self):
+        """Memulai proses Cherry-pick dari commit yang sedang terpilih ke branch aktif."""
+        commit_hash = self._selected_commit_hash
+        if not commit_hash:
+            sel = self.tree_history.selection()
+            if sel:
+                idx = int(sel[0]) if sel[0].isdigit() else -1
+                if 0 <= idx < len(self._commits):
+                    commit_hash = self._commits[idx].get("full_hash") or self._commits[idx].get("hash")
+                else:
+                    vals = self.tree_history.item(sel[0], "values")
+                    if vals:
+                        commit_hash = vals[-1]
+
+        if not commit_hash:
+            messagebox.showwarning(
+                "Peringatan",
+                "Silakan pilih commit pada Git Graph terlebih dahulu untuk melakukan Cherry-pick.",
+                parent=self
+            )
+            return
+
+        commit_info = next(
+            (c for c in self._commits if c.get("hash") == commit_hash or c.get("full_hash") == commit_hash),
+            None
+        )
+        short_hash = commit_hash[:8]
+        msg = commit_info.get("message", "") if commit_info else f"Commit {short_hash}"
+        author = commit_info.get("author", "") if commit_info else ""
+        target_branch = self._current_branch or "HEAD"
+
+        # Peringatan bila ada perubahan lokal belum di-commit
+        if self._working_changes:
+            dirty_count = len(self._working_changes)
+            confirm_dirty = messagebox.askyesno(
+                "Working Directory Tidak Bersih",
+                f"Terdapat {dirty_count} file yang berubah dan belum di-commit di working tree.\n\n"
+                f"Git menyarankan untuk melakukan commit atau discard perubahan lokal "
+                f"sebelum melakukan Cherry-pick guna menghindari konflik.\n\n"
+                f"Apakah Anda ingin tetap melanjutkan Cherry-pick?",
+                icon="warning",
+                parent=self
+            )
+            if not confirm_dirty:
+                return
+
+        # Konfirmasi pengguna
+        author_line = f"\n• Author: {author}" if author else ""
+        confirm = messagebox.askyesno(
+            "Konfirmasi Cherry-pick",
+            f"Terapkan (cherry-pick) commit berikut ke branch aktif '{target_branch}'?\n\n"
+            f"• Commit: {short_hash}\n"
+            f"• Pesan: {msg}{author_line}\n"
+            f"• Target Branch: {target_branch}\n\n"
+            f"Lanjutkan proses Cherry-pick?",
+            parent=self
+        )
+        if not confirm:
+            return
+
+        self._execute_cherry_pick(commit_hash, short_hash, msg, target_branch)
+
+    def _execute_cherry_pick(self, commit_hash: str, short_hash: str, msg: str, target_branch: str):
+        if hasattr(self, "btn_cherry_pick"):
+            self.btn_cherry_pick.configure(state="disabled", text=" Cherry-picking...")
+        if hasattr(self, "btn_hist_cherry_pick"):
+            self.btn_hist_cherry_pick.configure(state="disabled", text=" Working...")
+
+        self.lbl_status.configure(
+            text=f"Menjalankan cherry-pick commit {short_hash} ke {target_branch}...",
+            text_color=COLORS["accent"]
+        )
+
+        def worker():
+            ok = False
+            output = ""
+            root_dir = getattr(self, "repo_root", self.target_dir) or self.target_dir
+
+            try:
+                if self.is_local:
+                    res = subprocess.run(
+                        ["git", "-C", root_dir, "cherry-pick", commit_hash],
+                        capture_output=True,
+                        text=True
+                    )
+                    ok = (res.returncode == 0)
+                    output = (res.stdout or "") + ("\n" + res.stderr if res.stderr else "")
+                else:
+                    cmd = f"git -C '{root_dir}' -c safe.directory='*' cherry-pick {commit_hash}"
+                    ok_remote, out, err = self._exec_remote_cmd(cmd)
+                    ok = ok_remote
+                    output = (out or "") + ("\n" + err if err else "")
+            except Exception as e:
+                output = str(e)
+                ok = False
+
+            def on_done():
+                if not self.winfo_exists():
+                    return
+
+                if hasattr(self, "btn_cherry_pick"):
+                    self.btn_cherry_pick.configure(state="normal", text=" Cherry-pick")
+                if hasattr(self, "btn_hist_cherry_pick"):
+                    self.btn_hist_cherry_pick.configure(state="normal", text=" Cherry-pick")
+
+                out_lower = output.lower()
+                is_conflict = ("conflict" in out_lower or "could not apply" in out_lower or "after resolving the conflicts" in out_lower)
+                is_empty = ("empty" in out_lower or "nothing to commit" in out_lower or "already" in out_lower)
+
+                if ok and not is_conflict:
+                    self.lbl_status.configure(
+                        text=f"Cherry-pick commit {short_hash} berhasil diterapkan ke {target_branch} ✓",
+                        text_color=COLORS["success_text"]
+                    )
+                    messagebox.showinfo(
+                        "Cherry-pick Berhasil",
+                        f"Commit {short_hash} ('{msg}') berhasil diterapkan ke branch '{target_branch}'!",
+                        parent=self
+                    )
+                    self._refresh_all_data()
+                elif is_conflict:
+                    self.lbl_status.configure(
+                        text=f"Cherry-pick {short_hash} mengalami Merge Conflict!",
+                        text_color=COLORS["danger"]
+                    )
+                    self._handle_cherry_pick_conflict(short_hash, output)
+                    self._refresh_all_data()
+                elif is_empty:
+                    self.lbl_status.configure(
+                        text=f"Commit {short_hash} kosong atau sudah diterapkan.",
+                        text_color=COLORS["warning"]
+                    )
+                    messagebox.showinfo(
+                        "Cherry-pick Selesai",
+                        f"Perubahan dari commit {short_hash} tampaknya sudah ada pada branch '{target_branch}' "
+                        f"atau tidak menghasilkan perubahan baru.\n\nDetail:\n{output.strip()}",
+                        parent=self
+                    )
+                    self._refresh_all_data()
+                else:
+                    self.lbl_status.configure(
+                        text="Gagal melakukan cherry-pick!",
+                        text_color=COLORS["danger"]
+                    )
+                    messagebox.showerror(
+                        "Cherry-pick Gagal",
+                        f"Gagal melakukan cherry-pick commit {short_hash}:\n\n{output.strip()}",
+                        parent=self
+                    )
+
+            self.after(0, on_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _handle_cherry_pick_conflict(self, short_hash: str, output: str):
+        """Menampilkan modal penanganan merge conflict akibat cherry-pick."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Cherry-pick Merge Conflict")
+        dialog.geometry("540x370")
+        dialog.minsize(480, 310)
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.configure(fg_color=COLORS["window"])
+
+        pad = 16
+        lbl_icon = ctk.CTkLabel(
+            dialog,
+            text="",
+            image=get_icon("git-branch", (24, 24), COLORS["danger"])
+        )
+        lbl_icon.pack(pady=(pad, 4))
+
+        lbl_head = ctk.CTkLabel(
+            dialog,
+            text=f"Konflik Penggabungan pada Commit {short_hash}",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=COLORS["danger"]
+        )
+        lbl_head.pack(pady=(0, 6))
+
+        lbl_desc = ctk.CTkLabel(
+            dialog,
+            text=(
+                "Git mendeteksi konflik (merge conflict) saat menerapkan commit ini.\n"
+                "Anda dapat menyelesaikan konflik di tab 'Changes' / Editor lalu jalankan 'git cherry-pick --continue',\n"
+                "atau batalkan seluruh proses cherry-pick ini sekarang (git cherry-pick --abort)."
+            ),
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text"],
+            justify="center",
+            wraplength=480
+        )
+        lbl_desc.pack(pady=(0, 10), padx=pad)
+
+        txt_out = ctk.CTkTextbox(
+            dialog,
+            height=110,
+            font=ctk.CTkFont(family="Consolas" if os.name == "nt" else "Menlo", size=10),
+            fg_color=COLORS["input_bg"],
+            text_color=COLORS["muted"],
+            wrap="word"
+        )
+        txt_out.pack(fill="both", expand=True, padx=pad, pady=(0, 12))
+        txt_out.insert("1.0", output.strip())
+        txt_out.configure(state="disabled")
+
+        btn_row = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_row.pack(fill="x", padx=pad, pady=(0, pad))
+
+        def on_abort():
+            dialog.destroy()
+            self._abort_cherry_pick()
+
+        def on_open_terminal():
+            dialog.destroy()
+            self._open_terminal_here()
+
+        def on_close():
+            dialog.destroy()
+            self.seg_tabs.set("Changes")
+            self._on_tab_changed("Changes")
+
+        btn_abort = ctk.CTkButton(
+            btn_row,
+            text="Batalkan (Abort)",
+            fg_color=COLORS["danger_subtle"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["danger_text"],
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=on_abort
+        )
+        btn_abort.pack(side="left", padx=(0, 6))
+
+        btn_term = ctk.CTkButton(
+            btn_row,
+            text="Buka Terminal",
+            fg_color=COLORS["surface"],
+            hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(size=11),
+            command=on_open_terminal
+        )
+        btn_term.pack(side="left", padx=(0, 6))
+
+        btn_solve = ctk.CTkButton(
+            btn_row,
+            text="Lihat di Tab Changes",
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=on_close
+        )
+        btn_solve.pack(side="right")
+
+    def _abort_cherry_pick(self):
+        """Membatalkan cherry-pick yang sedang berjalan."""
+        self.lbl_status.configure(text="Membatalkan cherry-pick (git cherry-pick --abort)...", text_color=COLORS["danger"])
+        root_dir = getattr(self, "repo_root", self.target_dir) or self.target_dir
+
+        def worker():
+            if self.is_local:
+                subprocess.run(["git", "-C", root_dir, "cherry-pick", "--abort"], capture_output=True)
+            else:
+                self._exec_remote_cmd(f"git -C '{root_dir}' -c safe.directory='*' cherry-pick --abort")
+
+            def on_done():
+                if not self.winfo_exists():
+                    return
+                self.lbl_status.configure(text="Cherry-pick berhasil dibatalkan ✓", text_color=COLORS["success_text"])
+                self._refresh_all_data()
+
+            self.after(0, on_done)
+
+        threading.Thread(target=worker, daemon=True).start()

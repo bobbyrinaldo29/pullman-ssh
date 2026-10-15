@@ -587,8 +587,9 @@ class RedmineView(ctk.CTkFrame):
         self.context_menu.add_command(label="Buka Detail (Tab Baru)", command=self._open_selected_tab)
         self.context_menu.add_command(label="Buka di Browser", command=self._open_selected_in_browser)
         self.context_menu.add_separator()
-        self.context_menu.add_command(label="Copy ID Task", command=lambda: self._copy_selected("id"))
+        self.context_menu.add_command(label="Copy Judul Task", command=lambda: self._copy_selected("full"))
         self.context_menu.add_command(label="Copy Subject", command=lambda: self._copy_selected("subject"))
+        self.context_menu.add_command(label="Copy ID Task", command=lambda: self._copy_selected("id"))
         self.context_menu.add_command(label="Copy URL Task", command=lambda: self._copy_selected("url"))
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Atur Kolom Tabel...", command=self._open_column_dialog)
@@ -639,7 +640,9 @@ class RedmineView(ctk.CTkFrame):
             btn.pack(side="left", padx=(2, 0 if key != LIST_TAB else 2), pady=2)
             self.tab_strip.bind_child_scroll(btn)
             if key != LIST_TAB:
+                tab.bind("<Button-3>", lambda e, k=key: self._show_tab_context_menu(e, k))
                 btn.bind("<Button-2>", lambda _e, k=key: self._close_tab(k))
+                btn.bind("<Button-3>", lambda e, k=key: self._show_tab_context_menu(e, k))
                 close_btn = ctk.CTkButton(
                     tab, text="", image=get_icon("x", (11, 11), COLORS["muted"]), width=22, height=22, corner_radius=6,
                     fg_color="transparent", hover_color=COLORS["surface_hover"], command=lambda k=key: self._close_tab(k)
@@ -688,6 +691,48 @@ class RedmineView(ctk.CTkFrame):
             self._select_tab(self._tab_order[min(index, len(self._tab_order) - 1)])
         else:
             self._render_tab_strip()
+
+    def _close_other_tabs(self, keep_key: Any):
+        to_close = [k for k in self._tab_order if k != LIST_TAB and k != keep_key]
+        for k in to_close:
+            self._close_tab(k)
+        self._select_tab(keep_key)
+
+    def _show_tab_context_menu(self, event, key: Any):
+        if key == LIST_TAB:
+            return
+        panel = self._issue_panels.get(key)
+        issue = panel.issue if panel else {}
+        subject = (issue.get("subject") or self._tab_titles.get(key, "")).strip()
+        if subject.startswith(f"#{key}"):
+            sub_only = subject[len(f"#{key}"):].strip().rstrip("…")
+        else:
+            sub_only = subject
+
+        menu = tk.Menu(
+            self, tearoff=0, bg=get_color("surface"), fg=get_color("text"),
+            activebackground=get_color("accent"), activeforeground="#FFFFFF", bd=1
+        )
+        full_title = f"#{key} {issue.get('subject', sub_only)}".strip()
+        menu.add_command(label="Copy Judul Task", command=lambda: self._copy_text(full_title))
+        menu.add_command(label="Copy Subject", command=lambda: self._copy_text(issue.get("subject", sub_only)))
+        menu.add_command(label="Copy ID Task", command=lambda: self._copy_text(f"#{key}"))
+        if self._client:
+            menu.add_command(label="Copy URL Task", command=lambda: self._copy_text(self._client.issue_url(key)))
+        menu.add_separator()
+        menu.add_command(label="Tutup Tab", command=lambda: self._close_tab(key))
+        menu.add_command(label="Tutup Tab Lainnya", command=lambda: self._close_other_tabs(key))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _copy_text(self, text: str):
+        if not text:
+            return
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self._set_status(f"Disalin ke clipboard: {text[:50]}{'...' if len(text) > 50 else ''}")
 
     def _close_all_issue_tabs(self):
         for key in [k for k in self._tab_order if k != LIST_TAB]:
@@ -1204,10 +1249,13 @@ class RedmineView(ctk.CTkFrame):
             text = f"#{issue['id']}"
         elif field == "subject":
             text = issue.get("subject", "")
+        elif field == "full":
+            text = f"#{issue['id']} {issue.get('subject', '')}".strip()
         else:
             text = self._client.issue_url(issue["id"])
         self.clipboard_clear()
         self.clipboard_append(text)
+        self._set_status(f"Disalin ke clipboard: {text[:50]}{'...' if len(text) > 50 else ''}")
 
     def _open_edit_task_dialog(self):
         issue = self._selected_issue()
@@ -1323,8 +1371,9 @@ class RedmineView(ctk.CTkFrame):
             menu.add_cascade(label="Ubah Status Cepat", menu=status_menu)
 
         menu.add_separator()
-        menu.add_command(label="Copy ID Task", command=lambda: self._copy_selected("id"))
+        menu.add_command(label="Copy Judul Task", command=lambda: self._copy_selected("full"))
         menu.add_command(label="Copy Subject", command=lambda: self._copy_selected("subject"))
+        menu.add_command(label="Copy ID Task", command=lambda: self._copy_selected("id"))
         menu.add_command(label="Copy URL Task", command=lambda: self._copy_selected("url"))
         menu.add_separator()
         menu.add_command(label="Atur Kolom Tabel...", command=self._open_column_dialog)

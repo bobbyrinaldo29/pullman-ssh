@@ -46,6 +46,11 @@ class PullmanApp(ctk.CTk):
         self.title(f"DO.MBA - Pull Manager v{APP_VERSION}")
         self.geometry("1080x680")
         self.minsize(900, 560)
+        try:
+            self.state("zoomed")
+        except Exception:
+            pass
+        self.after(50, lambda: self.state("zoomed") if self.winfo_exists() else None)
         self._set_windows_app_id()
         self._load_app_icon()
         self._setup_native_menubar()

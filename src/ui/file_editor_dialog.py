@@ -91,8 +91,8 @@ class EditorTab:
 
     def __init__(
         self,
-        host: Dict[str, Any],
-        remote_file_path: str,
+        host: Optional[Dict[str, Any]] = None,
+        remote_file_path: str = "",
         as_sudo: bool = False,
         on_saved_callback: Optional[Callable[[], None]] = None
     ):
@@ -135,8 +135,8 @@ class FileEditorDialog(ctk.CTkToplevel):
     def open_file(
         cls,
         parent: Any,
-        host: Dict[str, Any],
-        remote_file_path: str,
+        host: Optional[Dict[str, Any]] = None,
+        remote_file_path: str = "",
         as_sudo: bool = False,
         on_saved_callback: Optional[Callable[[], None]] = None
     ) -> "FileEditorDialog":
@@ -229,8 +229,8 @@ class FileEditorDialog(ctk.CTkToplevel):
     def __init__(
         self,
         parent: Any,
-        host: Dict[str, Any],
-        remote_file_path: str,
+        host: Optional[Dict[str, Any]] = None,
+        remote_file_path: str = "",
         as_sudo: bool = False,
         on_saved_callback: Optional[Callable[[], None]] = None
     ):
@@ -294,7 +294,8 @@ class FileEditorDialog(ctk.CTkToplevel):
                 pass
         self.font_size = saved_size if (saved_size and 8 <= saved_size <= 36) else default_size
 
-        self.title(f"Editor - {first_tab.filename} ({host.get('label', '')})")
+        host_label = (host.get("label") or host.get("hostname") or "Remote") if host else "Local"
+        self.title(f"Editor - {first_tab.filename} ({host_label})")
         self.geometry("1020x700")
         self.minsize(700, 460)
         self.configure(fg_color=VSCODE["editor_bg"])
@@ -404,6 +405,10 @@ class FileEditorDialog(ctk.CTkToplevel):
     def _open_git_graph(self, target_dir: Optional[str] = None):
         """Membuka dialog Git Graph interaktif untuk folder yang sedang diakses saat ini."""
         from ui.git_graph_dialog import GitGraphDialog
+        if hasattr(self, "_git_graph_dialog") and self._git_graph_dialog and self._git_graph_dialog.winfo_exists():
+            self._git_graph_dialog._bring_to_front()
+            return
+
         if not target_dir:
             target_dir = self._explorer_current_dir
         if not target_dir and self.active_tab and self.active_tab.remote_file_path:
@@ -411,7 +416,7 @@ class FileEditorDialog(ctk.CTkToplevel):
         if not target_dir:
             target_dir = "/"
 
-        GitGraphDialog(
+        self._git_graph_dialog = GitGraphDialog(
             parent=self,
             host=self.host,
             target_dir=target_dir,
@@ -1412,7 +1417,36 @@ class FileEditorDialog(ctk.CTkToplevel):
         self.lbl_explorer_status.configure(text="Loading folder...")
 
         def worker():
-            res = SFTPService.list_dir(self.host, target_dir)
+            if not self.host:
+                try:
+                    from datetime import datetime
+                    items = []
+                    for entry in os.scandir(target_dir):
+                        try:
+                            st = entry.stat()
+                            is_dir = entry.is_dir()
+                            size = st.st_size if not is_dir else 0
+                            mtime = st.st_mtime
+                            items.append({
+                                "name": entry.name,
+                                "path": entry.path.replace("\\", "/"),
+                                "is_dir": is_dir,
+                                "is_link": entry.is_symlink(),
+                                "size_bytes": size,
+                                "size_str": "-" if is_dir else f"{size} B",
+                                "permissions": "rw-rw-rw-",
+                                "mtime_str": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M"),
+                                "mtime": mtime,
+                                "ext": Path(entry.name).suffix.lower() if not is_dir else ""
+                            })
+                        except Exception:
+                            pass
+                    items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+                    res = {"success": True, "items": items, "current_path": target_dir}
+                except Exception as e:
+                    res = {"success": False, "items": [], "error": str(e)}
+            else:
+                res = SFTPService.list_dir(self.host, target_dir)
 
             def on_done():
                 if not self.winfo_exists():
@@ -1546,8 +1580,8 @@ class FileEditorDialog(ctk.CTkToplevel):
     # -------------------------------------------------------------
     def add_or_switch_tab(
         self,
-        host: Dict[str, Any],
-        remote_file_path: str,
+        host: Optional[Dict[str, Any]] = None,
+        remote_file_path: str = "",
         as_sudo: bool = False,
         on_saved_callback: Optional[Callable[[], None]] = None
     ):
@@ -1729,7 +1763,7 @@ class FileEditorDialog(ctk.CTkToplevel):
         self._on_saved = target_tab.on_saved_callback
 
         # 2. Perbarui Window Title, Breadcrumb & Status Bar
-        host_label = self.host.get("label") or self.host.get("hostname") or "Remote"
+        host_label = (self.host.get("label") or self.host.get("hostname") or "Remote") if self.host else "Local"
         prefix = "Editor [sudo]" if self.as_sudo else "Editor"
         mod_prefix = "● " if target_tab.is_modified else ""
         self.title(f"{mod_prefix}{prefix} - {target_tab.filename} ({host_label})")
@@ -1745,7 +1779,7 @@ class FileEditorDialog(ctk.CTkToplevel):
             fg_color=COLORS["danger"] if self.as_sudo else "#0E639C",
             hover_color=COLORS["danger_hover"] if self.as_sudo else "#1177BB"
         )
-        remote_icon_name = "shield" if self.as_sudo else "server"
+        remote_icon_name = "laptop" if not self.host else ("shield" if self.as_sudo else "server")
         self.lbl_remote_host.configure(
             text=f" ⤿ {host_label}",
             image=get_icon(remote_icon_name, (11, 11), "#FFFFFF")
@@ -1845,7 +1879,14 @@ class FileEditorDialog(ctk.CTkToplevel):
             self.btn_reload.configure(state="disabled")
 
         def worker():
-            if tab.as_sudo:
+            if not tab.host:
+                try:
+                    with open(tab.remote_file_path, "r", encoding="utf-8", errors="replace") as f:
+                        content = f.read()
+                    ok, content, err = True, content, None
+                except Exception as e:
+                    ok, content, err = False, "", str(e)
+            elif tab.as_sudo:
                 ok, content, err = SFTPService.read_file_sudo(tab.host, tab.remote_file_path)
             else:
                 ok, content, err = SFTPService.read_file_text(tab.host, tab.remote_file_path)
@@ -1908,7 +1949,14 @@ class FileEditorDialog(ctk.CTkToplevel):
             self.btn_save.configure(state="disabled", text=" Saving...")
 
         def worker():
-            if tab.as_sudo:
+            if not tab.host:
+                try:
+                    with open(tab.remote_file_path, "w", encoding="utf-8") as f:
+                        f.write(tab.content)
+                    ok, err = True, None
+                except Exception as e:
+                    ok, err = False, str(e)
+            elif tab.as_sudo:
                 ok, err = SFTPService.write_file_sudo(tab.host, tab.remote_file_path, tab.content)
             else:
                 ok, err = SFTPService.write_file_text(tab.host, tab.remote_file_path, tab.content)
@@ -1922,7 +1970,7 @@ class FileEditorDialog(ctk.CTkToplevel):
                     tab.is_modified = False
                     tab.original_content = tab.content
                     if tab == self.active_tab:
-                        host_label = self.host.get("label") or self.host.get("hostname") or "Remote"
+                        host_label = (self.host.get("label") or self.host.get("hostname") or "Remote") if self.host else "Local"
                         prefix = "Editor [sudo]" if self.as_sudo else "Editor"
                         self.title(f"{prefix} - {tab.filename} ({host_label})")
                         self.lbl_save_status.configure(text="Saved successfully ✓")

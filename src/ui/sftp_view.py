@@ -19,6 +19,8 @@ from theme import COLORS, get_color, apply_treeview_styles
 from icons import get_icon, get_tk_image, get_file_type_tk_image
 from sftp_service import SFTPService
 from ui.file_editor_dialog import FileEditorDialog
+from ui.file_editor_settings_dialog import FileEditorSettingsDialog
+from editor_service import EditorService
 from ui.tab_bar import HorizontalScrollableTabBar
 from terminal_launcher import launch_ssh_terminal, launch_local_terminal
 
@@ -249,6 +251,30 @@ class SFTPView(ctk.CTkFrame):
         self._update_action_buttons_state()
         self._render_tabs()
         self._render_hosts_tree()
+        self._update_editor_button_label()
+
+    def _open_editor_settings_dialog(self):
+        """Buka dialog konfigurasi teks editor (Built-in, VS Code, Notepad++, dll)."""
+        FileEditorSettingsDialog(
+            parent=self.app,
+            db=self.db,
+            on_saved=self._on_editor_settings_changed
+        )
+
+    def _on_editor_settings_changed(self):
+        self._update_editor_button_label()
+        self._set_status("Pengaturan teks editor berhasil disimpan.")
+
+    def _update_editor_button_label(self):
+        if hasattr(self, "btn_editor_settings"):
+            active = EditorService.get_active_editor_info(self.db)
+            display_name = active.name
+            if len(display_name) > 16:
+                display_name = display_name[:14] + "..."
+            self.btn_editor_settings.configure(
+                text=f" {display_name}",
+                image=get_icon(active.icon_name, (13, 13), COLORS["text"])
+            )
 
     # ------------------------------------------------------------------
     # UI Setup
@@ -304,6 +330,23 @@ class SFTPView(ctk.CTkFrame):
             height=32
         )
         self.conn_badge.pack(side="left")
+
+        self.btn_editor_settings = ctk.CTkButton(
+            ctrl_box,
+            text=" Editor",
+            image=get_icon("settings", (13, 13), COLORS["text"]),
+            compound="left",
+            width=90,
+            height=32,
+            corner_radius=8,
+            fg_color=COLORS["surface_hover"],
+            hover_color=COLORS["line"],
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(size=12),
+            command=self._open_editor_settings_dialog
+        )
+        self.btn_editor_settings.pack(side="left", padx=(6, 0))
+        self._update_editor_button_label()
 
         # 2. MAIN WORKSPACE (Left: Target Server List Sidebar, Right: Active Session Pane)
         workspace = ctk.CTkFrame(self, fg_color="transparent")
@@ -1012,12 +1055,39 @@ class SFTPView(ctk.CTkFrame):
                     command=lambda p=item["path"]: self._action_git_graph(p, is_local=True)
                 )
             else:
+                active_editor = EditorService.get_active_editor_info(self.db)
                 self.local_context_menu.add_command(
-                    label="  Open with Default App",
-                    image=get_tk_image("eye", (14, 14), COLORS["text"]),
+                    label=f"  Edit File ({active_editor.name})",
+                    image=get_tk_image(active_editor.icon_name, (14, 14), COLORS["text"]),
                     compound="left",
                     command=lambda: self._open_local_file(item["path"])
                 )
+
+                # Submenu: Open with...
+                local_open_with = tk.Menu(self.local_context_menu, tearoff=0)
+                detected = EditorService.get_detected_editors(custom_path=EditorService.get_settings(self.db).get("custom_path"))
+                for ed in detected:
+                    if ed.is_available:
+                        local_open_with.add_command(
+                            label=f"  {ed.name}",
+                            image=get_tk_image(ed.icon_name, (14, 14), COLORS["text"]),
+                            compound="left",
+                            command=lambda eid=ed.id, p=item["path"]: self._open_local_file(p, editor_id=eid)
+                        )
+                local_open_with.add_separator()
+                local_open_with.add_command(
+                    label="  Pengaturan Editor...",
+                    image=get_tk_image("settings", (14, 14), COLORS["text"]),
+                    compound="left",
+                    command=self._open_editor_settings_dialog
+                )
+                self.local_context_menu.add_cascade(
+                    label="  Open with...",
+                    image=get_tk_image("external-link", (14, 14), COLORS["accent_text"]),
+                    compound="left",
+                    menu=local_open_with
+                )
+                self.local_context_menu.add_separator()
                 self.local_context_menu.add_command(
                     label="  Open Terminal in Folder",
                     image=get_tk_image("terminal", (14, 14), COLORS["text"]),
@@ -1093,6 +1163,13 @@ class SFTPView(ctk.CTkFrame):
             compound="left",
             command=lambda: self._load_local_dir(self._local_path)
         )
+        self.local_context_menu.add_separator()
+        self.local_context_menu.add_command(
+            label="  Pengaturan Editor...",
+            image=get_tk_image("settings", (14, 14), COLORS["text"]),
+            compound="left",
+            command=self._open_editor_settings_dialog
+        )
 
         try:
             self.local_context_menu.tk_popup(event.x_root, event.y_root)
@@ -1137,9 +1214,10 @@ class SFTPView(ctk.CTkFrame):
                     command=lambda p=item["path"]: self._action_git_graph(p, is_local=False)
                 )
             else:
+                active_editor = EditorService.get_active_editor_info(self.db)
                 self.remote_context_menu.add_command(
-                    label="  Edit Remote File",
-                    image=get_tk_image("eye", (14, 14), COLORS["text"]),
+                    label=f"  Edit Remote File ({active_editor.name})",
+                    image=get_tk_image(active_editor.icon_name, (14, 14), COLORS["text"]),
                     compound="left",
                     command=lambda: self._action_edit_file(as_sudo=False)
                 )
@@ -1149,6 +1227,32 @@ class SFTPView(ctk.CTkFrame):
                     compound="left",
                     command=lambda: self._action_edit_file(as_sudo=True)
                 )
+
+                # Submenu: Open with...
+                remote_open_with = tk.Menu(self.remote_context_menu, tearoff=0)
+                detected = EditorService.get_detected_editors(custom_path=EditorService.get_settings(self.db).get("custom_path"))
+                for ed in detected:
+                    if ed.is_available:
+                        remote_open_with.add_command(
+                            label=f"  {ed.name}",
+                            image=get_tk_image(ed.icon_name, (14, 14), COLORS["text"]),
+                            compound="left",
+                            command=lambda eid=ed.id, it=item: self._open_file_in_editor(it, as_sudo=False, editor_id=eid)
+                        )
+                remote_open_with.add_separator()
+                remote_open_with.add_command(
+                    label="  Pengaturan Editor...",
+                    image=get_tk_image("settings", (14, 14), COLORS["text"]),
+                    compound="left",
+                    command=self._open_editor_settings_dialog
+                )
+                self.remote_context_menu.add_cascade(
+                    label="  Open with...",
+                    image=get_tk_image("external-link", (14, 14), COLORS["accent_text"]),
+                    compound="left",
+                    menu=remote_open_with
+                )
+                self.remote_context_menu.add_separator()
                 self.remote_context_menu.add_command(
                     label="  Open Editor in Folder",
                     image=get_tk_image("file-code", (14, 14), COLORS["accent_text"]),
@@ -1234,6 +1338,13 @@ class SFTPView(ctk.CTkFrame):
             image=get_tk_image("refresh-cw", (14, 14), COLORS["text"]),
             compound="left",
             command=self._refresh_remote_current_dir
+        )
+        self.remote_context_menu.add_separator()
+        self.remote_context_menu.add_command(
+            label="  Pengaturan Editor...",
+            image=get_tk_image("settings", (14, 14), COLORS["text"]),
+            compound="left",
+            command=self._open_editor_settings_dialog
         )
 
         try:
@@ -1371,16 +1482,16 @@ class SFTPView(ctk.CTkFrame):
             else:
                 self._open_local_file(item["path"])
 
-    def _open_local_file(self, path: str):
-        try:
-            if sys.platform == "darwin":
-                subprocess.Popen(["open", path])
-            elif sys.platform == "win32":
-                os.startfile(path)
-            else:
-                subprocess.Popen(["xdg-open", path])
-        except Exception as e:
-            messagebox.showerror("Error", f"Gagal membuka file: {e}")
+    def _open_local_file(self, path: str, editor_id: Optional[str] = None):
+        ok, err = EditorService.open_local_file(
+            parent=self.app,
+            file_path=path,
+            editor_id=editor_id,
+            db=self.db,
+            on_saved_callback=lambda: self._load_local_dir(self._local_path)
+        )
+        if not ok and err:
+            messagebox.showerror("Error", f"Gagal membuka file: {err}")
 
     def _action_local_new_file(self):
         dialog = ctk.CTkInputDialog(text="Nama file lokal baru:", title="New Local File")
@@ -2181,15 +2292,15 @@ class SFTPView(ctk.CTkFrame):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _action_edit_file(self, as_sudo: bool = False):
+    def _action_edit_file(self, as_sudo: bool = False, editor_id: Optional[str] = None):
         sel = self.remote_tree.selection()
         if not sel:
             return
         item = self._get_remote_item_by_name(sel[0])
         if item and not item.get("is_dir"):
-            self._open_file_in_editor(item, as_sudo=as_sudo)
+            self._open_file_in_editor(item, as_sudo=as_sudo, editor_id=editor_id)
 
-    def _open_file_in_editor(self, item: Dict[str, Any], as_sudo: bool = False):
+    def _open_file_in_editor(self, item: Dict[str, Any], as_sudo: bool = False, editor_id: Optional[str] = None):
         if not self._is_connected or not self._current_host:
             return
         size_bytes = item.get("size_bytes", 0)
@@ -2199,12 +2310,15 @@ class SFTPView(ctk.CTkFrame):
 
         host_config = self._get_active_host_config() or self._current_host
 
-        FileEditorDialog.open_file(
+        EditorService.open_remote_file(
             parent=self.app,
             host=host_config,
             remote_file_path=item.get("path"),
             as_sudo=as_sudo,
-            on_saved_callback=self._refresh_remote_current_dir
+            editor_id=editor_id,
+            db=self.db,
+            on_saved_callback=self._refresh_remote_current_dir,
+            status_callback=self._set_status
         )
 
     def _action_open_editor(self, remote_dir_path: str):
@@ -2358,6 +2472,10 @@ class SFTPView(ctk.CTkFrame):
     def _action_git_graph(self, target_dir: str, is_local: bool = False):
         """Membuka dialog Git Graph interaktif untuk melihat riwayat commit & grafik git pada folder tujuan."""
         from ui.git_graph_dialog import GitGraphDialog
+        if hasattr(self, "_git_graph_dialog") and self._git_graph_dialog and self._git_graph_dialog.winfo_exists():
+            self._git_graph_dialog._bring_to_front()
+            return
+
         host_cfg = None
         if not is_local:
             host_cfg = self._get_active_host_config() or self._current_host
@@ -2366,7 +2484,7 @@ class SFTPView(ctk.CTkFrame):
                 if full_host:
                     host_cfg = full_host
 
-        GitGraphDialog(
+        self._git_graph_dialog = GitGraphDialog(
             parent=self.app,
             host=host_cfg,
             target_dir=target_dir,

@@ -124,23 +124,46 @@ class RedmineIssuePanel(ctk.CTkFrame):
         header.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         header.grid_columnconfigure(0, weight=1)
 
+        title_box = ctk.CTkFrame(header, fg_color="transparent")
+        title_box.grid(row=0, column=0, sticky="ew")
+
         self.lbl_subject = ctk.CTkLabel(
-            header, text=f"#{self.issue_id}", text_color=COLORS["text"], font=ctk.CTkFont(size=18, weight="bold"),
-            anchor="w", justify="left", wraplength=560
+            title_box, text=f"#{self.issue_id}", text_color=COLORS["text"], font=ctk.CTkFont(size=18, weight="bold"),
+            anchor="w", justify="left", wraplength=520, cursor="hand2"
         )
-        self.lbl_subject.grid(row=0, column=0, sticky="ew")
+        self.lbl_subject.pack(side="left")
+        self.lbl_subject.bind("<Button-1>", lambda e: self.copy_title("full"))
+        self.lbl_subject.bind("<Button-3>", self._show_copy_menu)
+
+        self.btn_quick_copy = ctk.CTkButton(
+            title_box, text="", image=get_icon("copy", (13, 13), COLORS["text_secondary"]),
+            width=26, height=26, corner_radius=6, fg_color="transparent",
+            hover_color=COLORS["surface_hover"], command=lambda: self.copy_title("full")
+        )
+        self.btn_quick_copy.pack(side="left", padx=(6, 0))
+        self.btn_quick_copy.bind("<Button-3>", self._show_copy_menu)
+
         self.lbl_meta = ctk.CTkLabel(header, text="Memuat detail task...", text_color=COLORS["muted"], font=ctk.CTkFont(size=11), anchor="w")
         self.lbl_meta.grid(row=1, column=0, sticky="ew")
 
         buttons = ctk.CTkFrame(header, fg_color="transparent")
         buttons.grid(row=0, column=1, rowspan=2, sticky="ne", padx=(10, 0))
 
+        self.btn_copy_title = ctk.CTkButton(
+            buttons, text=" Copy Judul", image=get_icon("copy", (13, 13), COLORS["text"]), compound="left",
+            width=115, height=32, corner_radius=8, fg_color=COLORS["surface"], hover_color=COLORS["surface_hover"],
+            text_color=COLORS["text"], border_width=1, border_color=COLORS["line"], font=ctk.CTkFont(size=12),
+            command=lambda: self.copy_title("full")
+        )
+        self.btn_copy_title.pack(side="left")
+        self.btn_copy_title.bind("<Button-3>", self._show_copy_menu)
+
         self.btn_edit_task = ctk.CTkButton(
             buttons, text=" Edit Task", image=get_icon("edit", (13, 13), "#FFFFFF"), compound="left",
             width=110, height=32, corner_radius=8, fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             text_color="#FFFFFF", font=ctk.CTkFont(size=12, weight="bold"), command=self._open_edit_task_dialog
         )
-        self.btn_edit_task.pack(side="left")
+        self.btn_edit_task.pack(side="left", padx=(6, 0))
 
         self.btn_refresh = ctk.CTkButton(
             buttons, text="", image=get_icon("refresh-cw", (14, 14), COLORS["text"]), width=34, height=32,
@@ -604,3 +627,81 @@ class RedmineIssuePanel(ctk.CTkFrame):
 
     def open_in_browser(self):
         webbrowser.open(self.client.issue_url(self.issue_id))
+
+    def copy_title(self, mode: str = "full"):
+        """
+        Menyalin judul task ke clipboard.
+        mode:
+        - 'full': #143537 cek validasi bangunan
+        - 'subject': cek validasi bangunan
+        - 'id': #143537
+        - 'url': https://redmine.recis.co.id/issues/143537
+        """
+        issue = self.issue or {}
+        subject = (issue.get("subject") or "").strip()
+        issue_id = issue.get("id") or self.issue_id
+
+        if mode == "subject":
+            text = subject or f"#{issue_id}"
+        elif mode == "id":
+            text = f"#{issue_id}"
+        elif mode == "url":
+            text = self.client.issue_url(issue_id)
+        else:
+            text = f"#{issue_id} {subject}".strip()
+
+        if not text:
+            return
+
+        self.clipboard_clear()
+        self.clipboard_append(text)
+
+        # Visual feedback pada tombol Copy Judul
+        if hasattr(self, "btn_copy_title") and self.btn_copy_title.winfo_exists():
+            self.btn_copy_title.configure(
+                text=" Tersalin! ✓",
+                image=get_icon("check", (13, 13), COLORS["success_text"]),
+                text_color=COLORS["success_text"]
+            )
+            self.after(1500, self._reset_copy_button_state)
+
+        if hasattr(self, "btn_quick_copy") and self.btn_quick_copy.winfo_exists():
+            self.btn_quick_copy.configure(image=get_icon("check", (13, 13), COLORS["success_text"]))
+            self.after(1500, self._reset_quick_copy_button_state)
+
+    def _reset_copy_button_state(self):
+        if hasattr(self, "btn_copy_title") and self.btn_copy_title.winfo_exists():
+            self.btn_copy_title.configure(
+                text=" Copy Judul",
+                image=get_icon("copy", (13, 13), COLORS["text"]),
+                text_color=COLORS["text"]
+            )
+
+    def _reset_quick_copy_button_state(self):
+        if hasattr(self, "btn_quick_copy") and self.btn_quick_copy.winfo_exists():
+            self.btn_quick_copy.configure(image=get_icon("copy", (13, 13), COLORS["text_secondary"]))
+
+    def _show_copy_menu(self, event=None):
+        menu = tk.Menu(self, tearoff=False, bg=get_color("surface"), fg=get_color("text"), activebackground=get_color("accent"))
+        issue = self.issue or {}
+        subject = (issue.get("subject") or "").strip()
+        issue_id = issue.get("id") or self.issue_id
+
+        short_sub = (subject[:25] + "…") if len(subject) > 25 else subject
+
+        menu.add_command(label=f"Salin Judul Lengkap (#{issue_id} {short_sub})", command=lambda: self.copy_title("full"))
+        menu.add_command(label=f"Salin Subjek Saja (\"{short_sub}\")", command=lambda: self.copy_title("subject"))
+        menu.add_command(label=f"Salin ID Task (#{issue_id})", command=lambda: self.copy_title("id"))
+        menu.add_command(label="Salin URL Task", command=lambda: self.copy_title("url"))
+        menu.add_separator()
+        menu.add_command(label="Buka di Browser", command=self.open_in_browser)
+
+        try:
+            if event:
+                x, y = event.x_root, event.y_root
+            else:
+                x = self.btn_copy_title.winfo_rootx()
+                y = self.btn_copy_title.winfo_rooty() + self.btn_copy_title.winfo_height()
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
