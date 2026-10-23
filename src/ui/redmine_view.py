@@ -829,10 +829,28 @@ class RedmineView(ctk.CTkFrame):
         self._save_filters()
         self._load_issues()
 
+    @staticmethod
+    def _extract_issue_id(query: str) -> Optional[int]:
+        query = (query or "").strip()
+        if not query:
+            return None
+        # URL Redmine: mis. https://redmine.recis.co.id/issues/144005
+        url_m = re.search(r"/issues/(\d{1,8})(?:\D|$)", query)
+        if url_m:
+            return int(url_m.group(1))
+        # Format #144005, # 144005, id: 144005, issue 144005, task 144005
+        m = re.fullmatch(r"(?:#|id\s*:?|issue\s*:?|task\s*:?)\s*(\d{1,8})", query, re.IGNORECASE)
+        if m:
+            return int(m.group(1))
+        # Angka 1-8 digit (mis. 144005). Jika >8 digit (seperti NOP 18 digit), dianggap pencarian teks subject
+        if re.fullmatch(r"\d{1,8}", query):
+            return int(query)
+        return None
+
     def _on_search_typed(self, *_):
         if self._search_job:
             self.after_cancel(self._search_job)
-        self._search_job = self.after(600, self._apply_search_now)
+        self._search_job = self.after(500, self._apply_search_now)
 
     def _apply_search_now(self):
         if self._search_job:
@@ -842,6 +860,9 @@ class RedmineView(ctk.CTkFrame):
         self._load_issues()
 
     def _reset_filters(self):
+        if self._search_job:
+            self.after_cancel(self._search_job)
+            self._search_job = None
         self.opt_query.set(ALL_QUERIES)
         self.opt_scope.set(list(SCOPE_FILTERS.keys())[0])
         self.opt_status.set(DEFAULT_STATUS_FILTER)
@@ -853,7 +874,7 @@ class RedmineView(ctk.CTkFrame):
         self._sort_col, self._sort_desc = "updated", True
         self._update_sort_headings()
         if self.search_var.get():
-            self.search_var.set("")  # memicu pencarian ulang via debounce
+            self.search_var.set("")
         self._on_filter_changed()
 
     def _on_sort_clicked(self, column: str):
@@ -894,10 +915,13 @@ class RedmineView(ctk.CTkFrame):
 
     def _build_params(self) -> Dict[str, Any]:
         params: Dict[str, Any] = {}
+        query = self.search_var.get().strip()
 
         query_name = self.opt_query.get()
         query_meta = self._query_meta.get(query_name)
-        if query_meta:
+        # Redmine REST API mengabaikan filter 'subject' jika 'query_id' disertakan dalam URL.
+        # Jika user sedang melakukan pencarian subject, kita jangan sertakan query_id agar filter subject aktif.
+        if query_meta and not query:
             params["query_id"] = query_meta["id"]
             if query_meta.get("project_id") is not None:
                 params["project_id"] = query_meta["project_id"]
@@ -909,7 +933,7 @@ class RedmineView(ctk.CTkFrame):
         status = self.opt_status.get()
         if status in STATUS_FILTERS:
             status_val = STATUS_FILTERS[status]
-            if query_meta is None or status != DEFAULT_STATUS_FILTER:
+            if query_meta is None or status != DEFAULT_STATUS_FILTER or query:
                 params["status_id"] = status_val
         elif status in self._status_ids:
             params["status_id"] = self._status_ids[status]
@@ -943,11 +967,7 @@ class RedmineView(ctk.CTkFrame):
         elif updated == "30 hari terakhir":
             params["updated_on"] = f">={iso(today - timedelta(days=30))}"
 
-        query = self.search_var.get().strip()
-        id_match = re.fullmatch(r"#?(\d+)", query)
-        if id_match:
-            params["issue_id"] = id_match.group(1)
-        elif query:
+        if query:
             params["subject"] = f"~{query}"
 
         if self._sort_col == "jam_deploy":
@@ -1092,6 +1112,34 @@ class RedmineView(ctk.CTkFrame):
         self._set_status("Memuat task dari Redmine...")
 
         client = self._client
+        query = self.search_var.get().strip()
+        target_issue_id = self._extract_issue_id(query)
+
+        if target_issue_id is not None:
+            def worker():
+                try:
+                    # Ambil langsung issue spesifik (by ID) agar tidak terhalang filter status closed, beda project, atau custom query
+                    try:
+                        iss = client.get_issue(target_issue_id)
+                        issues = [iss] if iss and iss.get("id") else []
+                        total = len(issues)
+                    except RedmineError as e:
+                        if getattr(e, "code", None) == 404:
+                            issues, total = [], 0
+                        else:
+                            # Fallback ke list_issues dengan status_id=* (termasuk closed)
+                            issues, total = client.list_issues(
+                                {"issue_id": str(target_issue_id), "status_id": "*"},
+                                limit=1, offset=0
+                            )
+                    self.after(0, lambda: self._on_issues_loaded(seq, issues, total))
+                except RedmineError as error:
+                    message = str(error)
+                    self.after(0, lambda: self._on_issues_failed(seq, message))
+
+            threading.Thread(target=worker, daemon=True).start()
+            return
+
         params = self._build_params()
         per_page = self._per_page()
         offset = self._page * per_page
@@ -1170,7 +1218,14 @@ class RedmineView(ctk.CTkFrame):
                 end = start + len(self._issues) - 1
                 text = f"Menampilkan {start}–{end} dari {self._total} task"
             else:
-                text = "Tidak ada task yang cocok dengan filter"
+                query = self.search_var.get().strip()
+                target_id = self._extract_issue_id(query)
+                if target_id is not None:
+                    text = f"Task #{target_id} tidak ditemukan di Redmine"
+                elif query:
+                    text = f"Tidak ada task yang cocok dengan kata kunci '{query}'"
+                else:
+                    text = "Tidak ada task yang cocok dengan filter"
             self._set_status(f"{text}  •  diperbarui {datetime.now().strftime('%H:%M:%S')}")
 
     # ------------------------------------------------------------------
