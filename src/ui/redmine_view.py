@@ -919,55 +919,117 @@ class RedmineView(ctk.CTkFrame):
 
         query_name = self.opt_query.get()
         query_meta = self._query_meta.get(query_name)
-        # Redmine REST API mengabaikan filter 'subject' jika 'query_id' disertakan dalam URL.
-        # Jika user sedang melakukan pencarian subject, kita jangan sertakan query_id agar filter subject aktif.
-        if query_meta and not query:
+
+        scope_name = self.opt_scope.get()
+        status_name = self.opt_status.get()
+        project_name = self.opt_project.get()
+        tracker_name = self.opt_tracker.get()
+        priority_name = self.opt_priority.get()
+        due_name = self.opt_due.get()
+        updated_name = self.opt_updated.get()
+
+        # Deteksi apakah user mengaktifkan filter spesifik di luar query bawaan
+        has_updated = (updated_name != UPDATED_FILTERS[0])  # Bukan "Semua"
+        has_due = (due_name != DUE_FILTERS[0])              # Bukan "Semua"
+        has_tracker = (tracker_name != ALL_TRACKERS)
+        has_priority = (priority_name != ALL_PRIORITIES)
+        has_search = bool(query)
+        has_status = (status_name != DEFAULT_STATUS_FILTER)
+        has_scope = (scope_name != "Semua (Tanpa scope)")
+        has_custom_project = False
+        if project_name != ALL_PROJECTS and project_name in self._project_ids:
+            if not query_meta or self._project_ids[project_name] != query_meta.get("project_id"):
+                has_custom_project = True
+
+        has_extra_filters = (
+            has_updated or has_due or has_tracker or has_priority or
+            has_search or has_status or has_scope or has_custom_project
+        )
+
+        # Redmine REST API mengabaikan SEMUA parameter filter jika 'query_id' disertakan dalam URL.
+        # Jika user sedang mengaktifkan filter tambahan (seperti Updated 'Hari ini', Tracker, Priority, dsb),
+        # kita TIDAK menyertakan query_id, melainkan menerapkan filter dasar query tersebut secara langsung.
+        if query_meta and not has_extra_filters:
             params["query_id"] = query_meta["id"]
             if query_meta.get("project_id") is not None:
                 params["project_id"] = query_meta["project_id"]
+        elif query_meta and has_extra_filters:
+            # Terapkan basis dari query_meta
+            if query_meta.get("project_id") is not None and not has_custom_project:
+                params["project_id"] = query_meta["project_id"]
 
-        scope_key, scope_value = SCOPE_FILTERS.get(self.opt_scope.get(), ("assigned_to_id", "me"))
-        if scope_key and scope_value:
+            q_filters = query_meta.get("filters") or {}
+            for fld, rule in q_filters.items():
+                op = rule.get("op", "=")
+                vals = rule.get("values", [])
+                if fld == "status_id" and not has_status:
+                    if op == "o":
+                        params["status_id"] = "open"
+                    elif op == "c":
+                        params["status_id"] = "closed"
+                    elif op == "*":
+                        params["status_id"] = "*"
+                    elif vals:
+                        params["status_id"] = vals[0]
+                elif fld == "assigned_to_id" and not has_scope:
+                    if vals:
+                        params["assigned_to_id"] = ",".join(vals) if len(vals) > 1 else vals[0]
+                elif fld == "tracker_id" and not has_tracker:
+                    if vals:
+                        params["tracker_id"] = vals[0]
+                elif fld == "priority_id" and not has_priority:
+                    if vals:
+                        params["priority_id"] = vals[0]
+
+            # Fallback jika q_filters belum ada
+            if "status_id" not in params and not has_status:
+                params["status_id"] = "open"
+            if "assigned_to_id" not in params and not has_scope:
+                params["assigned_to_id"] = "me"
+
+        # Terapkan pilihan dropdown yang aktif
+        scope_key, scope_value = SCOPE_FILTERS.get(scope_name, (None, None))
+        if scope_key and scope_value and has_scope:
+            params[scope_key] = scope_value
+        elif not query_meta and scope_key and scope_value:
             params[scope_key] = scope_value
 
-        status = self.opt_status.get()
-        if status in STATUS_FILTERS:
-            status_val = STATUS_FILTERS[status]
-            if query_meta is None or status != DEFAULT_STATUS_FILTER or query:
-                params["status_id"] = status_val
-        elif status in self._status_ids:
-            params["status_id"] = self._status_ids[status]
+        if has_status or not query_meta:
+            if status_name in STATUS_FILTERS:
+                params["status_id"] = STATUS_FILTERS[status_name]
+            elif status_name in self._status_ids:
+                params["status_id"] = self._status_ids[status_name]
 
-        if self.opt_project.get() in self._project_ids and "project_id" not in params:
-            params["project_id"] = self._project_ids[self.opt_project.get()]
-        if self.opt_tracker.get() in self._tracker_ids:
-            params["tracker_id"] = self._tracker_ids[self.opt_tracker.get()]
-        if self.opt_priority.get() in self._priority_ids:
-            params["priority_id"] = self._priority_ids[self.opt_priority.get()]
+        if has_custom_project or (not query_meta and project_name in self._project_ids):
+            params["project_id"] = self._project_ids[project_name]
+
+        if has_tracker and tracker_name in self._tracker_ids:
+            params["tracker_id"] = self._tracker_ids[tracker_name]
+
+        if has_priority and priority_name in self._priority_ids:
+            params["priority_id"] = self._priority_ids[priority_name]
 
         today = date.today()
         iso = lambda d: d.isoformat()
-        due = self.opt_due.get()
-        if due == "Terlambat":
+        if due_name == "Terlambat":
             params["due_date"] = f"<={iso(today - timedelta(days=1))}"
-        elif due == "Hari ini":
+        elif due_name == "Hari ini":
             params["due_date"] = f"><{iso(today)}|{iso(today)}"
-        elif due == "7 hari ke depan":
+        elif due_name == "7 hari ke depan":
             params["due_date"] = f"><{iso(today)}|{iso(today + timedelta(days=7))}"
-        elif due == "30 hari ke depan":
+        elif due_name == "30 hari ke depan":
             params["due_date"] = f"><{iso(today)}|{iso(today + timedelta(days=30))}"
-        elif due == "Tanpa due date":
+        elif due_name == "Tanpa due date":
             params["due_date"] = "!*"
 
-        updated = self.opt_updated.get()
-        if updated == "Hari ini":
+        if updated_name == "Hari ini":
             params["updated_on"] = f">={iso(today)}"
-        elif updated == "7 hari terakhir":
+        elif updated_name == "7 hari terakhir":
             params["updated_on"] = f">={iso(today - timedelta(days=7))}"
-        elif updated == "30 hari terakhir":
+        elif updated_name == "30 hari terakhir":
             params["updated_on"] = f">={iso(today - timedelta(days=30))}"
 
-        if query:
+        if has_search:
             params["subject"] = f"~{query}"
 
         if self._sort_col == "jam_deploy":
@@ -1005,13 +1067,33 @@ class RedmineView(ctk.CTkFrame):
                 return {}
 
         def worker():
+            queries = safe(client.list_queries)
+            current_user = safe_dict(client.get_current_user)
+            current_user_id = str(current_user.get("id") or "")
+            query_filters = {}
+            for q in queries:
+                qid = q.get("id")
+                proj_val = q.get("project_id")
+                proj_id = proj_val.get("id") if isinstance(proj_val, dict) else proj_val
+                is_pub = q.get("is_public")
+                q_user = q.get("user_id") or (q.get("user") or {}).get("id") or (q.get("author") or {}).get("id")
+                is_mine = (is_pub is False or str(is_pub).lower() in ("false", "0", "f")) or (q_user and current_user_id and str(q_user) == current_user_id)
+                if qid and is_mine:
+                    try:
+                        qf = client.get_query_filters(qid, proj_id)
+                        if qf:
+                            query_filters[qid] = qf
+                    except Exception:
+                        pass
+
             data = {
                 "statuses": safe(client.list_statuses),
                 "trackers": safe(client.list_trackers),
                 "priorities": safe(client.list_priorities),
                 "projects": safe(client.list_projects),
-                "queries": safe(client.list_queries),
-                "current_user": safe_dict(client.get_current_user),
+                "queries": queries,
+                "query_filters": query_filters,
+                "current_user": current_user,
             }
             self.after(0, lambda: self._on_metadata_loaded(client, data))
 
@@ -1073,7 +1155,11 @@ class RedmineView(ctk.CTkFrame):
                     disp_name = f"{qname} [#{qid}]"
 
             self._query_ids[disp_name] = qid
-            self._query_meta[disp_name] = {"id": qid, "project_id": proj_id_int}
+            self._query_meta[disp_name] = {
+                "id": qid,
+                "project_id": proj_id_int,
+                "filters": data.get("query_filters", {}).get(qid, {})
+            }
             query_names.append(disp_name)
 
         saved = self._saved_filters

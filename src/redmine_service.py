@@ -1,6 +1,7 @@
 """Klien REST API Redmine ringan tanpa dependency pihak ketiga."""
 
 import json
+import re
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urljoin, urlparse
@@ -207,6 +208,32 @@ class RedmineClient:
 
     def list_queries(self) -> List[Dict[str, Any]]:
         return self._get_all("/queries.json", "queries", max_items=500)
+
+    def get_query_filters(self, query_id: int, project_id: Optional[Any] = None) -> Dict[str, Any]:
+        """Mengambil filter bawaan dari suatu saved query Redmine via HTML query form."""
+        if project_id:
+            path = f"/projects/{project_id}/issues?query_id={query_id}"
+        else:
+            path = f"/issues?query_id={query_id}"
+        url = f"{self.base_url}{path}"
+        req = Request(url, headers={
+            "X-Redmine-API-Key": self.api_key,
+            "User-Agent": "DO.MBA-Pull-Manager"
+        })
+        try:
+            with urlopen(req, timeout=self.timeout) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
+        except Exception:
+            return {}
+
+        parsed: Dict[str, Any] = {}
+        for m in re.finditer(r'addFilter\(["\']([^"\']+)["\'],\s*["\']([^"\']*)["\'],\s*\[(.*?)\]\)', html):
+            field = m.group(1)
+            op = m.group(2)
+            raw_v = m.group(3)
+            vals = [x.strip()[1:-1] for x in raw_v.split(',') if len(x.strip()) >= 2]
+            parsed[field] = {"op": op, "values": vals}
+        return parsed
 
     def resolve_url(self, url: str) -> str:
         return urljoin(self.base_url + "/", url)
