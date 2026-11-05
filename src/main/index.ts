@@ -2,17 +2,28 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { dbService, ConnectionInput } from './database'
 
 function createWindow(): void {
+  const isMac = process.platform === 'darwin'
+
   // Create the browser window.
   const mainWindow = new BrowserWindow({
     title: 'DO.MBA Pull Manager',
-    width: 1100,
-    height: 720,
-    minWidth: 900,
-    minHeight: 560,
+    width: 1200,
+    height: 760,
+    minWidth: 960,
+    minHeight: 600,
     show: false,
     autoHideMenuBar: true,
+    ...(isMac
+      ? {
+          titleBarStyle: 'hidden',
+          trafficLightPosition: { x: 14, y: 12 }
+        }
+      : {
+          frame: false
+        }),
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -22,6 +33,14 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+  })
+
+  mainWindow.on('maximize', () => {
+    mainWindow.webContents.send('window-maximize-changed', true)
+  })
+
+  mainWindow.on('unmaximize', () => {
+    mainWindow.webContents.send('window-maximize-changed', false)
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -52,8 +71,68 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  // Initialize SQLite Database
+  dbService.init()
+
+  // SQLite Connections IPC Handlers
+  ipcMain.handle('connections:get-all', () => {
+    return dbService.getAllConnections()
+  })
+
+  ipcMain.handle('connections:add', (_, input: ConnectionInput) => {
+    return dbService.addConnection(input)
+  })
+
+  ipcMain.handle('connections:delete', (_, id: number) => {
+    return dbService.deleteConnection(id)
+  })
+
+  // SQLite Connection Groups IPC Handlers
+  ipcMain.handle('groups:get-all', () => {
+    return dbService.getAllGroups()
+  })
+
+  ipcMain.handle('groups:add', (_, name: string) => {
+    return dbService.addGroup(name)
+  })
+
+  ipcMain.handle('groups:rename', (_, oldName: string, newName: string) => {
+    return dbService.renameGroup(oldName, newName)
+  })
+
+  ipcMain.handle('groups:delete', (_, name: string) => {
+    return dbService.deleteGroup(name)
+  })
+
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
+
+  // Windows / Frameless Window Controls
+  ipcMain.on('window-minimize', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    win?.minimize()
+  })
+
+  ipcMain.on('window-maximize', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win) {
+      if (win.isMaximized()) {
+        win.unmaximize()
+      } else {
+        win.maximize()
+      }
+    }
+  })
+
+  ipcMain.on('window-close', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    win?.close()
+  })
+
+  ipcMain.handle('window-is-maximized', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    return win?.isMaximized() ?? false
+  })
 
   createWindow()
 
