@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import {
-  Database,
   FileCode2,
   ChevronDown,
   Cloud,
@@ -19,23 +18,29 @@ import {
   Copy,
   X,
   Server,
-  FolderSync
+  FolderSync,
+  Code,
+  ChevronsRight
 } from 'lucide-vue-next'
 
 const props = withDefaults(
   defineProps<{
     currentView?: string
+    isSidebarCollapsed?: boolean
   }>(),
   {
-    currentView: 'hosts'
+    currentView: 'hosts',
+    isSidebarCollapsed: false
   }
 )
 
 const emit = defineEmits<{
+  (e: 'toggle-sidebar'): void
   (e: 'open-hosts'): void
   (e: 'new-connection'): void
   (e: 'new-query'): void
   (e: 'open-sftp'): void
+  (e: 'open-editor'): void
   (e: 'data-transfer'): void
   (e: 'driver-manager'): void
   (e: 'plugin-center'): void
@@ -111,6 +116,17 @@ function handleClose(): void {
   >
     <!-- Left Section: Traffic Light Padding on macOS / App Icon on Windows -->
     <div class="flex items-center space-x-1" :class="isMac ? 'pl-[70px]' : 'pl-0'">
+      <!-- Show Sidebar Toggle Button when sidebar is collapsed -->
+      <button
+        v-if="props.isSidebarCollapsed"
+        type="button"
+        title="Show Sidebar"
+        class="app-no-drag flex items-center justify-center p-1.5 rounded text-[#9CA5B8] hover:text-white hover:bg-[#2C3345] transition-colors mr-0.5"
+        @click="emit('toggle-sidebar')"
+      >
+        <ChevronsRight class="w-3.5 h-3.5" />
+      </button>
+
       <!-- Windows App Icon Branding -->
       <div
         v-if="!isMac"
@@ -136,14 +152,26 @@ function handleClose(): void {
         <span>Connections</span>
       </button>
 
-      <!-- Button: New Connection -->
+      <!-- Button: SFTP (FileZilla Mode) -->
       <button
         type="button"
         class="app-no-drag flex items-center space-x-1.5 px-2.5 py-1 rounded text-[#C2C9D6] hover:text-white hover:bg-[#2C3345] transition-colors"
-        @click="emit('new-connection')"
+        :class="{ 'bg-[#2C3345] text-white': props.currentView === 'sftp' }"
+        @click="handleSftpClick"
       >
-        <Database class="w-3.5 h-3.5 text-[#38BDF8]" />
-        <span>New Connection</span>
+        <FolderSync class="w-3.5 h-3.5 text-[#34D399]" />
+        <span>SFTP</span>
+      </button>
+
+      <!-- Button: Text Editor (VS Code Mode) -->
+      <button
+        type="button"
+        class="app-no-drag flex items-center space-x-1.5 px-2.5 py-1 rounded text-[#C2C9D6] hover:text-white hover:bg-[#2C3345] transition-colors"
+        :class="{ 'bg-[#2C3345] text-white': props.currentView === 'editor' }"
+        @click="emit('open-editor')"
+      >
+        <Code class="w-3.5 h-3.5 text-sky-400" />
+        <span>Text Editor</span>
       </button>
 
       <!-- Button: New Query -->
@@ -155,17 +183,6 @@ function handleClose(): void {
       >
         <FileCode2 class="w-3.5 h-3.5 text-[#A78BFA]" />
         <span>New Query</span>
-      </button>
-
-      <!-- Button: SFTP (FileZilla Mode) -->
-      <button
-        type="button"
-        class="app-no-drag flex items-center space-x-1.5 px-2.5 py-1 rounded text-[#C2C9D6] hover:text-white hover:bg-[#2C3345] transition-colors"
-        :class="{ 'bg-[#2C3345] text-white': props.currentView === 'sftp' }"
-        @click="handleSftpClick"
-      >
-        <FolderSync class="w-3.5 h-3.5 text-[#34D399]" />
-        <span>SFTP</span>
       </button>
 
       <!-- Button: More Dropdown -->

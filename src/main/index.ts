@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Notification } from 'electron'
 import { join } from 'path'
 import { Client as SshClient } from 'ssh2'
 import mysql from 'mysql2/promise'
@@ -467,6 +467,7 @@ app.whenReady().then(() => {
     (
       _,
       config: {
+        sessionId?: string
         host: string
         port: number
         user: string
@@ -478,49 +479,235 @@ app.whenReady().then(() => {
     }
   )
 
-  ipcMain.handle('sftp:disconnect', () => {
-    return sftpService.disconnect()
+  ipcMain.handle('sftp:disconnect', (_, sessionId?: string) => {
+    return sftpService.disconnect(sessionId)
   })
 
-  ipcMain.handle('sftp:status', () => {
-    return sftpService.getConnectedStatus()
-  })
-
-  ipcMain.handle('sftp:list-remote', (_, remotePath: string) => {
-    return sftpService.listRemote(remotePath)
+  ipcMain.handle('sftp:status', (_, sessionId?: string) => {
+    return sftpService.getConnectedStatus(sessionId)
   })
 
   ipcMain.handle(
+    'sftp:list-remote',
+    (_, arg: string | { remotePath: string; sessionId?: string }) => {
+      const remotePath = typeof arg === 'string' ? arg : arg.remotePath
+      const sessionId = typeof arg === 'object' ? arg.sessionId : undefined
+      return sftpService.listRemote(remotePath, sessionId)
+    }
+  )
+
+  ipcMain.handle(
     'sftp:upload',
-    (_, { localPath, remotePath }: { localPath: string; remotePath: string }) => {
-      return sftpService.upload(localPath, remotePath)
+    (
+      _,
+      {
+        localPath,
+        remotePath,
+        sessionId,
+        asSudo
+      }: { localPath: string; remotePath: string; sessionId?: string; asSudo?: boolean }
+    ) => {
+      return sftpService.upload(localPath, remotePath, sessionId, asSudo)
     }
   )
 
   ipcMain.handle(
     'sftp:download',
-    (_, { remotePath, localPath }: { remotePath: string; localPath: string }) => {
-      return sftpService.download(remotePath, localPath)
+    (
+      _,
+      {
+        remotePath,
+        localPath,
+        sessionId,
+        asSudo
+      }: { remotePath: string; localPath: string; sessionId?: string; asSudo?: boolean }
+    ) => {
+      return sftpService.download(remotePath, localPath, sessionId, asSudo)
     }
   )
 
-  ipcMain.handle('sftp:mkdir-remote', (_, remotePath: string) => {
-    return sftpService.mkdirRemote(remotePath)
-  })
+  ipcMain.handle(
+    'sftp:mkdir-remote',
+    (_, arg: string | { remotePath: string; sessionId?: string; asSudo?: boolean }) => {
+      const remotePath = typeof arg === 'string' ? arg : arg.remotePath
+      const sessionId = typeof arg === 'object' ? arg.sessionId : undefined
+      const asSudo = typeof arg === 'object' ? Boolean(arg.asSudo) : false
+      return sftpService.mkdirRemote(remotePath, sessionId, asSudo)
+    }
+  )
 
   ipcMain.handle(
     'sftp:delete-remote',
-    (_, { remotePath, isDirectory }: { remotePath: string; isDirectory?: boolean }) => {
-      return sftpService.deleteRemote(remotePath, isDirectory)
+    (
+      _,
+      {
+        remotePath,
+        isDirectory,
+        sessionId,
+        asSudo
+      }: { remotePath: string; isDirectory?: boolean; sessionId?: string; asSudo?: boolean }
+    ) => {
+      return sftpService.deleteRemote(remotePath, isDirectory, sessionId, asSudo)
     }
   )
 
   ipcMain.handle(
     'sftp:rename-remote',
-    (_, { oldPath, newPath }: { oldPath: string; newPath: string }) => {
-      return sftpService.renameRemote(oldPath, newPath)
+    (
+      _,
+      {
+        oldPath,
+        newPath,
+        sessionId,
+        asSudo
+      }: { oldPath: string; newPath: string; sessionId?: string; asSudo?: boolean }
+    ) => {
+      return sftpService.renameRemote(oldPath, newPath, sessionId, asSudo)
     }
   )
+
+  ipcMain.handle(
+    'sftp:chmod-remote',
+    (
+      _,
+      {
+        remotePath,
+        mode,
+        sessionId,
+        asSudo
+      }: { remotePath: string; mode: string | number; sessionId?: string; asSudo?: boolean }
+    ) => {
+      return sftpService.chmodRemote(remotePath, mode, sessionId, asSudo)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:read-file',
+    (
+      _,
+      {
+        remotePath,
+        sessionId,
+        asSudo
+      }: { remotePath: string; sessionId?: string; asSudo?: boolean }
+    ) => {
+      return sftpService.readFile(remotePath, sessionId, asSudo)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:write-file',
+    (
+      _,
+      {
+        remotePath,
+        content,
+        sessionId,
+        asSudo
+      }: { remotePath: string; content: string; sessionId?: string; asSudo?: boolean }
+    ) => {
+      return sftpService.writeFile(remotePath, content, sessionId, asSudo)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:get-git-info',
+    (
+      _,
+      { remotePath, sessionId }: { remotePath: string; sessionId?: string }
+    ) => {
+      return sftpService.getGitInfo(remotePath, sessionId)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:get-git-blame',
+    (
+      _,
+      { filePath, line, sessionId }: { filePath: string; line: number; sessionId?: string }
+    ) => {
+      return sftpService.getGitBlame(filePath, line, sessionId)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:get-git-status',
+    (
+      _,
+      { remotePath, sessionId }: { remotePath: string; sessionId?: string }
+    ) => {
+      return sftpService.getGitStatus(remotePath, sessionId)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:git-commit',
+    (
+      _,
+      { remotePath, message, sessionId }: { remotePath: string; message: string; sessionId?: string }
+    ) => {
+      return sftpService.gitCommit(remotePath, message, sessionId)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:git-discard',
+    (
+      _,
+      { filePath, sessionId }: { filePath: string; sessionId?: string }
+    ) => {
+      return sftpService.gitDiscard(filePath, sessionId)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:git-stage',
+    (
+      _,
+      { filePath, staged, sessionId }: { filePath: string; staged: boolean; sessionId?: string }
+    ) => {
+      return sftpService.gitStage(filePath, staged, sessionId)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:search-remote',
+    (
+      _,
+      {
+        query,
+        rootPath,
+        sessionId,
+        isCaseSensitive,
+        isWholeWord,
+        isRegex
+      }: {
+        query: string
+        rootPath: string
+        sessionId?: string
+        isCaseSensitive?: boolean
+        isWholeWord?: boolean
+        isRegex?: boolean
+      }
+    ) => {
+      return sftpService.searchRemote(query, rootPath, sessionId, {
+        isCaseSensitive,
+        isWholeWord,
+        isRegex
+      })
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:rename-local',
+    (_, { oldPath, newPath, asSudo }: { oldPath: string; newPath: string; asSudo?: boolean }) => {
+      return sftpService.renameLocal(oldPath, newPath, asSudo)
+    }
+  )
+
+  ipcMain.handle('sftp:open-local', (_, filePath: string) => {
+    return shell.openPath(filePath)
+  })
 
   ipcMain.handle('sftp:get-local-home', () => {
     return sftpService.getLocalHome()
@@ -530,13 +717,47 @@ app.whenReady().then(() => {
     return sftpService.listLocal(dirPath)
   })
 
-  ipcMain.handle('sftp:mkdir-local', (_, dirPath: string) => {
-    return sftpService.mkdirLocal(dirPath)
-  })
+  ipcMain.handle(
+    'sftp:mkdir-local',
+    (_, arg: string | { dirPath: string; asSudo?: boolean }) => {
+      const dirPath = typeof arg === 'string' ? arg : arg.dirPath
+      const asSudo = typeof arg === 'object' ? Boolean(arg.asSudo) : false
+      return sftpService.mkdirLocal(dirPath, asSudo)
+    }
+  )
 
-  ipcMain.handle('sftp:delete-local', (_, filePath: string) => {
-    return sftpService.deleteLocal(filePath)
-  })
+  ipcMain.handle(
+    'sftp:delete-local',
+    (_, arg: string | { filePath: string; asSudo?: boolean }) => {
+      const filePath = typeof arg === 'string' ? arg : arg.filePath
+      const asSudo = typeof arg === 'object' ? Boolean(arg.asSudo) : false
+      return sftpService.deleteLocal(filePath, asSudo)
+    }
+  )
+
+  ipcMain.handle(
+    'app:show-notification',
+    (
+      _,
+      {
+        title,
+        body
+      }: { title: string; body: string }
+    ) => {
+      try {
+        if (Notification.isSupported()) {
+          const notif = new Notification({
+            title: title || 'Pullman SFTP',
+            body: body || '',
+            icon
+          })
+          notif.show()
+        }
+      } catch (err) {
+        console.error('Failed to show notification:', err)
+      }
+    }
+  )
 
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))

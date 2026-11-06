@@ -2,16 +2,24 @@
 import { ref, computed, onMounted } from 'vue'
 import TitleBar from './components/TitleBar.vue'
 import NewConnectionDialog from './components/NewConnectionDialog.vue'
-import SidebarNavigator, { HostItem } from './components/SidebarNavigator.vue'
-import SftpView from './components/SftpView.vue'
-import { Server, Play, RefreshCw, Trash2, Pencil, Database } from 'lucide-vue-next'
+import SidebarNavigator from './components/SidebarNavigator.vue'
+import { HostItem } from './types/connection'
+import SftpView from './views/sftp/SftpView.vue'
+import HostsView from './views/hosts/HostsView.vue'
+import QueryView from './views/query/QueryView.vue'
+import RedmineView from './views/redmine/RedmineView.vue'
+import EditorView from './views/editor/EditorView.vue'
 
 const appVersion = '1.3.1'
-const currentView = ref<'hosts' | 'query' | 'sftp' | 'redmine'>('hosts')
+const currentView = ref<'hosts' | 'query' | 'sftp' | 'redmine' | 'editor'>('hosts')
+const isSidebarCollapsed = ref(false)
+const selectedGroupFilter = ref<string>('ALL')
 const searchQuery = ref('')
 const showNewConnectionDialog = ref(false)
 const selectedHostId = ref<number | null>(null)
 const isLoading = ref(true)
+const sftpViewRef = ref<InstanceType<typeof SftpView> | null>(null)
+const editorViewRef = ref<InstanceType<typeof EditorView> | null>(null)
 
 const hostsList = ref<HostItem[]>([])
 const groupsList = ref<string[]>([])
@@ -99,15 +107,43 @@ onMounted(() => {
   loadGroupsFromDb()
 })
 
+const availableFilterGroups = computed(() => {
+  const set = new Set<string>()
+  for (const g of groupsList.value) {
+    if (g && g.trim()) set.add(g.trim())
+  }
+  for (const h of hostsList.value) {
+    if (h.group && h.group.trim()) set.add(h.group.trim())
+  }
+  return Array.from(set).sort()
+})
+
+const hasUngroupedHosts = computed(() => {
+  return hostsList.value.some((h) => !h.group || h.group.trim() === '')
+})
+
 const filteredHosts = computed(() => {
-  if (!searchQuery.value.trim()) return hostsList.value
-  const q = searchQuery.value.toLowerCase()
-  return hostsList.value.filter(
-    (h) =>
-      h.name.toLowerCase().includes(q) ||
-      h.ip.toLowerCase().includes(q) ||
-      h.group.toLowerCase().includes(q)
-  )
+  let list = hostsList.value
+
+  if (selectedGroupFilter.value !== 'ALL') {
+    if (selectedGroupFilter.value === '__UNGROUPED__') {
+      list = list.filter((h) => !h.group || h.group.trim() === '')
+    } else {
+      list = list.filter((h) => h.group === selectedGroupFilter.value)
+    }
+  }
+
+  if (searchQuery.value.trim()) {
+    const q = searchQuery.value.toLowerCase()
+    list = list.filter(
+      (h) =>
+        h.name.toLowerCase().includes(q) ||
+        h.ip.toLowerCase().includes(q) ||
+        (h.group && h.group.toLowerCase().includes(q))
+    )
+  }
+
+  return list
 })
 
 function handleNewConnection(groupName?: string): void {
@@ -226,8 +262,22 @@ async function handleDeleteHost(id: number): Promise<void> {
 
 function handleSelectHost(host: HostItem): void {
   selectedHostId.value = host.id
-  if (currentView.value !== 'sftp' && currentView.value !== 'query') {
+  if (
+    currentView.value !== 'sftp' &&
+    currentView.value !== 'query' &&
+    currentView.value !== 'editor' &&
+    currentView.value !== 'redmine'
+  ) {
     currentView.value = 'hosts'
+  }
+}
+
+function handleHostDblClick(host: HostItem): void {
+  selectedHostId.value = host.id
+  if (currentView.value === 'sftp') {
+    sftpViewRef.value?.openNewTabForHost(host)
+  } else if (currentView.value === 'editor') {
+    editorViewRef.value?.connectToHost(host)
   }
 }
 
@@ -256,8 +306,11 @@ function handlePluginCenter(): void {
     <!-- Top Window TitleBar (Matches exact screenshot layout) -->
     <TitleBar
       :current-view="currentView"
+      :is-sidebar-collapsed="isSidebarCollapsed"
+      @toggle-sidebar="isSidebarCollapsed = !isSidebarCollapsed"
       @open-hosts="currentView = 'hosts'"
       @open-sftp="currentView = 'sftp'"
+      @open-editor="currentView = 'editor'"
       @new-connection="handleNewConnection"
       @new-query="handleNewQuery"
       @data-transfer="handleDataTransfer"
@@ -288,9 +341,11 @@ function handlePluginCenter(): void {
     <div class="flex-1 flex overflow-hidden">
       <!-- Left Navigation Explorer (Matches tools from screenshot with current sleek theme) -->
       <SidebarNavigator
+        v-model:collapsed="isSidebarCollapsed"
         :hosts="hostsList"
         :selected-host-id="selectedHostId"
         @select-host="handleSelectHost"
+        @dblclick-host="handleHostDblClick"
         @edit-host="handleEditHost"
         @delete-host="(h) => handleDeleteHost(h.id)"
         @add-host="handleNewConnection"
@@ -307,167 +362,48 @@ function handlePluginCenter(): void {
         <!-- SFTP FileZilla View -->
         <SftpView
           v-if="currentView === 'sftp'"
+          ref="sftpViewRef"
           :hosts="hostsList"
-          :initial-host-id="selectedHostId"
           @back-to-hosts="currentView = 'hosts'"
         />
 
         <!-- Hosts Management Canvas -->
-        <template v-else-if="currentView === 'hosts'">
-          <!-- Tab Breadcrumb / Action Bar -->
-          <div
-            class="h-10 bg-[#1C202B] border-b border-[#282F3E] px-4 flex items-center justify-between"
-          >
-          <div class="flex items-center space-x-3 text-xs">
-            <span class="text-[#8E99AF]">Target:</span>
-            <span class="text-white font-medium flex items-center space-x-1.5">
-              <Server class="w-3.5 h-3.5 text-blue-400" />
-              <span>All Connections ({{ filteredHosts.length }} Hosts)</span>
-            </span>
-          </div>
+        <HostsView
+          v-else-if="currentView === 'hosts'"
+          :hosts-list="hostsList"
+          :filtered-hosts="filteredHosts"
+          :available-filter-groups="availableFilterGroups"
+          :has-ungrouped-hosts="hasUngroupedHosts"
+          v-model:selected-group-filter="selectedGroupFilter"
+          v-model:search-query="searchQuery"
+          :is-loading="isLoading"
+          :app-version="appVersion"
+          @reload="loadConnectionsFromDb"
+          @open-terminal="(h) => console.log('Open terminal for', h.name)"
+          @open-sftp="openSftpForHost"
+          @edit-host="handleEditHost"
+          @delete-host="handleDeleteHost"
+        />
 
-          <!-- Blast Execution Controls -->
-          <div class="flex items-center space-x-2">
-            <button
-              class="flex items-center space-x-1.5 px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-medium shadow transition-colors"
-            >
-              <Play class="w-3.5 h-3.5 fill-current" />
-              <span>Run Pull Blast</span>
-            </button>
-            <button
-              class="p-1 text-[#9CA5B8] hover:text-white hover:bg-[#2C3345] rounded transition-colors"
-              title="Refresh Host Status"
-            >
-              <RefreshCw class="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
+        <!-- Query Console Canvas -->
+        <QueryView
+          v-else-if="currentView === 'query'"
+          :hosts="hostsList"
+          @back-to-hosts="currentView = 'hosts'"
+        />
 
-        <!-- Main Content Area: Hosts Table Preview -->
-        <div class="flex-1 overflow-auto p-4">
-          <div class="border border-[#282F3E] rounded-lg overflow-hidden bg-[#1C202B]">
-            <table class="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr class="bg-[#202532] text-[#8E99AF] border-b border-[#282F3E] font-medium">
-                  <th class="py-2.5 px-3 w-10 text-center">#</th>
-                  <th class="py-2.5 px-4">Host Name</th>
-                  <th class="py-2.5 px-4">SSH (Host:Port)</th>
-                  <th class="py-2.5 px-4">Database</th>
-                  <th class="py-2.5 px-4">Remote Path</th>
-                  <th class="py-2.5 px-4">Branch</th>
-                  <th class="py-2.5 px-4">Last Status</th>
-                  <th class="py-2.5 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-[#282F3E]">
-                <tr v-if="filteredHosts.length === 0">
-                  <td colspan="8" class="py-12 text-center text-[#556073]">
-                    <Server class="w-8 h-8 mx-auto mb-2 text-[#40495C] opacity-50" />
-                    <p class="text-sm font-medium text-[#7E8B9F]">No connections found</p>
-                    <p class="text-xs text-[#556073] mt-1">
-                      Click "New Connection" in the toolbar to create your first host
-                    </p>
-                  </td>
-                </tr>
-                <tr
-                  v-for="(h, index) in filteredHosts"
-                  :key="h.id"
-                  class="hover:bg-[#222736] transition-colors"
-                >
-                  <td class="py-3 px-3 text-center text-[#64748B]">{{ index + 1 }}</td>
-                  <td class="py-3 px-4 text-white font-medium flex items-center space-x-2">
-                    <span
-                      class="w-2 h-2 rounded-full"
-                      :class="h.statusType === 'success' ? 'bg-emerald-400' : 'bg-amber-400'"
-                    ></span>
-                    <span>{{ h.name }}</span>
-                  </td>
-                  <td class="py-3 px-4 font-mono text-slate-300">{{ h.ip }}:{{ h.port }}</td>
-                  <td class="py-3 px-4 font-mono text-slate-300">
-                    <div class="flex items-center space-x-1.5">
-                      <Database class="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                      <span>{{ h.dbHost || '127.0.0.1' }}:{{ h.dbPort || 3306 }}</span>
-                      <span v-if="h.database" class="text-[#8E99AF]">({{ h.database }})</span>
-                    </div>
-                  </td>
-                  <td class="py-3 px-4 font-mono text-[#8E99AF]">{{ h.remotePath }}</td>
-                  <td class="py-3 px-4">
-                    <span
-                      class="px-2 py-0.5 rounded text-[11px] bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono"
-                    >
-                      {{ h.branch }}
-                    </span>
-                  </td>
-                  <td class="py-3 px-4">
-                    <span
-                      class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[11px]"
-                      :class="
-                        h.statusType === 'success'
-                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                          : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                      "
-                    >
-                      <span>{{ h.status }}</span>
-                    </span>
-                  </td>
-                  <td class="py-3 px-4 text-right space-x-1">
-                    <button
-                      class="px-2 py-1 hover:bg-[#2D3547] text-slate-300 hover:text-white rounded text-[11px] transition-colors"
-                    >
-                      Pull
-                    </button>
-                    <button
-                      class="px-2 py-1 hover:bg-[#2D3547] text-slate-300 hover:text-white rounded text-[11px] transition-colors"
-                    >
-                      SSH
-                    </button>
-                    <button
-                      type="button"
-                      class="px-2 py-1 hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-400 rounded text-[11px] transition-colors font-medium"
-                      title="Open SFTP file manager"
-                      @click.stop="openSftpForHost(h.id)"
-                    >
-                      SFTP
-                    </button>
-                    <button
-                      type="button"
-                      class="px-1.5 py-1 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 rounded text-[11px] transition-colors"
-                      title="Edit Connection"
-                      @click.stop="handleEditHost(h)"
-                    >
-                      <Pencil class="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      class="px-1.5 py-1 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded text-[11px] transition-colors"
-                      title="Delete from SQLite Database"
-                      @click.stop="handleDeleteHost(h.id)"
-                    >
-                      <Trash2 class="w-3.5 h-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <!-- Redmine Center Canvas -->
+        <RedmineView
+          v-else-if="currentView === 'redmine'"
+          @back-to-hosts="currentView = 'hosts'"
+        />
 
-        <!-- Bottom Execution Status Bar -->
-        <footer
-          class="h-7 bg-[#1C202B] border-t border-[#282F3E] px-4 flex items-center justify-between text-[11px] text-[#8E99AF]"
-        >
-          <div class="flex items-center space-x-4">
-            <span class="flex items-center space-x-1 text-emerald-400">
-              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-              <span>All Services Operational</span>
-            </span>
-            <span>SSH Blast Concurrency: 10</span>
-          </div>
-          <div>
-            <span>v{{ appVersion }} • UTF-8 • macOS Darwin</span>
-          </div>
-        </footer>
-        </template>
+        <!-- Text Editor (VS Code Mode) -->
+        <EditorView
+          v-else-if="currentView === 'editor'"
+          ref="editorViewRef"
+          :hosts="hostsList"
+        />
       </main>
     </div>
   </div>

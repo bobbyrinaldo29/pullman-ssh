@@ -7,7 +7,6 @@ import {
   FolderPlus,
   RotateCw,
   ChevronsLeft,
-  ChevronsRight,
   ChevronsDownUp,
   Search,
   Folder,
@@ -18,47 +17,31 @@ import {
   Upload,
   Database,
   X,
-  Pin,
-  Copy,
-  Plus,
-  Plug,
-  Unplug,
-  Pencil,
-  Trash2
+  Pin
 } from 'lucide-vue-next'
+import { HostItem } from '../types/connection'
+import SidebarNewGroupModal from './sidebar/SidebarNewGroupModal.vue'
+import SidebarRenameGroupModal from './sidebar/SidebarRenameGroupModal.vue'
+import SidebarGroupContextMenu from './sidebar/SidebarGroupContextMenu.vue'
+import SidebarHostContextMenu from './sidebar/SidebarHostContextMenu.vue'
 
-export interface HostItem {
-  id: number
-  name: string
-  ip: string
-  port: number
-  remotePath: string
-  branch: string
-  status: string
-  statusType: 'success' | 'warning' | 'error' | 'idle'
-  group: string
-  url?: string
-  type?: string
-  color?: string
-  user?: string
-  password?: string
-  savePassword?: boolean
-  database?: string
-  notes?: string
-  dbHost?: string
-  dbPort?: number
-  dbUser?: string
-  dbPassword?: string
-  dbSavePassword?: boolean
-}
+export type { HostItem }
 
-const props = defineProps<{
-  hosts: HostItem[]
-  selectedHostId?: number | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    hosts: HostItem[]
+    selectedHostId?: number | null
+    collapsed?: boolean
+  }>(),
+  {
+    collapsed: false
+  }
+)
 
 const emit = defineEmits<{
+  (e: 'update:collapsed', val: boolean): void
   (e: 'select-host', host: HostItem): void
+  (e: 'dblclick-host', host: HostItem): void
   (e: 'edit-host', host: HostItem): void
   (e: 'delete-host', host: HostItem): void
   (e: 'add-host'): void
@@ -71,7 +54,10 @@ const emit = defineEmits<{
 }>()
 
 // State
-const isCollapsed = ref(false)
+const isCollapsed = computed({
+  get: () => props.collapsed,
+  set: (val: boolean) => emit('update:collapsed', val)
+})
 const searchQuery = ref('')
 const showImportExportMenu = ref(false)
 
@@ -96,7 +82,6 @@ const inlineInputRef = ref<HTMLInputElement | null>(null)
 
 // Rename Modal State
 const showRenameGroupModal = ref(false)
-const renameGroupNameInput = ref('')
 
 // New Group Modal State
 const showNewGroupModal = ref(false)
@@ -376,42 +361,67 @@ function collapseAll(): void {
 // Group hosts dynamically
 const groupedHosts = computed(() => {
   const groups: Record<string, HostItem[]> = {}
-
-  // Initialize all known groups
-  for (const g of customGroups.value) {
-    if (g && g.trim()) {
-      groups[g.trim()] = []
-    }
-  }
-
-  // Also catch any groups from hosts not in customGroups
-  for (const h of props.hosts) {
-    const g = h.group ? h.group.trim() : ''
-    if (g && !groups[g]) {
-      groups[g] = []
-    }
-  }
-
   const q = searchQuery.value.trim().toLowerCase()
 
+  // 1. Gather all unique group names
+  const allGroupNames = new Set<string>()
+  for (const g of customGroups.value) {
+    if (g && g.trim()) allGroupNames.add(g.trim())
+  }
   for (const h of props.hosts) {
-    // Search match
-    if (q) {
-      const match =
-        h.name.toLowerCase().includes(q) ||
-        h.ip.toLowerCase().includes(q) ||
-        (h.group && h.group.toLowerCase().includes(q))
-      if (!match) continue
+    const g = h.group ? h.group.trim() : ''
+    if (g) allGroupNames.add(g)
+  }
+
+  // 2. Map hosts into groups
+  for (const groupName of allGroupNames) {
+    const groupMatchesQuery = q !== '' && groupName.toLowerCase().includes(q)
+    const matchingHostsInGroup: HostItem[] = []
+
+    for (const h of props.hosts) {
+      const targetGroup = h.group ? h.group.trim() : ''
+      if (targetGroup !== groupName) continue
+
+      if (!q || groupMatchesQuery) {
+        matchingHostsInGroup.push(h)
+      } else {
+        const hostMatches =
+          h.name.toLowerCase().includes(q) ||
+          h.ip.toLowerCase().includes(q) ||
+          (h.database && h.database.toLowerCase().includes(q)) ||
+          (h.remotePath && h.remotePath.toLowerCase().includes(q))
+        if (hostMatches) {
+          matchingHostsInGroup.push(h)
+        }
+      }
     }
 
-    const targetGroup = h.group ? h.group.trim() : ''
-    if (targetGroup && groups[targetGroup]) {
-      groups[targetGroup].push(h)
+    // When searching, only include groups that have matches (either group name or contained hosts)
+    if (q) {
+      if (groupMatchesQuery || matchingHostsInGroup.length > 0) {
+        groups[groupName] = matchingHostsInGroup
+      }
+    } else {
+      groups[groupName] = matchingHostsInGroup
     }
   }
 
   return groups
 })
+
+// Automatically expand all folders when user types into search
+watch(
+  [searchQuery, groupedHosts],
+  ([newQuery, newGroups]) => {
+    const q = newQuery.trim()
+    if (q) {
+      for (const groupName of Object.keys(newGroups)) {
+        expandedGroups.value[groupName] = true
+      }
+    }
+  },
+  { deep: true }
+)
 
 const standaloneHosts = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
@@ -421,7 +431,8 @@ const standaloneHosts = computed(() => {
     return (
       h.name.toLowerCase().includes(q) ||
       h.ip.toLowerCase().includes(q) ||
-      h.remotePath.toLowerCase().includes(q)
+      (h.database && h.database.toLowerCase().includes(q)) ||
+      (h.remotePath && h.remotePath.toLowerCase().includes(q))
     )
   })
 })
@@ -465,46 +476,11 @@ async function handleCreateGroup(): Promise<void> {
 
 <template>
   <aside
-    class="bg-[#20242F] border-r border-[#282F3E] flex flex-col justify-between transition-all duration-200 select-none overflow-hidden h-full z-20"
-    :class="isCollapsed ? 'w-12' : 'w-64'"
+    class="bg-[#20242F] flex flex-col justify-between transition-all duration-200 select-none overflow-hidden h-full z-20 shrink-0"
+    :class="isCollapsed ? 'w-0 border-r-0' : 'w-64 border-r border-[#282F3E]'"
   >
-    <!-- Collapsed View (Slim icon rail) -->
-    <div v-if="isCollapsed" class="flex flex-col items-center py-3 space-y-4">
-      <button
-        class="p-2 rounded text-[#9CA5B8] hover:text-white hover:bg-[#2C3345] transition-colors"
-        title="Expand Sidebar"
-        @click="isCollapsed = false"
-      >
-        <ChevronsRight class="w-4 h-4" />
-      </button>
-
-      <button
-        class="p-2 rounded text-[#9CA5B8] hover:text-white hover:bg-[#2C3345] transition-colors"
-        title="Import / Export"
-        @click="isCollapsed = false"
-      >
-        <ArrowUpDown class="w-4 h-4 text-emerald-400" />
-      </button>
-
-      <button
-        class="p-2 rounded text-[#9CA5B8] hover:text-white hover:bg-[#2C3345] transition-colors"
-        title="Search Hosts"
-        @click="isCollapsed = false"
-      >
-        <Search class="w-4 h-4" />
-      </button>
-
-      <button
-        class="p-2 rounded text-[#9CA5B8] hover:text-white hover:bg-[#2C3345] transition-colors"
-        title="New Connection"
-        @click="emit('add-host')"
-      >
-        <FolderPlus class="w-4 h-4 text-blue-400" />
-      </button>
-    </div>
-
-    <!-- Expanded Full View (Exact match to screenshot) -->
-    <div v-else class="flex flex-col flex-1 overflow-hidden">
+    <!-- Expanded Full View -->
+    <div class="flex flex-col flex-1 overflow-hidden min-w-[256px]">
       <!-- 1. Header Row (Import / Export ⌵ on left + 4 Action Icons on right) -->
       <div
         class="h-9 px-3 border-b border-[#282F3E] flex items-center justify-between text-xs relative bg-[#20242F]"
@@ -603,6 +579,15 @@ async function handleCreateGroup(): Promise<void> {
             placeholder="Search..."
             class="w-full bg-transparent text-white placeholder-[#64748B] focus:outline-none text-[12px]"
           />
+          <button
+            v-if="searchQuery"
+            type="button"
+            class="text-[#64748B] hover:text-white ml-1 shrink-0"
+            title="Clear Search"
+            @click="searchQuery = ''"
+          >
+            <X class="w-3 h-3" />
+          </button>
         </div>
       </div>
 
@@ -614,9 +599,11 @@ async function handleCreateGroup(): Promise<void> {
           class="py-10 px-4 text-center text-[#556073] select-none"
         >
           <FolderPlus class="w-8 h-8 mx-auto mb-2.5 text-[#374154] opacity-60" />
-          <p class="text-[12px] font-medium text-[#7E8B9F]">No connections or groups</p>
+          <p class="text-[12px] font-medium text-[#7E8B9F]">
+            {{ searchQuery ? 'No connections match your search' : 'No connections or groups' }}
+          </p>
           <p class="text-[11px] text-[#556073] mt-1">
-            Click <strong class="text-slate-300">New Connection</strong> to add a host
+            {{ searchQuery ? 'Try a different keyword' : 'Click New Connection to add a host' }}
           </p>
         </div>
 
@@ -632,6 +619,7 @@ async function handleCreateGroup(): Promise<void> {
                 : 'text-[#A0ABC0] hover:bg-[#222736] hover:text-white'
             "
             @click="emit('select-host', host)"
+            @dblclick="emit('dblclick-host', host)"
             @contextmenu.prevent.stop="openHostContextMenu($event, host)"
           >
             <div class="flex items-center space-x-2 truncate">
@@ -711,6 +699,7 @@ async function handleCreateGroup(): Promise<void> {
                   : 'text-[#A0ABC0] hover:bg-[#222736] hover:text-white'
               "
               @click="emit('select-host', host)"
+              @dblclick="emit('dblclick-host', host)"
               @contextmenu.prevent.stop="openHostContextMenu($event, host)"
             >
               <div class="flex items-center space-x-2 truncate">
@@ -751,288 +740,43 @@ async function handleCreateGroup(): Promise<void> {
       </button>
     </div>
 
-    <!-- New Connection Group Modal Dialog (Teleported to body for reliable stacking) -->
-    <Teleport to="body">
-      <div
-        v-if="showNewGroupModal"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
-        @click.self="showNewGroupModal = false"
-      >
-        <div
-          class="w-full max-w-sm bg-[#1D222E] border border-[#2F374A] rounded-xl shadow-2xl p-4 space-y-4 text-xs"
-        >
-          <div class="flex items-center justify-between border-b border-[#2B3244] pb-2.5">
-            <div class="flex items-center space-x-2 text-white font-medium">
-              <FolderPlus class="w-4 h-4 text-amber-400" />
-              <span>New Connection Group</span>
-            </div>
-            <button class="text-slate-400 hover:text-white" @click="showNewGroupModal = false">
-              <X class="w-4 h-4" />
-            </button>
-          </div>
+    <!-- Modals & Context Menus -->
+    <SidebarNewGroupModal
+      v-model:show="showNewGroupModal"
+      @create="handleCreateGroup"
+    />
 
-          <div class="space-y-1.5">
-            <label class="text-slate-300 font-medium">Group Name</label>
-            <input
-              v-model="newGroupNameInput"
-              type="text"
-              autofocus
-              placeholder="e.g. Staging, Production Cluster, EU Servers"
-              class="w-full bg-[#161922] border border-[#2D3547] rounded-md px-3 py-1.5 text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500"
-              @keyup.enter="handleCreateGroup"
-            />
-          </div>
+    <SidebarRenameGroupModal
+      v-model:show="showRenameGroupModal"
+      :group-name="contextGroup"
+      @rename="({ oldName, newName }) => performRename(oldName, newName)"
+    />
 
-          <div class="flex items-center justify-end space-x-2 pt-2 border-t border-[#2B3244]">
-            <button
-              type="button"
-              class="px-3 py-1.5 rounded-md border border-[#2D3547] hover:bg-[#252B3A] text-slate-300"
-              @click="showNewGroupModal = false"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              class="px-3.5 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium"
-              @click="handleCreateGroup"
-            >
-              Create Group
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <SidebarGroupContextMenu
+      :show="showContextMenu"
+      :x="contextMenuX"
+      :y="contextMenuY"
+      :group-name="contextGroup"
+      :is-pinned="pinnedGroups.includes(contextGroup)"
+      :connection-count="groupedHosts[contextGroup]?.length || 0"
+      @pin="handlePinGroup"
+      @copy-name="handleCopyGroupName"
+      @new-connection="handleNewConnectionInGroup"
+      @new-group="handleNewGroupFromContext"
+      @open-connections="handleOpenConnectionsInGroup"
+      @rename="handleOpenRenameModal"
+      @delete="handleDeleteGroup"
+    />
 
-    <!-- Context Menu for Group (Pixel-matched with screenshot, Teleported to body) -->
-    <Teleport to="body">
-      <div
-        v-if="showContextMenu"
-        class="fixed z-50 w-64 bg-[#1D222E] border border-[#2C3446] rounded-xl shadow-2xl shadow-black/80 py-1.5 text-xs text-slate-200 select-none"
-        :style="{ top: `${contextMenuY}px`, left: `${contextMenuX}px` }"
-        @click.stop
-      >
-        <!-- Pin -->
-        <button
-          type="button"
-          class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-[#283145] hover:text-white transition-colors"
-          @click="handlePinGroup"
-        >
-          <Pin class="w-4 h-4 text-slate-400" />
-          <span>{{ pinnedGroups.includes(contextGroup) ? 'Unpin' : 'Pin' }}</span>
-        </button>
-
-        <!-- Copy Name -->
-        <button
-          type="button"
-          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-[#283145] hover:text-white transition-colors"
-          @click="handleCopyGroupName"
-        >
-          <div class="flex items-center space-x-2.5">
-            <Copy class="w-4 h-4 text-slate-400" />
-            <span>Copy Name</span>
-          </div>
-          <div class="flex items-center space-x-1 text-[11px] text-[#64748B]">
-            <span class="px-1 py-0.2 bg-[#161922] border border-[#2D3547] rounded">⌘</span>
-            <span class="px-1 py-0.2 bg-[#161922] border border-[#2D3547] rounded">C</span>
-          </div>
-        </button>
-
-        <div class="my-1 border-t border-[#293040]"></div>
-
-        <!-- New Connection -->
-        <button
-          type="button"
-          class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-[#283145] hover:text-white transition-colors"
-          @click="handleNewConnectionInGroup"
-        >
-          <Plus class="w-4 h-4 text-slate-400" />
-          <span>New Connection</span>
-        </button>
-
-        <!-- New Group... -->
-        <button
-          type="button"
-          class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-[#283145] hover:text-white transition-colors"
-          @click="handleNewGroupFromContext"
-        >
-          <FolderPlus class="w-4 h-4 text-slate-400" />
-          <span>New Group...</span>
-        </button>
-
-        <!-- Open Connections in Group (n) -->
-        <button
-          type="button"
-          class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-[#283145] hover:text-white transition-colors"
-          @click="handleOpenConnectionsInGroup"
-        >
-          <Plug class="w-4 h-4 text-slate-400" />
-          <span>Open Connections in Group ({{ groupedHosts[contextGroup]?.length || 0 }})</span>
-        </button>
-
-        <!-- Close Connections in Group (0) (Disabled) -->
-        <button
-          type="button"
-          disabled
-          class="w-full px-3 py-1.5 flex items-center justify-between text-[#556073] cursor-not-allowed opacity-70"
-        >
-          <div class="flex items-center space-x-2.5">
-            <Unplug class="w-4 h-4 text-[#556073]" />
-            <span>Close Connections in Group (0)</span>
-          </div>
-          <div class="flex items-center space-x-1 text-[10px] text-[#556073]">
-            <span class="px-1 py-0.2 bg-[#161922] border border-[#282F3E] rounded">⇧</span>
-            <span class="px-1 py-0.2 bg-[#161922] border border-[#282F3E] rounded">⌘</span>
-            <span class="px-1 py-0.2 bg-[#161922] border border-[#282F3E] rounded">E</span>
-          </div>
-        </button>
-
-        <div class="my-1 border-t border-[#293040]"></div>
-
-        <!-- Rename Group -->
-        <button
-          type="button"
-          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-[#283145] hover:text-white transition-colors"
-          @click="handleOpenRenameModal"
-        >
-          <div class="flex items-center space-x-2.5">
-            <Pencil class="w-4 h-4 text-slate-400" />
-            <span>Rename Group</span>
-          </div>
-          <span
-            class="px-1.5 py-0.2 bg-[#161922] border border-[#2D3547] rounded text-[10px] text-[#64748B]"
-          >
-            F2
-          </span>
-        </button>
-
-        <!-- Delete Group (Crimson red) -->
-        <button
-          type="button"
-          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-red-500/10 text-[#F87171] hover:text-red-400 transition-colors"
-          @click="handleDeleteGroup"
-        >
-          <div class="flex items-center space-x-2.5">
-            <Trash2 class="w-4 h-4 text-[#F87171]" />
-            <span>Delete Group</span>
-          </div>
-          <span
-            class="px-1.5 py-0.2 bg-[#161922] border border-red-500/20 rounded text-[10px] text-[#F87171]"
-          >
-            ⌫
-          </span>
-        </button>
-      </div>
-    </Teleport>
-
-    <!-- Rename Group Modal Dialog (Teleported to body) -->
-    <Teleport to="body">
-      <div
-        v-if="showRenameGroupModal"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
-        @click.self="showRenameGroupModal = false"
-      >
-        <div
-          class="w-full max-w-sm bg-[#1D222E] border border-[#2F374A] rounded-xl shadow-2xl p-4 space-y-4 text-xs"
-        >
-          <div class="flex items-center justify-between border-b border-[#2B3244] pb-2.5">
-            <div class="flex items-center space-x-2 text-white font-medium">
-              <Pencil class="w-4 h-4 text-blue-400" />
-              <span>Rename Group</span>
-            </div>
-            <button class="text-slate-400 hover:text-white" @click="showRenameGroupModal = false">
-              <X class="w-4 h-4" />
-            </button>
-          </div>
-
-          <div class="space-y-1.5">
-            <label class="text-slate-300 font-medium">New Group Name</label>
-            <input
-              v-model="renameGroupNameInput"
-              type="text"
-              autofocus
-              class="w-full bg-[#161922] border border-[#2D3547] rounded-md px-3 py-1.5 text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500"
-              @keyup.enter="performRename(contextGroup, renameGroupNameInput)"
-            />
-          </div>
-
-          <div class="flex items-center justify-end space-x-2 pt-2 border-t border-[#2B3244]">
-            <button
-              type="button"
-              class="px-3 py-1.5 rounded-md border border-[#2D3547] hover:bg-[#252B3A] text-slate-300"
-              @click="showRenameGroupModal = false"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              class="px-3.5 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium"
-              @click="performRename(contextGroup, renameGroupNameInput)"
-            >
-              Save Changes
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
-
-    <!-- Context Menu for Host / Connection (Right-click on connection) -->
-    <Teleport to="body">
-      <div
-        v-if="showHostContextMenu && contextHost"
-        class="fixed z-50 w-56 bg-[#1D222E] border border-[#2C3446] rounded-xl shadow-2xl shadow-black/80 py-1.5 text-xs text-slate-200 select-none"
-        :style="{ top: `${hostContextMenuY}px`, left: `${hostContextMenuX}px` }"
-        @click.stop
-      >
-        <!-- Edit Connection -->
-        <button
-          type="button"
-          class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-[#283145] hover:text-white transition-colors"
-          @click="handleEditHost"
-        >
-          <Pencil class="w-4 h-4 text-sky-400" />
-          <span class="font-medium text-slate-100">Edit Connection</span>
-        </button>
-
-        <div class="my-1 border-t border-[#293040]"></div>
-
-        <!-- Copy Host / IP -->
-        <button
-          type="button"
-          class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-[#283145] hover:text-white transition-colors"
-          @click="handleCopyHostIp"
-        >
-          <Copy class="w-4 h-4 text-slate-400" />
-          <span>Copy Host ({{ contextHost.ip }})</span>
-        </button>
-
-        <!-- Copy Name -->
-        <button
-          type="button"
-          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-[#283145] hover:text-white transition-colors"
-          @click="handleCopyHostName"
-        >
-          <div class="flex items-center space-x-2.5">
-            <Copy class="w-4 h-4 text-slate-400" />
-            <span>Copy Name</span>
-          </div>
-          <div class="flex items-center space-x-1 text-[11px] text-[#64748B]">
-            <span class="px-1 py-0.2 bg-[#161922] border border-[#2D3547] rounded">⌘</span>
-            <span class="px-1 py-0.2 bg-[#161922] border border-[#2D3547] rounded">C</span>
-          </div>
-        </button>
-
-        <div class="my-1 border-t border-[#293040]"></div>
-
-        <!-- Delete Connection -->
-        <button
-          type="button"
-          class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-rose-500/15 text-rose-400 hover:text-rose-300 transition-colors"
-          @click="handleDeleteHost"
-        >
-          <Trash2 class="w-4 h-4 text-rose-400" />
-          <span>Delete Connection</span>
-        </button>
-      </div>
-    </Teleport>
+    <SidebarHostContextMenu
+      :show="showHostContextMenu"
+      :x="hostContextMenuX"
+      :y="hostContextMenuY"
+      :host="contextHost"
+      @edit="handleEditHost"
+      @copy-ip="handleCopyHostIp"
+      @copy-name="handleCopyHostName"
+      @delete="handleDeleteHost"
+    />
   </aside>
 </template>

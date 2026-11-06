@@ -37,24 +37,66 @@ declare global {
       renameGroup: (oldName: string, newName: string) => Promise<boolean>
       deleteGroup: (name: string) => Promise<boolean>
       sftpConnect: (config: {
+        sessionId?: string
         host: string
         port: number
         user: string
         password?: string
         timeoutMs?: number
       }) => Promise<{ success: boolean; message: string; cwd?: string }>
-      sftpDisconnect: () => Promise<void>
-      sftpGetStatus: () => Promise<boolean>
-      sftpListRemote: (remotePath: string) => Promise<any[]>
-      sftpUpload: (localPath: string, remotePath: string) => Promise<void>
-      sftpDownload: (remotePath: string, localPath: string) => Promise<void>
-      sftpMkdirRemote: (remotePath: string) => Promise<void>
-      sftpDeleteRemote: (remotePath: string, isDirectory?: boolean) => Promise<void>
-      sftpRenameRemote: (oldPath: string, newPath: string) => Promise<void>
+      sftpDisconnect: (sessionId?: string) => Promise<void>
+      sftpGetStatus: (sessionId?: string) => Promise<boolean>
+      sftpListRemote: (remotePath: string, sessionId?: string) => Promise<any[]>
+      sftpUpload: (localPath: string, remotePath: string, sessionId?: string, asSudo?: boolean) => Promise<void>
+      sftpDownload: (remotePath: string, localPath: string, sessionId?: string, asSudo?: boolean) => Promise<void>
+      sftpMkdirRemote: (remotePath: string, sessionId?: string, asSudo?: boolean) => Promise<void>
+      sftpDeleteRemote: (remotePath: string, isDirectory?: boolean, sessionId?: string, asSudo?: boolean) => Promise<void>
+      sftpRenameRemote: (oldPath: string, newPath: string, sessionId?: string, asSudo?: boolean) => Promise<void>
+      sftpChmodRemote: (remotePath: string, mode: string | number, sessionId?: string, asSudo?: boolean) => Promise<void>
+      sftpReadFile: (remotePath: string, sessionId?: string, asSudo?: boolean) => Promise<string>
+      sftpWriteFile: (remotePath: string, content: string, sessionId?: string, asSudo?: boolean) => Promise<void>
+      sftpGetGitInfo: (remotePath: string, sessionId?: string) => Promise<{ isGit: boolean; branch: string; isDirty: boolean }>
+      sftpGetGitBlame: (
+        filePath: string,
+        line: number,
+        sessionId?: string
+      ) => Promise<{ author: string; timeAgo: string; summary: string; hash: string; isUncommitted: boolean } | null>
+      sftpGetGitStatus: (
+        remotePath: string,
+        sessionId?: string
+      ) => Promise<{
+        isGit: boolean
+        branch: string
+        root: string
+        files: { path: string; relPath: string; status: 'M' | 'A' | 'D' | 'U'; staged: boolean }[]
+      }>
+      sftpGitCommit: (
+        remotePath: string,
+        message: string,
+        sessionId?: string
+      ) => Promise<{ success: boolean; message: string }>
+      sftpGitDiscard: (
+        filePath: string,
+        sessionId?: string
+      ) => Promise<void>
+      sftpGitStage: (
+        filePath: string,
+        staged: boolean,
+        sessionId?: string
+      ) => Promise<void>
+      sftpSearchRemote: (
+        query: string,
+        rootPath: string,
+        sessionId?: string,
+        options?: { isCaseSensitive?: boolean; isWholeWord?: boolean; isRegex?: boolean }
+      ) => Promise<{ file: string; line: number; text: string }[]>
+      sftpRenameLocal: (oldPath: string, newPath: string, asSudo?: boolean) => Promise<void>
+      sftpOpenLocal: (filePath: string) => Promise<void>
       sftpGetLocalHome: () => Promise<string>
       sftpListLocal: (dirPath: string) => Promise<any[]>
-      sftpMkdirLocal: (dirPath: string) => Promise<void>
-      sftpDeleteLocal: (filePath: string) => Promise<void>
+      sftpMkdirLocal: (dirPath: string, asSudo?: boolean) => Promise<void>
+      sftpDeleteLocal: (filePath: string, asSudo?: boolean) => Promise<void>
+      showNotification: (payload: { title: string; body: string }) => Promise<void>
     }
   }
 }
