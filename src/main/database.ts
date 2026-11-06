@@ -22,6 +22,11 @@ export interface ConnectionRecord {
   branch?: string
   status: string
   statusType: 'success' | 'warning' | 'error' | 'idle'
+  dbHost?: string
+  dbPort?: number
+  dbUser?: string
+  dbPassword?: string
+  dbSavePassword?: boolean
   createdAt?: string
   updatedAt?: string
 }
@@ -41,6 +46,11 @@ export interface ConnectionInput {
   notes?: string
   remotePath?: string
   branch?: string
+  dbHost?: string
+  dbPort?: number
+  dbUser?: string
+  dbPassword?: string
+  dbSavePassword?: boolean
 }
 
 class DatabaseService {
@@ -147,10 +157,45 @@ class DatabaseService {
         branch TEXT DEFAULT 'main',
         last_status TEXT DEFAULT 'Ready',
         last_status_type TEXT DEFAULT 'idle',
+        db_host TEXT DEFAULT '127.0.0.1',
+        db_port INTEGER DEFAULT 3306,
+        db_user TEXT DEFAULT 'root',
+        db_password_encrypted TEXT,
+        db_save_password INTEGER DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS database_connections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        connection_id INTEGER NOT NULL UNIQUE,
+        host TEXT DEFAULT '127.0.0.1',
+        port INTEGER DEFAULT 3306,
+        user TEXT DEFAULT 'root',
+        password_encrypted TEXT,
+        save_password INTEGER DEFAULT 1,
+        database_name TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (connection_id) REFERENCES connections(id) ON DELETE CASCADE
+      );
     `)
+
+    // Safe migration if table already exists
+    const columnsToAdd = [
+      { name: 'db_host', type: "TEXT DEFAULT '127.0.0.1'" },
+      { name: 'db_port', type: 'INTEGER DEFAULT 3306' },
+      { name: 'db_user', type: "TEXT DEFAULT 'root'" },
+      { name: 'db_password_encrypted', type: 'TEXT' },
+      { name: 'db_save_password', type: 'INTEGER DEFAULT 1' }
+    ]
+    for (const col of columnsToAdd) {
+      try {
+        this.db.exec(`ALTER TABLE connections ADD COLUMN ${col.name} ${col.type}`)
+      } catch {
+        // column already exists
+      }
+    }
   }
 
   public getAllGroups(): string[] {
@@ -239,13 +284,23 @@ class DatabaseService {
   public addConnection(input: ConnectionInput): ConnectionRecord {
     if (!this.db) throw new Error('Database not initialized')
 
+    const groupToInsert = (input.group || '').trim()
+    if (groupToInsert) {
+      this.db
+        .prepare('INSERT OR IGNORE INTO connection_groups (name) VALUES (?)')
+        .run(groupToInsert)
+    }
+
     const encryptedPass = input.savePassword && input.password ? this.encrypt(input.password) : ''
+    const encryptedDbPass =
+      input.dbSavePassword !== false && input.dbPassword ? this.encrypt(input.dbPassword) : ''
 
     const stmt = this.db.prepare(`
       INSERT INTO connections (
         name, url, type, color, group_name, host, port, user, password_encrypted,
-        save_password, database_name, notes, remote_path, branch, last_status, last_status_type
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        save_password, database_name, notes, remote_path, branch, last_status, last_status_type,
+        db_host, db_port, db_user, db_password_encrypted, db_save_password
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     const result = stmt.run(
@@ -255,24 +310,163 @@ class DatabaseService {
       input.color || 'blue',
       input.group || '',
       input.host,
-      input.port || 3306,
+      input.port || 22,
       input.user || 'root',
       encryptedPass,
       input.savePassword !== false ? 1 : 0,
       input.database || '',
       input.notes || '',
-      input.remotePath || '/var/www/app-backend',
+      input.remotePath !== undefined ? input.remotePath : '',
       input.branch || 'main',
       'Connected',
-      'success'
+      'success',
+      input.dbHost || '127.0.0.1',
+      input.dbPort || 3306,
+      input.dbUser || 'root',
+      encryptedDbPass,
+      input.dbSavePassword !== false ? 1 : 0
     )
 
     const newId = Number(result.lastInsertRowid)
+
+    try {
+      this.db
+        .prepare(`
+          INSERT INTO database_connections (
+            connection_id, host, port, user, password_encrypted, save_password, database_name
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          newId,
+          input.dbHost || '127.0.0.1',
+          input.dbPort || 3306,
+          input.dbUser || 'root',
+          encryptedDbPass,
+          input.dbSavePassword !== false ? 1 : 0,
+          input.database || ''
+        )
+    } catch (err) {
+      console.error('Failed to insert into database_connections:', err)
+    }
+
     return this.getConnectionById(newId)!
+  }
+
+  public updateConnection(id: number, input: ConnectionInput): ConnectionRecord {
+    if (!this.db) throw new Error('Database not initialized')
+
+    const existing = this.getConnectionById(id)
+    if (!existing) {
+      throw new Error(`Connection with id ${id} not found`)
+    }
+
+    const groupToInsert = (input.group || '').trim()
+    if (groupToInsert) {
+      this.db
+        .prepare('INSERT OR IGNORE INTO connection_groups (name) VALUES (?)')
+        .run(groupToInsert)
+    }
+
+    let encryptedPass: string | null = null
+    if (input.savePassword === false) {
+      encryptedPass = ''
+    } else if (typeof input.password === 'string' && input.password.length > 0) {
+      encryptedPass = this.encrypt(input.password)
+    }
+
+    let encryptedDbPass: string | null = null
+    if (input.dbSavePassword === false) {
+      encryptedDbPass = ''
+    } else if (typeof input.dbPassword === 'string' && input.dbPassword.length > 0) {
+      encryptedDbPass = this.encrypt(input.dbPassword)
+    }
+
+    const remotePath = input.remotePath !== undefined ? input.remotePath : existing.remotePath
+    const branch = input.branch !== undefined ? input.branch : existing.branch
+    const dbHost = input.dbHost !== undefined ? input.dbHost : (existing.dbHost || '127.0.0.1')
+    const dbPort = input.dbPort !== undefined ? input.dbPort : (existing.dbPort || 3306)
+    const dbUser = input.dbUser !== undefined ? input.dbUser : (existing.dbUser || 'root')
+    const dbSavePassword =
+      input.dbSavePassword !== undefined
+        ? input.dbSavePassword
+        : existing.dbSavePassword !== false
+
+    const finalPass = encryptedPass !== null ? encryptedPass : (existing.password ? this.encrypt(existing.password) : '')
+    const finalDbPass = encryptedDbPass !== null ? encryptedDbPass : (existing.dbPassword ? this.encrypt(existing.dbPassword) : '')
+
+    this.db
+      .prepare(
+        `
+        UPDATE connections SET
+          name = ?, url = ?, type = ?, color = ?, group_name = ?,
+          host = ?, port = ?, user = ?, password_encrypted = ?,
+          save_password = ?, database_name = ?, notes = ?, remote_path = ?, branch = ?,
+          db_host = ?, db_port = ?, db_user = ?, db_password_encrypted = ?, db_save_password = ?,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `
+      )
+      .run(
+        input.name,
+        input.url || '',
+        input.type || 'MariaDB',
+        input.color || 'blue',
+        input.group || '',
+        input.host,
+        input.port || 22,
+        input.user || 'root',
+        finalPass,
+        input.savePassword !== false ? 1 : 0,
+        input.database !== undefined ? input.database : (existing.database || ''),
+        input.notes !== undefined ? input.notes : (existing.notes || ''),
+        remotePath !== undefined ? remotePath : '',
+        branch || 'main',
+        dbHost,
+        dbPort,
+        dbUser,
+        finalDbPass,
+        dbSavePassword ? 1 : 0,
+        id
+      )
+
+    try {
+      this.db
+        .prepare(`
+          INSERT INTO database_connections (
+            connection_id, host, port, user, password_encrypted, save_password, database_name, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(connection_id) DO UPDATE SET
+            host = excluded.host,
+            port = excluded.port,
+            user = excluded.user,
+            password_encrypted = excluded.password_encrypted,
+            save_password = excluded.save_password,
+            database_name = excluded.database_name,
+            updated_at = CURRENT_TIMESTAMP
+        `)
+        .run(
+          id,
+          dbHost,
+          dbPort,
+          dbUser,
+          finalDbPass,
+          dbSavePassword ? 1 : 0,
+          input.database !== undefined ? input.database : (existing.database || '')
+        )
+    } catch (err) {
+      console.error('Failed to upsert database_connections:', err)
+    }
+
+    return this.getConnectionById(id)!
   }
 
   public deleteConnection(id: number): boolean {
     if (!this.db) return false
+    try {
+      this.db.prepare('DELETE FROM database_connections WHERE connection_id = ?').run(id)
+    } catch {
+      // ignore
+    }
     const stmt = this.db.prepare('DELETE FROM connections WHERE id = ?')
     const result = stmt.run(id)
     return result.changes > 0
@@ -281,6 +475,9 @@ class DatabaseService {
   private mapRowToRecord(row: Record<string, unknown>): ConnectionRecord {
     const encryptedPass = String(row.password_encrypted || '')
     const pass = encryptedPass ? this.decrypt(encryptedPass) : ''
+
+    const encryptedDbPass = String(row.db_password_encrypted || '')
+    const dbPass = encryptedDbPass ? this.decrypt(encryptedDbPass) : ''
 
     return {
       id: Number(row.id),
@@ -300,6 +497,11 @@ class DatabaseService {
       branch: String(row.branch || 'main'),
       status: String(row.last_status || 'Ready'),
       statusType: (row.last_status_type as 'success' | 'warning' | 'error' | 'idle') || 'idle',
+      dbHost: String(row.db_host || '127.0.0.1'),
+      dbPort: Number(row.db_port || 3306),
+      dbUser: String(row.db_user || 'root'),
+      dbPassword: dbPass,
+      dbSavePassword: row.db_save_password !== undefined && row.db_save_password !== null ? Boolean(row.db_save_password) : true,
       createdAt: String(row.created_at || ''),
       updatedAt: String(row.updated_at || '')
     }

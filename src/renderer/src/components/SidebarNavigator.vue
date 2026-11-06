@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import {
   ArrowUpDown,
   ChevronDown,
@@ -10,9 +10,6 @@ import {
   ChevronsRight,
   ChevronsDownUp,
   Search,
-  Crosshair,
-  SlidersHorizontal,
-  Circle,
   Folder,
   FolderOpen,
   Server,
@@ -40,6 +37,19 @@ export interface HostItem {
   status: string
   statusType: 'success' | 'warning' | 'error' | 'idle'
   group: string
+  url?: string
+  type?: string
+  color?: string
+  user?: string
+  password?: string
+  savePassword?: boolean
+  database?: string
+  notes?: string
+  dbHost?: string
+  dbPort?: number
+  dbUser?: string
+  dbPassword?: string
+  dbSavePassword?: boolean
 }
 
 const props = defineProps<{
@@ -49,6 +59,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'select-host', host: HostItem): void
+  (e: 'edit-host', host: HostItem): void
+  (e: 'delete-host', host: HostItem): void
   (e: 'add-host'): void
   (e: 'add-host-in-group', groupName: string): void
   (e: 'import-data'): void
@@ -61,17 +73,21 @@ const emit = defineEmits<{
 // State
 const isCollapsed = ref(false)
 const searchQuery = ref('')
-const isRegexSearch = ref(true) // Checked by default like in screenshot!
-const isFilterActive = ref(true) // Active blue border/bg like in screenshot!
 const showImportExportMenu = ref(false)
 
-// Context Menu State
+// Context Menu State (Group)
 const showContextMenu = ref(false)
 const contextMenuX = ref(0)
 const contextMenuY = ref(0)
 const contextGroup = ref('')
 const activeHoverGroup = ref<string | null>(null)
 const pinnedGroups = ref<string[]>([])
+
+// Context Menu State (Host / Connection)
+const showHostContextMenu = ref(false)
+const hostContextMenuX = ref(0)
+const hostContextMenuY = ref(0)
+const contextHost = ref<HostItem | null>(null)
 
 // Inline Rename State
 const renamingGroup = ref<string | null>(null)
@@ -89,6 +105,14 @@ const customGroups = ref<string[]>([])
 
 // Expand/Collapse groups
 const expandedGroups = ref<Record<string, boolean>>({})
+
+watch(
+  () => props.hosts,
+  async () => {
+    await loadGroups()
+  },
+  { deep: true }
+)
 
 onMounted(async () => {
   await loadGroups()
@@ -139,6 +163,57 @@ function openContextMenu(event: MouseEvent, groupName: string): void {
 
 function closeContextMenu(): void {
   showContextMenu.value = false
+  showHostContextMenu.value = false
+}
+
+function openHostContextMenu(event: MouseEvent, host: HostItem): void {
+  event.preventDefault()
+  contextHost.value = host
+
+  const menuWidth = 230
+  const menuHeight = 180
+  let x = event.clientX
+  let y = event.clientY
+
+  if (x + menuWidth > window.innerWidth) {
+    x = window.innerWidth - menuWidth - 10
+  }
+  if (y + menuHeight > window.innerHeight) {
+    y = window.innerHeight - menuHeight - 10
+  }
+
+  hostContextMenuX.value = x
+  hostContextMenuY.value = y
+  showHostContextMenu.value = true
+  showContextMenu.value = false
+}
+
+function handleEditHost(): void {
+  if (contextHost.value) {
+    emit('edit-host', contextHost.value)
+  }
+  closeContextMenu()
+}
+
+function handleDeleteHost(): void {
+  if (contextHost.value) {
+    emit('delete-host', contextHost.value)
+  }
+  closeContextMenu()
+}
+
+function handleCopyHostIp(): void {
+  if (contextHost.value?.ip && navigator.clipboard) {
+    navigator.clipboard.writeText(contextHost.value.ip)
+  }
+  closeContextMenu()
+}
+
+function handleCopyHostName(): void {
+  if (contextHost.value?.name && navigator.clipboard) {
+    navigator.clipboard.writeText(contextHost.value.name)
+  }
+  closeContextMenu()
 }
 
 function handlePinGroup(): void {
@@ -338,6 +413,19 @@ const groupedHosts = computed(() => {
   return groups
 })
 
+const standaloneHosts = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  return props.hosts.filter((h) => {
+    if (h.group && h.group.trim()) return false
+    if (!q) return true
+    return (
+      h.name.toLowerCase().includes(q) ||
+      h.ip.toLowerCase().includes(q) ||
+      h.remotePath.toLowerCase().includes(q)
+    )
+  })
+})
+
 function handleTriggerImport(): void {
   emit('import-data')
   showImportExportMenu.value = false
@@ -520,16 +608,43 @@ async function handleCreateGroup(): Promise<void> {
 
       <!-- 3. Tree Navigator Content -->
       <div class="flex-1 overflow-y-auto p-2 space-y-1 text-xs">
-        <!-- Empty State when no groups exist -->
+        <!-- Empty State when no groups and no ungrouped hosts exist -->
         <div
-          v-if="Object.keys(groupedHosts).length === 0"
+          v-if="Object.keys(groupedHosts).length === 0 && standaloneHosts.length === 0"
           class="py-10 px-4 text-center text-[#556073] select-none"
         >
           <FolderPlus class="w-8 h-8 mx-auto mb-2.5 text-[#374154] opacity-60" />
-          <p class="text-[12px] font-medium text-[#7E8B9F]">No connection groups</p>
+          <p class="text-[12px] font-medium text-[#7E8B9F]">No connections or groups</p>
           <p class="text-[11px] text-[#556073] mt-1">
-            Click the <strong class="text-slate-300">+</strong> folder icon above to create a group
+            Click <strong class="text-slate-300">New Connection</strong> to add a host
           </p>
+        </div>
+
+        <!-- Standalone / Ungrouped Hosts (Shown directly at top of tree) -->
+        <div v-if="standaloneHosts.length > 0" class="space-y-0.5 mb-1">
+          <div
+            v-for="host in standaloneHosts"
+            :key="host.id"
+            class="flex items-center justify-between px-2 py-1.5 rounded cursor-pointer transition-colors text-xs"
+            :class="
+              selectedHostId === host.id
+                ? 'bg-[#293247] text-white font-medium border border-blue-500/20'
+                : 'text-[#A0ABC0] hover:bg-[#222736] hover:text-white'
+            "
+            @click="emit('select-host', host)"
+            @contextmenu.prevent.stop="openHostContextMenu($event, host)"
+          >
+            <div class="flex items-center space-x-2 truncate">
+              <Server class="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span class="truncate">{{ host.name }}</span>
+            </div>
+
+            <!-- Status Dot -->
+            <span
+              class="w-1.5 h-1.5 rounded-full shrink-0 ml-1.5"
+              :class="host.statusType === 'success' ? 'bg-emerald-400' : 'bg-amber-400'"
+            ></span>
+          </div>
         </div>
 
         <div v-for="(items, groupName) in groupedHosts" :key="groupName" class="space-y-0.5">
@@ -596,6 +711,7 @@ async function handleCreateGroup(): Promise<void> {
                   : 'text-[#A0ABC0] hover:bg-[#222736] hover:text-white'
               "
               @click="emit('select-host', host)"
+              @contextmenu.prevent.stop="openHostContextMenu($event, host)"
             >
               <div class="flex items-center space-x-2 truncate">
                 <Server class="w-3.5 h-3.5 text-emerald-400 shrink-0" />
@@ -856,6 +972,66 @@ async function handleCreateGroup(): Promise<void> {
             </button>
           </div>
         </div>
+      </div>
+    </Teleport>
+
+    <!-- Context Menu for Host / Connection (Right-click on connection) -->
+    <Teleport to="body">
+      <div
+        v-if="showHostContextMenu && contextHost"
+        class="fixed z-50 w-56 bg-[#1D222E] border border-[#2C3446] rounded-xl shadow-2xl shadow-black/80 py-1.5 text-xs text-slate-200 select-none"
+        :style="{ top: `${hostContextMenuY}px`, left: `${hostContextMenuX}px` }"
+        @click.stop
+      >
+        <!-- Edit Connection -->
+        <button
+          type="button"
+          class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-[#283145] hover:text-white transition-colors"
+          @click="handleEditHost"
+        >
+          <Pencil class="w-4 h-4 text-sky-400" />
+          <span class="font-medium text-slate-100">Edit Connection</span>
+        </button>
+
+        <div class="my-1 border-t border-[#293040]"></div>
+
+        <!-- Copy Host / IP -->
+        <button
+          type="button"
+          class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-[#283145] hover:text-white transition-colors"
+          @click="handleCopyHostIp"
+        >
+          <Copy class="w-4 h-4 text-slate-400" />
+          <span>Copy Host ({{ contextHost.ip }})</span>
+        </button>
+
+        <!-- Copy Name -->
+        <button
+          type="button"
+          class="w-full px-3 py-1.5 flex items-center justify-between hover:bg-[#283145] hover:text-white transition-colors"
+          @click="handleCopyHostName"
+        >
+          <div class="flex items-center space-x-2.5">
+            <Copy class="w-4 h-4 text-slate-400" />
+            <span>Copy Name</span>
+          </div>
+          <div class="flex items-center space-x-1 text-[11px] text-[#64748B]">
+            <span class="px-1 py-0.2 bg-[#161922] border border-[#2D3547] rounded">⌘</span>
+            <span class="px-1 py-0.2 bg-[#161922] border border-[#2D3547] rounded">C</span>
+          </div>
+        </button>
+
+        <div class="my-1 border-t border-[#293040]"></div>
+
+        <!-- Delete Connection -->
+        <button
+          type="button"
+          class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-rose-500/15 text-rose-400 hover:text-rose-300 transition-colors"
+          @click="handleDeleteHost"
+        >
+          <Trash2 class="w-4 h-4 text-rose-400" />
+          <span>Delete Connection</span>
+        </button>
       </div>
     </Teleport>
   </aside>

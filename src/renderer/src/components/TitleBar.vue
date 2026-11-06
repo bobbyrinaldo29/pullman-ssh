@@ -3,7 +3,6 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import {
   Database,
   FileCode2,
-  ArrowLeftRight,
   ChevronDown,
   Cloud,
   BookOpen,
@@ -19,12 +18,24 @@ import {
   Square,
   Copy,
   X,
-  Server
+  Server,
+  FolderSync
 } from 'lucide-vue-next'
 
+const props = withDefaults(
+  defineProps<{
+    currentView?: string
+  }>(),
+  {
+    currentView: 'hosts'
+  }
+)
+
 const emit = defineEmits<{
+  (e: 'open-hosts'): void
   (e: 'new-connection'): void
   (e: 'new-query'): void
+  (e: 'open-sftp'): void
   (e: 'data-transfer'): void
   (e: 'driver-manager'): void
   (e: 'plugin-center'): void
@@ -38,6 +49,11 @@ const isMac = ref(true)
 const isMaximized = ref(false)
 const showMoreMenu = ref(false)
 let cleanupMaximizeListener: (() => void) | null = null
+
+function handleSftpClick(): void {
+  emit('open-sftp')
+  emit('data-transfer')
+}
 
 onMounted(async () => {
   if (window.api?.platform) {
@@ -96,7 +112,11 @@ function handleClose(): void {
     <!-- Left Section: Traffic Light Padding on macOS / App Icon on Windows -->
     <div class="flex items-center space-x-1" :class="isMac ? 'pl-[70px]' : 'pl-0'">
       <!-- Windows App Icon Branding -->
-      <div v-if="!isMac" class="flex items-center space-x-2 mr-2 app-no-drag">
+      <div
+        v-if="!isMac"
+        class="flex items-center space-x-2 mr-2 app-no-drag cursor-pointer"
+        @click="emit('open-hosts')"
+      >
         <div
           class="w-5 h-5 rounded bg-blue-600 flex items-center justify-center text-white shadow-sm"
         >
@@ -104,6 +124,17 @@ function handleClose(): void {
         </div>
         <span class="text-xs font-semibold text-white tracking-wide">DO.MBA</span>
       </div>
+
+      <!-- Button: Connections -->
+      <button
+        type="button"
+        class="app-no-drag flex items-center space-x-1.5 px-2.5 py-1 rounded text-[#C2C9D6] hover:text-white hover:bg-[#2C3345] transition-colors"
+        :class="{ 'bg-[#2C3345] text-white': props.currentView === 'hosts' }"
+        @click="emit('open-hosts')"
+      >
+        <Server class="w-3.5 h-3.5 text-blue-400" />
+        <span>Connections</span>
+      </button>
 
       <!-- Button: New Connection -->
       <button
@@ -119,20 +150,22 @@ function handleClose(): void {
       <button
         type="button"
         class="app-no-drag flex items-center space-x-1.5 px-2.5 py-1 rounded text-[#C2C9D6] hover:text-white hover:bg-[#2C3345] transition-colors"
+        :class="{ 'bg-[#2C3345] text-white': props.currentView === 'query' }"
         @click="emit('new-query')"
       >
         <FileCode2 class="w-3.5 h-3.5 text-[#A78BFA]" />
         <span>New Query</span>
       </button>
 
-      <!-- Button: Data Transfer -->
+      <!-- Button: SFTP (FileZilla Mode) -->
       <button
         type="button"
         class="app-no-drag flex items-center space-x-1.5 px-2.5 py-1 rounded text-[#C2C9D6] hover:text-white hover:bg-[#2C3345] transition-colors"
-        @click="emit('data-transfer')"
+        :class="{ 'bg-[#2C3345] text-white': props.currentView === 'sftp' }"
+        @click="handleSftpClick"
       >
-        <ArrowLeftRight class="w-3.5 h-3.5 text-[#34D399]" />
-        <span>Data Transfer</span>
+        <FolderSync class="w-3.5 h-3.5 text-[#34D399]" />
+        <span>SFTP</span>
       </button>
 
       <!-- Button: More Dropdown -->
