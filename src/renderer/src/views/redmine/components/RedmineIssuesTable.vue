@@ -25,10 +25,12 @@ const props = withDefaults(
     selectedProjectId?: number | 'all'
     filters: RedmineFilterOptions
     isLoading: boolean
+    error?: string | null
   }>(),
   {
     queries: () => [],
-    selectedProjectId: 'all'
+    selectedProjectId: 'all',
+    error: null
   }
 )
 
@@ -37,12 +39,19 @@ const emit = defineEmits<{
   (e: 'new-issue'): void
   (e: 'apply-filters'): void
   (e: 'clear-filters'): void
+  (e: 'update:selected-project-id', id: number | 'all'): void
 }>()
 
 const showFilters = ref(true)
 
 function selectQuery(id: number | 'all'): void {
   props.filters.queryId = id
+  if (id !== 'all') {
+    const q = props.queries.find((item) => item.id === id)
+    if (q?.project_id && props.selectedProjectId !== q.project_id) {
+      emit('update:selected-project-id', q.project_id)
+    }
+  }
   emit('apply-filters')
 }
 
@@ -227,6 +236,21 @@ function formatRelative(dateStr: string): string {
         >
           <Plus class="w-3.5 h-3.5" />
           <span>New issue</span>
+        </button>
+      </div>
+
+      <!-- Error Notice Bar -->
+      <div
+        v-if="props.error"
+        class="px-4 py-2 bg-rose-500/10 border-b border-rose-500/20 text-rose-300 text-xs flex items-center justify-between shrink-0"
+      >
+        <span>⚠️ {{ props.error }}</span>
+        <button
+          type="button"
+          class="text-[11px] underline text-rose-400 hover:text-rose-200 cursor-pointer"
+          @click="emit('apply-filters')"
+        >
+          Retry
         </button>
       </div>
 

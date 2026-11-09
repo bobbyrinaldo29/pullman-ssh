@@ -206,15 +206,17 @@ export function useRedmine() {
       let endpoint = '/issues.json?limit=100'
 
       if (filters.value.queryId !== 'all') {
-        // In Redmine, query_id applies the saved query's filters (statuses, trackers, columns, etc.) on the server.
-        // We must NOT send status_id or tracker_id here, as they override the saved query!
-        endpoint += `&query_id=${filters.value.queryId}`
-        if (selectedProjectId.value !== 'all') {
-          endpoint += `&project_id=${selectedProjectId.value}`
+        const targetQuery = queries.value.find((q) => q.id === filters.value.queryId)
+        const projId = selectedProjectId.value !== 'all' ? selectedProjectId.value : targetQuery?.project_id
+
+        if (projId) {
+          endpoint = `/projects/${projId}/issues.json?limit=100&query_id=${filters.value.queryId}`
+        } else {
+          endpoint = `/issues.json?limit=100&query_id=${filters.value.queryId}`
         }
       } else {
         if (selectedProjectId.value !== 'all') {
-          endpoint += `&project_id=${selectedProjectId.value}`
+          endpoint = `/projects/${selectedProjectId.value}/issues.json?limit=100`
         }
         if (filters.value.status === 'open') endpoint += '&status_id=open'
         else if (filters.value.status === 'closed') endpoint += '&status_id=closed'
@@ -225,13 +227,29 @@ export function useRedmine() {
         if (filters.value.assignedToMe && currentUser.value) endpoint += `&assigned_to_id=me`
       }
 
-      const res = await apiCall(endpoint)
+      let res = await apiCall(endpoint)
+
+      // Fallback 1: If /projects/:id/issues.json failed (e.g. 404), try /issues.json?query_id=...&project_id=...
+      if (!res.ok && endpoint.startsWith('/projects/') && filters.value.queryId !== 'all') {
+        const targetQuery = queries.value.find((q) => q.id === filters.value.queryId)
+        const projId = selectedProjectId.value !== 'all' ? selectedProjectId.value : targetQuery?.project_id
+        const fallback = `/issues.json?limit=100&query_id=${filters.value.queryId}${projId ? `&project_id=${projId}` : ''}`
+        res = await apiCall(fallback)
+      }
+
+      // Fallback 2: If project_id caused 404, try global query_id
+      if (!res.ok && res.status === 404 && filters.value.queryId !== 'all') {
+        res = await apiCall(`/issues.json?limit=100&query_id=${filters.value.queryId}`)
+      }
+
       if (res.ok && res.data?.issues) {
         issues.value = res.data.issues
       } else if (!res.ok) {
-        error.value = res.error || `Failed to fetch issues (${res.status})`
+        issues.value = []
+        error.value = res.error || `HTTP ${res.status}: Failed to fetch issues`
       }
     } catch (err) {
+      issues.value = []
       error.value = err instanceof Error ? err.message : String(err)
     } finally {
       isLoading.value = false

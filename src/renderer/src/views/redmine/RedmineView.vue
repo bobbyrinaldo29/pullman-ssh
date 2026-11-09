@@ -147,13 +147,14 @@ function handleRefresh(): void {
         <!-- Issues View (Default) -->
         <RedmineIssuesTable
           v-if="activeTab === 'issues'"
+          v-model:selected-project-id="selectedProjectId"
           :issues="filteredIssues"
           :trackers="trackers"
           :priorities="priorities"
           :queries="queries"
-          :selected-project-id="selectedProjectId"
           :filters="filters"
           :is-loading="isLoading"
+          :error="error"
           @select-issue="(issue) => fetchIssueDetail(issue.id)"
           @new-issue="showNewIssueModal = true"
           @apply-filters="fetchIssues"
