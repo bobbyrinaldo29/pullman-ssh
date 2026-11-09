@@ -33,6 +33,7 @@ export interface LocalFileItem {
 interface SftpSession {
   client: SftpClient
   isConnected: boolean
+  cwd?: string
   config?: {
     host: string
     port: number
@@ -112,6 +113,7 @@ export class SftpService {
       this.sessions.set(sid, {
         client,
         isConnected: true,
+        cwd: cwd || '/',
         config: { ...config }
       })
 
@@ -755,6 +757,70 @@ export class SftpService {
     const action = staged ? `git -c safe.directory=* add '${escBase}'` : `git -c safe.directory=* reset HEAD '${escBase}'`
     const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && ${action}`
     await this.execRemote(cmd, sessionId, false)
+  }
+
+  public async gitStageAll(remotePath: string, sessionId?: string): Promise<void> {
+    const session = this.getSession(sessionId)
+    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
+    const cleanPath = (remotePath || '/').replace(/\/+/g, '/')
+    const escDir = cleanPath.replace(/'/g, "'\\''")
+    await this.execRemote(`PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* add -A`, sessionId, false)
+  }
+
+  public async gitDiscardAll(remotePath: string, sessionId?: string): Promise<void> {
+    const session = this.getSession(sessionId)
+    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
+    const cleanPath = (remotePath || '/').replace(/\/+/g, '/')
+    const escDir = cleanPath.replace(/'/g, "'\\''")
+    await this.execRemote(`PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* checkout -- . && git -c safe.directory=* clean -fd`, sessionId, false)
+  }
+
+  public async gitPull(remotePath: string, sessionId?: string): Promise<{ success: boolean; message: string }> {
+    const session = this.getSession(sessionId)
+    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
+    const cleanPath = (remotePath || '/').replace(/\/+/g, '/')
+    const escDir = cleanPath.replace(/'/g, "'\\''")
+    const res = await this.execRemote(`PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* pull`, sessionId, false)
+    return { success: true, message: res.stdout.trim() || res.stderr.trim() || 'Pulled.' }
+  }
+
+  public async gitPush(remotePath: string, sessionId?: string): Promise<{ success: boolean; message: string }> {
+    const session = this.getSession(sessionId)
+    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
+    const cleanPath = (remotePath || '/').replace(/\/+/g, '/')
+    const escDir = cleanPath.replace(/'/g, "'\\''")
+    const res = await this.execRemote(`PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* push`, sessionId, false)
+    return { success: true, message: res.stdout.trim() || res.stderr.trim() || 'Pushed.' }
+  }
+
+  public async gitLog(remotePath: string, sessionId?: string): Promise<string> {
+    const session = this.getSession(sessionId)
+    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
+    const cleanPath = (remotePath || '/').replace(/\/+/g, '/')
+    const escDir = cleanPath.replace(/'/g, "'\\''")
+    const res = await this.execRemote(`PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* log --graph --oneline --decorate -n 35 2>/dev/null || true`, sessionId, false)
+    return res.stdout.trim() || res.stderr.trim() || 'No git log available.'
+  }
+
+  public async getGitGraphCommits(remotePath: string, sessionId?: string, limit = 80): Promise<string> {
+    const session = this.getSession(sessionId)
+    if (!session || !session.isConnected) return ''
+    const escDir = (remotePath || '').replace(/\/+/g, '/').replace(/'/g, "'\\''")
+    const escCwd = (session.cwd || '').replace(/'/g, "'\\''")
+    const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; for P in '${escDir}' '${escCwd}'; do [ -z "$P" ] && continue; T="$P"; [ -f "$T" ] && T=$(dirname "$T"); [ ! -d "$T" ] && continue; cd "$T" 2>/dev/null || continue; R=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null); if [ -n "$R" ]; then cd "$R" 2>/dev/null && git -c safe.directory=* log --all --date-order -n ${limit} --pretty=format:'%H%x09%h%x09%P%x09%an%x09%ae%x09%ar%x09%s%x09%D' 2>/dev/null || git -c safe.directory=* log -n ${limit} --pretty=format:'%H%x09%h%x09%P%x09%an%x09%ae%x09%ar%x09%s%x09%D' 2>/dev/null; exit 0; fi; done`
+    const res = await this.execRemote(cmd, sessionId, false)
+    return res.stdout.trim()
+  }
+
+  public async getCommitDetails(remotePath: string, hash: string, sessionId?: string): Promise<string> {
+    const session = this.getSession(sessionId)
+    if (!session || !session.isConnected) return ''
+    const escDir = (remotePath || '').replace(/\/+/g, '/').replace(/'/g, "'\\''")
+    const escCwd = (session.cwd || '').replace(/'/g, "'\\''")
+    const escHash = hash.replace(/'/g, "'\\''")
+    const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; for P in '${escDir}' '${escCwd}'; do [ -z "$P" ] && continue; T="$P"; [ -f "$T" ] && T=$(dirname "$T"); [ ! -d "$T" ] && continue; cd "$T" 2>/dev/null || continue; R=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null); if [ -n "$R" ]; then cd "$R" 2>/dev/null && git -c safe.directory=* show --stat --name-status -n 1 '${escHash}' 2>/dev/null; exit 0; fi; done`
+    const res = await this.execRemote(cmd, sessionId, false)
+    return res.stdout.trim()
   }
 
   public async searchRemote(

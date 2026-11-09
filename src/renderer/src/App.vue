@@ -311,6 +311,7 @@ function handlePluginCenter(): void {
       @open-hosts="currentView = 'hosts'"
       @open-sftp="currentView = 'sftp'"
       @open-editor="currentView = 'editor'"
+      @open-redmine="currentView = 'redmine'"
       @new-connection="handleNewConnection"
       @new-query="handleNewQuery"
       @data-transfer="handleDataTransfer"

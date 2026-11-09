@@ -19,6 +19,19 @@ export interface EditorTab {
   isSaving: boolean
   language: string
   readOnly?: boolean
+  viewType?: 'code' | 'git-graph'
+}
+
+export interface GitGraphCommit {
+  hash: string
+  shortHash: string
+  parents: string[]
+  author: string
+  email: string
+  date: string
+  subject: string
+  refs: string[]
+  lane: number
 }
 
 export interface EditorCursorPos {

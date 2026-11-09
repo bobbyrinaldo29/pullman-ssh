@@ -20,6 +20,7 @@ import {
   Server,
   FolderSync,
   Code,
+  FolderKanban,
   ChevronsRight
 } from 'lucide-vue-next'
 
@@ -41,6 +42,7 @@ const emit = defineEmits<{
   (e: 'new-query'): void
   (e: 'open-sftp'): void
   (e: 'open-editor'): void
+  (e: 'open-redmine'): void
   (e: 'data-transfer'): void
   (e: 'driver-manager'): void
   (e: 'plugin-center'): void
@@ -172,6 +174,17 @@ function handleClose(): void {
       >
         <Code class="w-3.5 h-3.5 text-sky-400" />
         <span>Text Editor</span>
+      </button>
+
+      <!-- Button: Redmine -->
+      <button
+        type="button"
+        class="app-no-drag flex items-center space-x-1.5 px-2.5 py-1 rounded text-[#C2C9D6] hover:text-white hover:bg-[#2C3345] transition-colors"
+        :class="{ 'bg-[#2C3345] text-white': props.currentView === 'redmine' }"
+        @click="emit('open-redmine')"
+      >
+        <FolderKanban class="w-3.5 h-3.5 text-rose-400" />
+        <span>Redmine</span>
       </button>
 
       <!-- Button: New Query -->

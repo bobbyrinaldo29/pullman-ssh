@@ -254,21 +254,21 @@ export function useEditorSsh() {
     }
   }
 
-  async function saveActiveTab(): Promise<boolean> {
+  async function saveActiveTab(asSudo = false): Promise<boolean> {
     const tab = activeTab.value
     if (!tab) return false
 
     tab.isSaving = true
     try {
       if (window.api?.sftpWriteFile) {
-        await window.api.sftpWriteFile(tab.path, tab.content, sessionId.value)
+        await window.api.sftpWriteFile(tab.path, tab.content, sessionId.value, asSudo)
         tab.originalContent = tab.content
         tab.isDirty = false
 
         if (window.api?.showNotification) {
           window.api.showNotification({
-            title: 'File Saved',
-            body: `Saved "${tab.name}" to remote server via SSH.`
+            title: asSudo ? 'Saved as Sudo (Root)' : 'File Saved',
+            body: `Saved "${tab.name}" ${asSudo ? 'with sudo privileges ' : ''}to remote server.`
           }).catch(() => {})
         }
         return true
@@ -276,7 +276,15 @@ export function useEditorSsh() {
       return false
     } catch (err) {
       console.error(`Failed to save file ${tab.path}:`, err)
-      alert(`Save failed for "${tab.name}": ${err instanceof Error ? err.message : String(err)}`)
+      const errMsg = err instanceof Error ? err.message : String(err)
+      if (!asSudo && (errMsg.toLowerCase().includes('permission') || errMsg.toLowerCase().includes('access denied') || errMsg.toLowerCase().includes('eacces'))) {
+        const retrySudo = confirm(`Permission denied when saving "${tab.name}". Would you like to Save as Sudo (Root)?`)
+        if (retrySudo) {
+          return await saveActiveTab(true)
+        }
+      } else {
+        alert(`Save failed for "${tab.name}": ${errMsg}`)
+      }
       return false
     } finally {
       tab.isSaving = false

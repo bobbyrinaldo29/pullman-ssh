@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, Notification } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Notification, net } from 'electron'
 import { join } from 'path'
 import { Client as SshClient } from 'ssh2'
 import mysql from 'mysql2/promise'
@@ -6,6 +6,10 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { dbService, ConnectionInput } from './database'
 import { sftpService } from './sftpService'
+import { googleAuthService } from './googleAuthService'
+import { redmineService } from './redmineService'
+
+
 
 function testSshConnection(input: {
   host: string
@@ -671,6 +675,55 @@ app.whenReady().then(() => {
   )
 
   ipcMain.handle(
+    'sftp:git-stage-all',
+    (_, { remotePath, sessionId }: { remotePath: string; sessionId?: string }) => {
+      return sftpService.gitStageAll(remotePath, sessionId)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:git-discard-all',
+    (_, { remotePath, sessionId }: { remotePath: string; sessionId?: string }) => {
+      return sftpService.gitDiscardAll(remotePath, sessionId)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:git-pull',
+    (_, { remotePath, sessionId }: { remotePath: string; sessionId?: string }) => {
+      return sftpService.gitPull(remotePath, sessionId)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:git-push',
+    (_, { remotePath, sessionId }: { remotePath: string; sessionId?: string }) => {
+      return sftpService.gitPush(remotePath, sessionId)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:git-log',
+    (_, { remotePath, sessionId }: { remotePath: string; sessionId?: string }) => {
+      return sftpService.gitLog(remotePath, sessionId)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:git-graph-commits',
+    (_, { remotePath, sessionId, limit }: { remotePath: string; sessionId?: string; limit?: number }) => {
+      return sftpService.getGitGraphCommits(remotePath, sessionId, limit)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:git-commit-details',
+    (_, { remotePath, hash, sessionId }: { remotePath: string; hash: string; sessionId?: string }) => {
+      return sftpService.getCommitDetails(remotePath, hash, sessionId)
+    }
+  )
+
+  ipcMain.handle(
     'sftp:search-remote',
     (
       _,
@@ -698,42 +751,12 @@ app.whenReady().then(() => {
     }
   )
 
-  ipcMain.handle(
-    'sftp:rename-local',
-    (_, { oldPath, newPath, asSudo }: { oldPath: string; newPath: string; asSudo?: boolean }) => {
-      return sftpService.renameLocal(oldPath, newPath, asSudo)
-    }
-  )
-
-  ipcMain.handle('sftp:open-local', (_, filePath: string) => {
-    return shell.openPath(filePath)
-  })
-
-  ipcMain.handle('sftp:get-local-home', () => {
-    return sftpService.getLocalHome()
-  })
-
-  ipcMain.handle('sftp:list-local', (_, dirPath: string) => {
-    return sftpService.listLocal(dirPath)
-  })
-
-  ipcMain.handle(
-    'sftp:mkdir-local',
-    (_, arg: string | { dirPath: string; asSudo?: boolean }) => {
-      const dirPath = typeof arg === 'string' ? arg : arg.dirPath
-      const asSudo = typeof arg === 'object' ? Boolean(arg.asSudo) : false
-      return sftpService.mkdirLocal(dirPath, asSudo)
-    }
-  )
-
-  ipcMain.handle(
-    'sftp:delete-local',
-    (_, arg: string | { filePath: string; asSudo?: boolean }) => {
-      const filePath = typeof arg === 'string' ? arg : arg.filePath
-      const asSudo = typeof arg === 'object' ? Boolean(arg.asSudo) : false
-      return sftpService.deleteLocal(filePath, asSudo)
-    }
-  )
+  ipcMain.handle('sftp:rename-local', (_, { oldPath, newPath, asSudo }: { oldPath: string; newPath: string; asSudo?: boolean }) => sftpService.renameLocal(oldPath, newPath, asSudo))
+  ipcMain.handle('sftp:open-local', (_, filePath: string) => shell.openPath(filePath))
+  ipcMain.handle('sftp:get-local-home', () => sftpService.getLocalHome())
+  ipcMain.handle('sftp:list-local', (_, dirPath: string) => sftpService.listLocal(dirPath))
+  ipcMain.handle('sftp:mkdir-local', (_, arg: string | { dirPath: string; asSudo?: boolean }) => sftpService.mkdirLocal(typeof arg === 'string' ? arg : arg.dirPath, typeof arg === 'object' ? Boolean(arg.asSudo) : false))
+  ipcMain.handle('sftp:delete-local', (_, arg: string | { filePath: string; asSudo?: boolean }) => sftpService.deleteLocal(typeof arg === 'string' ? arg : arg.filePath, typeof arg === 'object' ? Boolean(arg.asSudo) : false))
 
   ipcMain.handle(
     'app:show-notification',
@@ -763,31 +786,48 @@ app.whenReady().then(() => {
   ipcMain.on('ping', () => console.log('pong'))
 
   // Windows / Frameless Window Controls
-  ipcMain.on('window-minimize', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    win?.minimize()
-  })
-
+  ipcMain.on('window-minimize', (event) => BrowserWindow.fromWebContents(event.sender)?.minimize())
   ipcMain.on('window-maximize', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    if (win) {
-      if (win.isMaximized()) {
-        win.unmaximize()
-      } else {
-        win.maximize()
+    if (win) win.isMaximized() ? win.unmaximize() : win.maximize()
+  })
+  ipcMain.on('window-close', (event) => BrowserWindow.fromWebContents(event.sender)?.close())
+  ipcMain.handle('window-is-maximized', (event) => BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false)
+
+  ipcMain.handle(
+    'ai:call-gemini',
+    async (_, payload: { url: string; headers?: Record<string, string>; body: string }) => {
+      try {
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), 45000)
+        const res = await net.fetch(payload.url, {
+          method: 'POST',
+          headers: payload.headers || { 'Content-Type': 'application/json' },
+          body: payload.body,
+          signal: controller.signal
+        }).finally(() => clearTimeout(timer))
+        const status = res.status
+        const ok = res.ok
+        const data = await res.json().catch(() => null)
+        return { ok, status, statusText: res.statusText, data }
+      } catch (err) {
+        return {
+          ok: false,
+          status: 0,
+          error: err instanceof Error ? err.message : String(err)
+        }
       }
     }
-  })
+  )
 
-  ipcMain.on('window-close', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    win?.close()
-  })
+  ipcMain.handle('ai:google-sign-in', () => googleAuthService.signIn())
+  ipcMain.handle('ai:google-refresh-token', (_, refreshToken: string) => googleAuthService.refreshToken(refreshToken))
 
-  ipcMain.handle('window-is-maximized', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    return win?.isMaximized() ?? false
-  })
+  ipcMain.handle(
+    'redmine:request',
+    (_, payload: { url: string; method?: string; headers?: Record<string, string>; body?: string }) =>
+      redmineService.request(payload)
+  )
 
   createWindow()
 

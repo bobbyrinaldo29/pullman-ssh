@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { X, ChevronRight, FileCode, FileText, File, Columns2 } from 'lucide-vue-next'
+import { X, ChevronRight, FileCode, FileText, File, Columns2, ShieldAlert, GitBranch, Sparkles } from 'lucide-vue-next'
 import { EditorTab } from '../types'
 
 defineProps<{
@@ -13,17 +13,22 @@ const emit = defineEmits<{
   (e: 'select-tab', tabId: string): void
   (e: 'close-tab', tabId: string): void
   (e: 'toggle-split'): void
+  (e: 'save-as-sudo'): void
+  (e: 'open-git-graph'): void
+  (e: 'toggle-ai-gen'): void
 }>()
 
-function getIcon(name: string): any {
-  const ext = name.split('.').pop()?.toLowerCase() || ''
+function getIcon(tab: EditorTab): any {
+  if (tab.viewType === 'git-graph' || tab.name === 'Git Graph') return GitBranch
+  const ext = tab.name.split('.').pop()?.toLowerCase() || ''
   if (['ts', 'js', 'vue', 'json', 'html', 'css', 'php', 'py', 'sh', 'sql'].includes(ext)) return FileCode
   if (['txt', 'md', 'log', 'env'].includes(ext)) return FileText
   return File
 }
 
-function getIconColor(name: string): string {
-  const ext = name.split('.').pop()?.toLowerCase() || ''
+function getIconColor(tab: EditorTab): string {
+  if (tab.viewType === 'git-graph' || tab.name === 'Git Graph') return 'text-blue-400'
+  const ext = tab.name.split('.').pop()?.toLowerCase() || ''
   if (ext === 'vue') return 'text-emerald-400'
   if (ext === 'ts') return 'text-sky-400'
   if (ext === 'js') return 'text-yellow-400'
@@ -52,7 +57,7 @@ function getIconColor(name: string): string {
           "
           @click="emit('select-tab', tab.id)"
         >
-          <component :is="getIcon(tab.name)" class="w-3.5 h-3.5 shrink-0" :class="getIconColor(tab.name)" />
+          <component :is="getIcon(tab)" class="w-3.5 h-3.5 shrink-0" :class="getIconColor(tab)" />
           <span class="truncate text-[12px]">{{ tab.name }}</span>
 
           <!-- Dirty Indicator (●) or Close Button (x) -->
@@ -73,8 +78,35 @@ function getIconColor(name: string): string {
         </div>
       </div>
 
-      <!-- Action Buttons (VS Code Split Editor Button) -->
-      <div class="flex items-center px-2 space-x-1 shrink-0 bg-[#181A1F] border-l border-[#24272E]">
+      <!-- Action Buttons (AI Gen, Save as Sudo, Split Editor, Git Graph) -->
+      <div class="flex items-center px-2 space-x-1.5 shrink-0 bg-[#181A1F] border-l border-[#24272E]">
+        <button
+          v-if="activeTab && activeTab.viewType !== 'git-graph'"
+          type="button"
+          class="px-2 py-0.5 rounded text-xs font-medium text-purple-300 hover:text-white bg-purple-600/20 hover:bg-purple-600 border border-purple-500/40 flex items-center space-x-1 transition-all shadow-sm"
+          title="Antigravity AI Code Gen (⌘K)"
+          @click="emit('toggle-ai-gen')"
+        >
+          <Sparkles class="w-3.5 h-3.5 text-purple-400" />
+          <span class="text-[11px]">AI Gen</span>
+        </button>
+        <button
+          type="button"
+          class="p-1 rounded text-slate-400 hover:text-white hover:bg-[#252A36] transition-colors"
+          title="Open Git Graph"
+          @click="emit('open-git-graph')"
+        >
+          <GitBranch class="w-4 h-4 text-blue-400" />
+        </button>
+        <button
+          v-if="activeTab && activeTab.viewType !== 'git-graph'"
+          type="button"
+          class="p-1 rounded text-amber-400 hover:text-amber-300 hover:bg-[#252A36] transition-colors"
+          title="Save as Sudo / Root (⌘⌥S / Ctrl+Alt+S)"
+          @click="emit('save-as-sudo')"
+        >
+          <ShieldAlert class="w-4 h-4" />
+        </button>
         <button
           type="button"
           class="p-1 rounded text-slate-400 hover:text-white transition-colors"

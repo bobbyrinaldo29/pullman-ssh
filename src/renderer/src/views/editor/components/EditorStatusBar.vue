@@ -24,7 +24,7 @@ const emit = defineEmits<{
       <!-- VS Code Remote SSH Button -->
       <button
         type="button"
-        class="h-full px-2 -ml-2 flex items-center space-x-1.5 transition-colors font-medium"
+        class="h-full px-2 py-[3px] -ml-2 flex items-center space-x-1.5 transition-colors font-medium"
         :class="isConnected ? 'bg-[#005A9E] hover:bg-[#004C85]' : 'bg-[#1E1E1E] hover:bg-[#2A2A2A] text-slate-300'"
         title="Remote Connection Status"
         @click="emit('click-remote')"

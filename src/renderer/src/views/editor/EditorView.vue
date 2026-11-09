@@ -11,18 +11,22 @@ import EditorSearchPane from './components/EditorSearchPane.vue'
 import EditorSourceControlPane from './components/EditorSourceControlPane.vue'
 import EditorTabs from './components/EditorTabs.vue'
 import EditorCodeArea from './components/EditorCodeArea.vue'
+import EditorGitGraphView from './components/EditorGitGraphView.vue'
+import EditorAntigravityPane from './components/EditorAntigravityPane.vue'
+import EditorAiGenInline from './components/EditorAiGenInline.vue'
 import EditorStatusBar from './components/EditorStatusBar.vue'
 
 defineProps<{
   hosts: HostItem[]
 }>()
 
-const activeView = ref<'explorer' | 'search' | 'git' | 'debug' | 'extensions'>('explorer')
+const activeView = ref<'explorer' | 'search' | 'git' | 'antigravity'>('explorer')
 const isSidebarOpen = ref(true)
 const sidebarWidth = ref(250)
 const cursorPos = ref<EditorCursorPos>({ line: 1, col: 1 })
 const syntaxDiagnostics = ref<string[]>([])
 const primaryCodeAreaRef = ref<InstanceType<typeof EditorCodeArea> | null>(null)
+const isAiGenOpen = ref(false)
 
 // Git Blame State
 const currentBlame = ref<GitBlameInfo | null>(null)
@@ -32,6 +36,29 @@ let blameTimeout: ReturnType<typeof setTimeout> | null = null
 // Split Editor State (Side-by-side like VS Code)
 const isSplit = ref(false)
 const splitActiveTabId = ref<string>('')
+const isResizingSidebar = ref(false)
+
+function startSidebarResize(e: MouseEvent): void {
+  e.preventDefault()
+  isResizingSidebar.value = true
+  const startX = e.clientX
+  const startWidth = sidebarWidth.value
+
+  const onMouseMove = (moveEvent: MouseEvent) => {
+    const deltaX = moveEvent.clientX - startX
+    const newWidth = Math.max(160, Math.min(700, startWidth + deltaX))
+    sidebarWidth.value = newWidth
+  }
+
+  const onMouseUp = () => {
+    isResizingSidebar.value = false
+    window.removeEventListener('mousemove', onMouseMove)
+    window.removeEventListener('mouseup', onMouseUp)
+  }
+
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseup', onMouseUp)
+}
 
 const {
   sessionId,
@@ -111,12 +138,23 @@ watch(
   { immediate: true }
 )
 
-function handleToggleView(view: 'explorer' | 'search' | 'git' | 'debug' | 'extensions'): void {
+function handleToggleView(view: 'explorer' | 'search' | 'git' | 'antigravity'): void {
   if (activeView.value === view) {
     isSidebarOpen.value = !isSidebarOpen.value
   } else {
     activeView.value = view
     isSidebarOpen.value = true
+  }
+}
+
+function handleInsertCode(code: string): void {
+  if (primaryCodeAreaRef.value?.insertSnippet) {
+    primaryCodeAreaRef.value.insertSnippet(code)
+  } else if (activeTab.value && activeTab.value.viewType !== 'git-graph') {
+    activeTab.value.content = activeTab.value.content
+      ? `${activeTab.value.content}\n\n${code}`
+      : code
+    activeTab.value.isDirty = true
   }
 }
 
@@ -139,13 +177,54 @@ function handleToggleSplit(): void {
   }
 }
 
+const gitCandidatePath = computed(() => {
+  for (const t of openTabs.value) {
+    if (t.path && t.path !== 'git-graph' && t.path.startsWith('/')) {
+      return t.path
+    }
+  }
+  return rootPath.value && rootPath.value !== '/' ? rootPath.value : ''
+})
+
+function openGitGraphTab(): void {
+  const existing = openTabs.value.find((t) => t.id === 'git-graph-tab')
+  if (existing) {
+    activeTabId.value = existing.id
+    return
+  }
+  openTabs.value.push({
+    id: 'git-graph-tab',
+    name: 'Git Graph',
+    path: 'git-graph',
+    content: '',
+    originalContent: '',
+    isDirty: false,
+    isSaving: false,
+    language: 'Git Graph',
+    readOnly: true,
+    viewType: 'git-graph'
+  })
+  activeTabId.value = 'git-graph-tab'
+}
+
 function handleKeyDown(e: KeyboardEvent): void {
-  if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault()
+    isAiGenOpen.value = !isAiGenOpen.value
+  } else if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === 's' || e.key === 'S')) {
+    e.preventDefault()
+    saveActiveTab(true)
+  } else if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
     e.preventDefault()
     handleToggleSplit()
   } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'g' || e.key === 'G')) {
     e.preventDefault()
     handleToggleView('git')
+  } else if (e.altKey && (e.key === 'l' || e.key === 'L' || e.code === 'KeyL' || e.key === '¬')) {
+    if (document.activeElement?.tagName !== 'TEXTAREA') {
+      e.preventDefault()
+      primaryCodeAreaRef.value?.handleWrapLog()
+    }
   }
 }
 
@@ -223,14 +302,40 @@ defineExpose({
           :active-file-path="activeTab?.path"
           @open-file="openFile"
           @refresh-git="fetchGitInfo(activeTab?.path || rootPath)"
+          @open-git-graph="openGitGraphTab"
+        />
+
+        <!-- AI Agent Antigravity View -->
+        <EditorAntigravityPane
+          v-show="activeView === 'antigravity'"
+          class="w-full"
+          :is-connected="isConnected"
+          :active-tab="activeTab"
+          @insert-code="handleInsertCode"
         />
       </div>
+
+      <!-- Sidebar Resizer Splitter Bar -->
+      <div
+        v-if="isSidebarOpen"
+        class="w-1 cursor-col-resize hover:bg-blue-500/80 active:bg-blue-600 transition-colors z-20 shrink-0 select-none"
+        :class="isResizingSidebar ? 'bg-blue-500' : 'bg-[#24272E]'"
+        title="Drag to resize sidebar (Double click to reset)"
+        @mousedown="startSidebarResize"
+        @dblclick="sidebarWidth = 250"
+      ></div>
+
+      <!-- Resizing transparent drag overlay -->
+      <div
+        v-if="isResizingSidebar"
+        class="fixed inset-0 z-50 cursor-col-resize select-none"
+      ></div>
 
       <!-- 3. Editor Canvas (Single or Side-by-Side Split) -->
       <div class="flex-1 flex overflow-hidden min-w-0 bg-[#1E222B]">
         <!-- Primary Left Editor Pane -->
         <div
-          class="flex flex-col min-w-0 overflow-hidden"
+          class="flex flex-col min-w-0 overflow-hidden relative"
           :class="isSplit ? 'w-1/2 border-r border-[#24272E]' : 'flex-1'"
         >
           <!-- Top File Tabs Bar -->
@@ -242,17 +347,43 @@ defineExpose({
             @select-tab="(id) => (activeTabId = id)"
             @close-tab="closeTab"
             @toggle-split="handleToggleSplit"
+            @save-as-sudo="saveActiveTab(true)"
+            @open-git-graph="openGitGraphTab"
+            @toggle-ai-gen="isAiGenOpen = !isAiGenOpen"
+          />
+
+          <!-- Antigravity Inline AI Gen Floating Widget -->
+          <EditorAiGenInline
+            :is-open="isAiGenOpen"
+            :active-tab="activeTab"
+            @close="isAiGenOpen = false"
+            @apply-code="handleInsertCode"
+          />
+
+          <!-- Git Graph View (when activeTab is Git Graph) -->
+          <EditorGitGraphView
+            v-if="activeTab?.viewType === 'git-graph'"
+            class="flex-1 min-h-0"
+            :is-connected="isConnected"
+            :session-id="sessionId"
+            :root-path="rootPath"
+            :active-file-path="gitCandidatePath"
+            @close="closeTab(activeTab.id)"
+            @open-file="openFile"
           />
 
           <!-- Code Editor Area -->
           <EditorCodeArea
+            v-else
             ref="primaryCodeAreaRef"
             :active-tab="activeTab"
             :cursor-pos="cursorPos"
             :blame="currentBlame"
             @cursor-change="(pos) => (cursorPos = pos)"
             @diagnostics-change="(errors) => (syntaxDiagnostics = errors)"
-            @save="saveActiveTab"
+            @save="saveActiveTab(false)"
+            @save-as-sudo="saveActiveTab(true)"
+            @toggle-ai-gen="isAiGenOpen = !isAiGenOpen"
           />
         </div>
 
@@ -291,7 +422,8 @@ defineExpose({
           <!-- Split Code Editor Area -->
           <EditorCodeArea
             :active-tab="splitActiveTab"
-            @save="saveActiveTab"
+            @save="saveActiveTab(false)"
+            @save-as-sudo="saveActiveTab(true)"
           />
         </div>
       </div>

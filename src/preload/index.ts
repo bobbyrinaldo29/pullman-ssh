@@ -135,6 +135,37 @@ const api = {
     sessionId?: string
   ): Promise<void> =>
     ipcRenderer.invoke('sftp:git-stage', { filePath, staged, sessionId }),
+  sftpGitStageAll: (remotePath: string, sessionId?: string): Promise<void> =>
+    ipcRenderer.invoke('sftp:git-stage-all', { remotePath, sessionId }),
+  sftpGitDiscardAll: (remotePath: string, sessionId?: string): Promise<void> =>
+    ipcRenderer.invoke('sftp:git-discard-all', { remotePath, sessionId }),
+  sftpGitPull: (
+    remotePath: string,
+    sessionId?: string
+  ): Promise<{ success: boolean; message: string }> =>
+    ipcRenderer.invoke('sftp:git-pull', { remotePath, sessionId }),
+  sftpGitPush: (
+    remotePath: string,
+    sessionId?: string
+  ): Promise<{ success: boolean; message: string }> =>
+    ipcRenderer.invoke('sftp:git-push', { remotePath, sessionId }),
+  sftpGitLog: (
+    remotePath: string,
+    sessionId?: string
+  ): Promise<string> =>
+    ipcRenderer.invoke('sftp:git-log', { remotePath, sessionId }),
+  sftpGitGraphCommits: (
+    remotePath: string,
+    sessionId?: string,
+    limit?: number
+  ): Promise<string> =>
+    ipcRenderer.invoke('sftp:git-graph-commits', { remotePath, sessionId, limit }),
+  sftpGitCommitDetails: (
+    remotePath: string,
+    hash: string,
+    sessionId?: string
+  ): Promise<string> =>
+    ipcRenderer.invoke('sftp:git-commit-details', { remotePath, hash, sessionId }),
   sftpSearchRemote: (
     query: string,
     rootPath: string,
@@ -161,7 +192,42 @@ const api = {
   sftpDeleteLocal: (filePath: string, asSudo?: boolean): Promise<void> =>
     ipcRenderer.invoke('sftp:delete-local', { filePath, asSudo }),
   showNotification: (payload: { title: string; body: string }): Promise<void> =>
-    ipcRenderer.invoke('app:show-notification', payload)
+    ipcRenderer.invoke('app:show-notification', payload),
+  callGeminiApi: (payload: {
+    url: string
+    headers?: Record<string, string>
+    body: string
+  }): Promise<{
+    ok: boolean
+    status: number
+    statusText?: string
+    data?: any
+    error?: string
+  }> => ipcRenderer.invoke('ai:call-gemini', payload),
+  signInWithGoogle: (): Promise<{
+    success: boolean
+    token?: string
+    refreshToken?: string
+    email?: string
+    error?: string
+  }> => ipcRenderer.invoke('ai:google-sign-in'),
+  refreshGoogleToken: (refreshToken: string): Promise<{
+    success: boolean
+    token?: string
+    error?: string
+  }> => ipcRenderer.invoke('ai:google-refresh-token', refreshToken),
+  callRedmineApi: (payload: {
+    url: string
+    method?: string
+    headers?: Record<string, string>
+    body?: string
+  }): Promise<{
+    ok: boolean
+    status: number
+    statusText?: string
+    data?: any
+    error?: string
+  }> => ipcRenderer.invoke('redmine:request', payload)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

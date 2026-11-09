@@ -3,14 +3,13 @@ import {
   Files,
   Search,
   GitBranch,
-  Play,
-  Grid,
+  Sparkles,
   Settings,
   CircleDot
 } from 'lucide-vue-next'
 
 defineProps<{
-  activeView: 'explorer' | 'search' | 'git' | 'debug' | 'extensions'
+  activeView: 'explorer' | 'search' | 'git' | 'antigravity'
   isSidebarOpen: boolean
   isConnected: boolean
   hostTitle?: string
@@ -18,7 +17,7 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'toggle-view', view: 'explorer' | 'search' | 'git' | 'debug' | 'extensions'): void
+  (e: 'toggle-view', view: 'explorer' | 'search' | 'git' | 'antigravity'): void
 }>()
 </script>
 
@@ -77,34 +76,19 @@ const emit = defineEmits<{
         <GitBranch class="w-5 h-5" />
       </button>
 
-      <!-- Run and Debug -->
+      <!-- Antigravity AI Agent -->
       <button
         type="button"
-        title="Run and Debug"
+        title="Antigravity AI Agent (Cmd+Shift+A)"
         class="relative w-10 h-10 flex items-center justify-center rounded-lg transition-colors group"
-        :class="activeView === 'debug' && isSidebarOpen ? 'text-white' : 'text-[#7D8590] hover:text-[#E6EDF3]'"
-        @click="emit('toggle-view', 'debug')"
+        :class="activeView === 'antigravity' && isSidebarOpen ? 'text-purple-400' : 'text-[#7D8590] hover:text-purple-300'"
+        @click="emit('toggle-view', 'antigravity')"
       >
         <span
-          v-if="activeView === 'debug' && isSidebarOpen"
-          class="absolute left-0 top-2 bottom-2 w-0.5 bg-blue-500 rounded-r"
+          v-if="activeView === 'antigravity' && isSidebarOpen"
+          class="absolute left-0 top-2 bottom-2 w-0.5 bg-gradient-to-b from-purple-500 to-blue-500 rounded-r"
         ></span>
-        <Play class="w-5 h-5" />
-      </button>
-
-      <!-- Extensions -->
-      <button
-        type="button"
-        title="Extensions"
-        class="relative w-10 h-10 flex items-center justify-center rounded-lg transition-colors group"
-        :class="activeView === 'extensions' && isSidebarOpen ? 'text-white' : 'text-[#7D8590] hover:text-[#E6EDF3]'"
-        @click="emit('toggle-view', 'extensions')"
-      >
-        <span
-          v-if="activeView === 'extensions' && isSidebarOpen"
-          class="absolute left-0 top-2 bottom-2 w-0.5 bg-blue-500 rounded-r"
-        ></span>
-        <Grid class="w-5 h-5" />
+        <Sparkles class="w-5 h-5" />
       </button>
     </div>
 

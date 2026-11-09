@@ -84,6 +84,13 @@ declare global {
         staged: boolean,
         sessionId?: string
       ) => Promise<void>
+      sftpGitStageAll: (remotePath: string, sessionId?: string) => Promise<void>
+      sftpGitDiscardAll: (remotePath: string, sessionId?: string) => Promise<void>
+      sftpGitPull: (remotePath: string, sessionId?: string) => Promise<{ success: boolean; message: string }>
+      sftpGitPush: (remotePath: string, sessionId?: string) => Promise<{ success: boolean; message: string }>
+      sftpGitLog: (remotePath: string, sessionId?: string) => Promise<string>
+      sftpGitGraphCommits: (remotePath: string, sessionId?: string, limit?: number) => Promise<string>
+      sftpGitCommitDetails: (remotePath: string, hash: string, sessionId?: string) => Promise<string>
       sftpSearchRemote: (
         query: string,
         rootPath: string,
@@ -97,6 +104,41 @@ declare global {
       sftpMkdirLocal: (dirPath: string, asSudo?: boolean) => Promise<void>
       sftpDeleteLocal: (filePath: string, asSudo?: boolean) => Promise<void>
       showNotification: (payload: { title: string; body: string }) => Promise<void>
+      callGeminiApi: (payload: {
+        url: string
+        headers?: Record<string, string>
+        body: string
+      }) => Promise<{
+        ok: boolean
+        status: number
+        statusText?: string
+        data?: any
+        error?: string
+      }>
+      signInWithGoogle: () => Promise<{
+        success: boolean
+        token?: string
+        refreshToken?: string
+        email?: string
+        error?: string
+      }>
+      refreshGoogleToken: (refreshToken: string) => Promise<{
+        success: boolean
+        token?: string
+        error?: string
+      }>
+      callRedmineApi: (payload: {
+        url: string
+        method?: string
+        headers?: Record<string, string>
+        body?: string
+      }) => Promise<{
+        ok: boolean
+        status: number
+        statusText?: string
+        data?: any
+        error?: string
+      }>
     }
   }
 }

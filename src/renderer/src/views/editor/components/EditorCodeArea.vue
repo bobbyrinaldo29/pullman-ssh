@@ -6,6 +6,8 @@ import { useIntelephense } from '../intelephense/useIntelephense'
 import { highlightPhpCode } from '../intelephense/phpHighlighter'
 import IntelephensePopup from '../intelephense/IntelephensePopup.vue'
 import { PhpSuggestion } from '../intelephense/phpDictionary'
+import { insertWrapLogStatement } from '../utils/wrapLog'
+import { useEditorShortcuts } from '../composables/useEditorShortcuts'
 
 const props = defineProps<{
   activeTab: EditorTab | null
@@ -17,6 +19,8 @@ const emit = defineEmits<{
   (e: 'cursor-change', pos: EditorCursorPos): void
   (e: 'diagnostics-change', errors: string[]): void
   (e: 'save'): void
+  (e: 'save-as-sudo'): void
+  (e: 'toggle-ai-gen'): void
 }>()
 
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
@@ -38,17 +42,12 @@ const {
   close: closeIntelephense
 } = useIntelephense()
 
-const lineCount = computed(() => {
-  if (!props.activeTab) return 0
-  return props.activeTab.content.split('\n').length
-})
+const { resetHistory, recordState, processKeyDown } = useEditorShortcuts()
 
+const lineCount = computed(() => props.activeTab ? props.activeTab.content.split('\n').length : 0)
 const isPhp = computed(() => props.activeTab?.language === 'PHP')
-
 const highlightedPhp = computed(() => {
-  if (!props.activeTab || !isPhp.value) return ''
-  // Safety cap for extremely large files
-  if (props.activeTab.content.length > 300000) return ''
+  if (!props.activeTab || !isPhp.value || props.activeTab.content.length > 300000) return ''
   return highlightPhpCode(props.activeTab.content)
 })
 
@@ -74,21 +73,15 @@ const activeLineVisible = computed(() => {
 const blameGhostStyle = computed(() => {
   if (!activeLineVisible.value) return { display: 'none' }
   const top = 12 + (currentLine.value - 1) * 22 - scrollTop.value
-  const visualLength = activeLineText.value.replace(/\t/g, '  ').length
-  const left = 12 + Math.round(visualLength * 7.82) + 24 - scrollLeft.value
-  return {
-    top: `${top}px`,
-    left: `${Math.max(12, left)}px`
-  }
+  const left = 12 + Math.round(activeLineText.value.replace(/\t/g, '  ').length * 7.82) + 24 - scrollLeft.value
+  return { top: `${top}px`, left: `${Math.max(12, left)}px` }
 })
 
 function handleScroll(): void {
   if (textareaRef.value) {
     scrollTop.value = textareaRef.value.scrollTop
     scrollLeft.value = textareaRef.value.scrollLeft
-    if (gutterRef.value) {
-      gutterRef.value.scrollTop = scrollTop.value
-    }
+    if (gutterRef.value) gutterRef.value.scrollTop = scrollTop.value
     if (syntaxPreRef.value) {
       syntaxPreRef.value.scrollTop = scrollTop.value
       syntaxPreRef.value.scrollLeft = scrollLeft.value
@@ -102,6 +95,7 @@ function handleInput(e: Event): void {
 
   props.activeTab.content = target.value
   props.activeTab.isDirty = props.activeTab.content !== props.activeTab.originalContent
+  recordState(target.value, target.selectionStart, false)
   updateCursorPosition()
   handleScroll()
 
@@ -116,26 +110,44 @@ function handleInput(e: Event): void {
 function handleKeyDown(e: KeyboardEvent): void {
   // If Intelephense popup is active, intercept arrow and confirm keys
   if (isOpen.value) {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      selectNext()
-      return
-    }
-    if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      selectPrev()
-      return
-    }
-    if (e.key === 'Enter' || e.key === 'Tab') {
-      e.preventDefault()
-      handleApplySuggestion()
-      return
-    }
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      closeIntelephense()
-      return
-    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); selectNext(); return }
+    if (e.key === 'ArrowUp') { e.preventDefault(); selectPrev(); return }
+    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); handleApplySuggestion(); return }
+    if (e.key === 'Escape') { e.preventDefault(); closeIntelephense(); return }
+  }
+
+  // VS Code editing shortcuts: Undo, Redo, Comment, Move Line, Duplicate Line, Delete Line
+  if (textareaRef.value && props.activeTab) {
+    const handled = processKeyDown(e, textareaRef.value, props.activeTab, () => {
+      updateCursorPosition()
+      handleScroll()
+      if (isPhp.value && props.activeTab) {
+        checkSyntax(props.activeTab.content, 'PHP')
+        emit('diagnostics-change', syntaxErrors.value)
+      }
+    })
+    if (handled) return
+  }
+
+  // Wrap Log shortcut (Option+L or Alt+L)
+  if (e.altKey && (e.key === 'l' || e.key === 'L' || e.code === 'KeyL' || e.key === '¬')) {
+    e.preventDefault()
+    handleWrapLog()
+    return
+  }
+
+  // Antigravity AI Gen shortcut (Cmd+K or Ctrl+K)
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault()
+    emit('toggle-ai-gen')
+    return
+  }
+
+  // Save as Sudo shortcut (Cmd+Option+S or Ctrl+Alt+S)
+  if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === 's' || e.key === 'S')) {
+    e.preventDefault()
+    emit('save-as-sudo')
+    return
   }
 
   // Save shortcut (Cmd+S or Ctrl+S)
@@ -166,6 +178,7 @@ function handleKeyDown(e: KeyboardEvent): void {
 
     props.activeTab.content = val.substring(0, start) + '  ' + val.substring(end)
     props.activeTab.isDirty = props.activeTab.content !== props.activeTab.originalContent
+    recordState(props.activeTab.content, start + 2, true)
 
     nextTick(() => {
       textarea.selectionStart = textarea.selectionEnd = start + 2
@@ -188,6 +201,7 @@ function handleApplySuggestion(suggestion?: PhpSuggestion): void {
       props.activeTab.content.substring(start)
     props.activeTab.content = newContent
     props.activeTab.isDirty = true
+    recordState(newContent, start + item.insertText.length, true)
     closeIntelephense()
     return
   }
@@ -196,6 +210,7 @@ function handleApplySuggestion(suggestion?: PhpSuggestion): void {
   if (result) {
     props.activeTab.content = result.newContent
     props.activeTab.isDirty = props.activeTab.content !== props.activeTab.originalContent
+    recordState(result.newContent, result.newCursor, true)
     nextTick(() => {
       textarea.selectionStart = textarea.selectionEnd = result.newCursor
       updateCursorPosition()
@@ -265,14 +280,61 @@ function goToLine(lineNumber: number): void {
   })
 }
 
+function handleWrapLog(): void {
+  const textarea = textareaRef.value
+  if (!textarea || !props.activeTab) return
+
+  const { newContent, newCursor } = insertWrapLogStatement(
+    props.activeTab.content,
+    textarea.selectionStart,
+    textarea.selectionEnd,
+    props.activeTab.language
+  )
+
+  props.activeTab.content = newContent
+  props.activeTab.isDirty = newContent !== props.activeTab.originalContent
+  recordState(newContent, newCursor, true)
+
+  nextTick(() => {
+    textarea.selectionStart = textarea.selectionEnd = newCursor
+    textarea.focus()
+    updateCursorPosition()
+    handleScroll()
+    if (isPhp.value && props.activeTab) {
+      checkSyntax(props.activeTab.content, 'PHP')
+      emit('diagnostics-change', syntaxErrors.value)
+    }
+  })
+}
+
+function insertSnippet(code: string): void {
+  const textarea = textareaRef.value
+  if (!textarea || !props.activeTab) return
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+  const newContent = props.activeTab.content.substring(0, start) + code + props.activeTab.content.substring(end)
+  props.activeTab.content = newContent
+  props.activeTab.isDirty = true
+  recordState(newContent, start + code.length, true)
+  nextTick(() => {
+    textarea.selectionStart = textarea.selectionEnd = start + code.length
+    textarea.focus()
+    updateCursorPosition()
+    handleScroll()
+  })
+}
+
 defineExpose({
-  goToLine
+  goToLine,
+  handleWrapLog,
+  insertSnippet
 })
 
 watch(
   () => props.activeTab?.id,
   () => {
     closeIntelephense()
+    resetHistory(props.activeTab?.content || '')
     emit('cursor-change', { line: 1, col: 1 })
     if (props.activeTab && isPhp.value) {
       checkSyntax(props.activeTab.content, 'PHP')
@@ -280,13 +342,12 @@ watch(
     } else {
       emit('diagnostics-change', [])
     }
-    nextTick(() => {
-      handleScroll()
-    })
+    nextTick(() => handleScroll())
   }
 )
 
 onMounted(() => {
+  resetHistory(props.activeTab?.content || '')
   handleScroll()
   updateCursorPosition()
   if (props.activeTab && isPhp.value) {
@@ -312,18 +373,30 @@ onMounted(() => {
       </p>
 
       <!-- Keyboard shortcuts hints -->
-      <div class="mt-6 border border-[#2B3245] rounded-xl bg-[#181A20] p-4 text-xs text-[#848D97] space-y-2 text-left w-72">
+      <div class="mt-6 border border-[#2B3245] rounded-xl bg-[#181A20] p-4 text-xs text-[#848D97] space-y-1.5 text-left w-80">
+        <div class="flex items-center justify-between">
+          <span class="text-purple-300 font-medium">Antigravity AI Gen</span>
+          <span class="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/40 rounded text-purple-300 font-mono text-[11px]">⌘K</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span>Undo / Redo</span>
+          <span class="px-1.5 py-0.5 bg-[#252A36] border border-[#32394C] rounded text-slate-300 font-mono text-[11px]">⌘Z / ⇧⌘Z</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span>Toggle Comment</span>
+          <span class="px-1.5 py-0.5 bg-[#252A36] border border-[#32394C] rounded text-slate-300 font-mono text-[11px]">⌘/</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span>Move / Duplicate Line</span>
+          <span class="px-1.5 py-0.5 bg-[#252A36] border border-[#32394C] rounded text-slate-300 font-mono text-[11px]">⌥↑↓ &bull; ⇧⌥↓</span>
+        </div>
         <div class="flex items-center justify-between">
           <span>Save to Remote SSH</span>
           <span class="px-1.5 py-0.5 bg-[#252A36] border border-[#32394C] rounded text-slate-300 font-mono text-[11px]">⌘S</span>
         </div>
         <div class="flex items-center justify-between">
-          <span>PHP Intelephense Trigger</span>
-          <span class="px-1.5 py-0.5 bg-[#252A36] border border-[#32394C] rounded text-slate-300 font-mono text-[11px]">Ctrl+Space</span>
-        </div>
-        <div class="flex items-center justify-between">
-          <span>Indent Code</span>
-          <span class="px-1.5 py-0.5 bg-[#252A36] border border-[#32394C] rounded text-slate-300 font-mono text-[11px]">Tab</span>
+          <span>Wrap Log (var_dump / log)</span>
+          <span class="px-1.5 py-0.5 bg-[#252A36] border border-[#32394C] rounded text-slate-300 font-mono text-[11px]">⌥L</span>
         </div>
       </div>
     </div>
@@ -413,31 +486,13 @@ onMounted(() => {
 
 <style scoped>
 .editor-code-layer {
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-  font-size: 13px;
-  line-height: 22px;
-  letter-spacing: 0px;
-  word-spacing: 0px;
-  tab-size: 2;
-  -moz-tab-size: 2;
-  white-space: pre;
-  word-wrap: normal;
-  word-break: normal;
-  overflow-wrap: normal;
-  box-sizing: border-box;
-  padding: 12px;
-  margin: 0;
-  border: 0;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, Monaco, Consolas, monospace;
+  font-size: 13px; line-height: 22px; letter-spacing: 0; word-spacing: 0;
+  tab-size: 2; white-space: pre; word-wrap: normal; box-sizing: border-box;
+  padding: 12px; margin: 0; border: 0;
 }
-
-.editor-code-layer::selection {
-  background-color: #264F78 !important;
-  color: #FFFFFF !important;
-  -webkit-text-fill-color: #FFFFFF !important;
-}
-
+.editor-code-layer::selection,
 .editor-code-layer::-moz-selection {
-  background-color: #264F78 !important;
-  color: #FFFFFF !important;
+  background-color: #264F78 !important; color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important;
 }
 </style>
