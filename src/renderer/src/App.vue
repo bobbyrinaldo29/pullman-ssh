@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import TitleBar from './components/TitleBar.vue'
 import NewConnectionDialog from './components/NewConnectionDialog.vue'
 import SidebarNavigator from './components/SidebarNavigator.vue'
@@ -9,9 +9,14 @@ import HostsView from './views/hosts/HostsView.vue'
 import QueryView from './views/query/QueryView.vue'
 import RedmineView from './views/redmine/RedmineView.vue'
 import EditorView from './views/editor/EditorView.vue'
+import SshView from './views/ssh/SshView.vue'
 
 const appVersion = '1.3.1'
-const currentView = ref<'hosts' | 'query' | 'sftp' | 'redmine' | 'editor'>('hosts')
+const currentView = ref<'hosts' | 'ssh' | 'query' | 'sftp' | 'redmine' | 'editor'>('hosts')
+const visitedViews = ref<Set<string>>(new Set(['hosts']))
+watch(currentView, (v) => {
+  visitedViews.value.add(v)
+})
 const isSidebarCollapsed = ref(false)
 const selectedGroupFilter = ref<string>('ALL')
 const searchQuery = ref('')
@@ -20,6 +25,7 @@ const selectedHostId = ref<number | null>(null)
 const isLoading = ref(true)
 const sftpViewRef = ref<InstanceType<typeof SftpView> | null>(null)
 const editorViewRef = ref<InstanceType<typeof EditorView> | null>(null)
+const sshViewRef = ref<InstanceType<typeof SshView> | null>(null)
 
 const hostsList = ref<HostItem[]>([])
 const groupsList = ref<string[]>([])
@@ -262,7 +268,9 @@ async function handleDeleteHost(id: number): Promise<void> {
 
 function handleSelectHost(host: HostItem): void {
   selectedHostId.value = host.id
-  if (
+  if (currentView.value === 'ssh') {
+    sshViewRef.value?.openSessionForHost(host)
+  } else if (
     currentView.value !== 'sftp' &&
     currentView.value !== 'query' &&
     currentView.value !== 'editor' &&
@@ -274,7 +282,9 @@ function handleSelectHost(host: HostItem): void {
 
 function handleHostDblClick(host: HostItem): void {
   selectedHostId.value = host.id
-  if (currentView.value === 'sftp') {
+  if (currentView.value === 'ssh') {
+    sshViewRef.value?.openSessionForHost(host)
+  } else if (currentView.value === 'sftp') {
     sftpViewRef.value?.openNewTabForHost(host)
   } else if (currentView.value === 'editor') {
     editorViewRef.value?.connectToHost(host)
@@ -289,9 +299,23 @@ function handleDataTransfer(): void {
   currentView.value = 'sftp'
 }
 
+function openSshForHost(host: HostItem): void {
+  selectedHostId.value = host.id
+  currentView.value = 'ssh'
+  nextTick(() => {
+    sshViewRef.value?.openSessionForHost(host)
+  })
+}
+
 function openSftpForHost(hostId: number): void {
   selectedHostId.value = hostId
   currentView.value = 'sftp'
+  nextTick(() => {
+    const host = hostsList.value.find((h) => h.id === hostId)
+    if (host) {
+      sftpViewRef.value?.openNewTabForHost(host)
+    }
+  })
 }
 
 function handlePluginCenter(): void {
@@ -309,6 +333,7 @@ function handlePluginCenter(): void {
       :is-sidebar-collapsed="isSidebarCollapsed"
       @toggle-sidebar="isSidebarCollapsed = !isSidebarCollapsed"
       @open-hosts="currentView = 'hosts'"
+      @open-ssh="currentView = 'ssh'"
       @open-sftp="currentView = 'sftp'"
       @open-editor="currentView = 'editor'"
       @open-redmine="currentView = 'redmine'"
@@ -360,9 +385,19 @@ function handlePluginCenter(): void {
 
       <!-- Center Main Workspace Canvas -->
       <main class="flex-1 flex flex-col bg-[#171A21] overflow-hidden">
+        <!-- SSH Terminal View -->
+        <SshView
+          v-if="visitedViews.has('ssh')"
+          v-show="currentView === 'ssh'"
+          ref="sshViewRef"
+          :hosts="hostsList"
+          @back-to-hosts="currentView = 'hosts'"
+        />
+
         <!-- SFTP FileZilla View -->
         <SftpView
-          v-if="currentView === 'sftp'"
+          v-if="visitedViews.has('sftp')"
+          v-show="currentView === 'sftp'"
           ref="sftpViewRef"
           :hosts="hostsList"
           @back-to-hosts="currentView = 'hosts'"
@@ -370,7 +405,7 @@ function handlePluginCenter(): void {
 
         <!-- Hosts Management Canvas -->
         <HostsView
-          v-else-if="currentView === 'hosts'"
+          v-show="currentView === 'hosts'"
           :hosts-list="hostsList"
           :filtered-hosts="filteredHosts"
           :available-filter-groups="availableFilterGroups"
@@ -380,7 +415,7 @@ function handlePluginCenter(): void {
           :is-loading="isLoading"
           :app-version="appVersion"
           @reload="loadConnectionsFromDb"
-          @open-terminal="(h) => console.log('Open terminal for', h.name)"
+          @open-terminal="openSshForHost"
           @open-sftp="openSftpForHost"
           @edit-host="handleEditHost"
           @delete-host="handleDeleteHost"
@@ -388,20 +423,23 @@ function handlePluginCenter(): void {
 
         <!-- Query Console Canvas -->
         <QueryView
-          v-else-if="currentView === 'query'"
+          v-if="visitedViews.has('query')"
+          v-show="currentView === 'query'"
           :hosts="hostsList"
           @back-to-hosts="currentView = 'hosts'"
         />
 
         <!-- Redmine Center Canvas -->
         <RedmineView
-          v-else-if="currentView === 'redmine'"
+          v-if="visitedViews.has('redmine')"
+          v-show="currentView === 'redmine'"
           @back-to-hosts="currentView = 'hosts'"
         />
 
         <!-- Text Editor (VS Code Mode) -->
         <EditorView
-          v-else-if="currentView === 'editor'"
+          v-if="visitedViews.has('editor')"
+          v-show="currentView === 'editor'"
           ref="editorViewRef"
           :hosts="hostsList"
         />

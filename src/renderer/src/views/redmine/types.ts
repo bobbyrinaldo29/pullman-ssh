@@ -52,6 +52,12 @@ export interface RedmineJournal {
   details?: RedmineJournalDetail[]
 }
 
+export interface RedmineCustomField {
+  id: number
+  name: string
+  value: string | string[] | null
+}
+
 export interface RedmineIssue {
   id: number
   project: { id: number; name: string }
@@ -69,6 +75,7 @@ export interface RedmineIssue {
   estimated_hours?: number
   created_on: string
   updated_on: string
+  custom_fields?: RedmineCustomField[]
   journals?: RedmineJournal[]
 }
 
@@ -91,5 +98,10 @@ export interface RedmineFilterOptions {
   queryId: number | 'all'
   assignedToMe: boolean
   search: string
+}
+
+export interface OpenIssueTab {
+  id: number
+  issue: RedmineIssue
 }
 

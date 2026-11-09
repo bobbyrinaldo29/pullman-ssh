@@ -492,6 +492,20 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle(
+    'ssh:exec',
+    (
+      _,
+      {
+        command,
+        sessionId,
+        asSudo
+      }: { command: string; sessionId?: string; asSudo?: boolean }
+    ) => {
+      return sftpService.execRemote(command, sessionId, asSudo)
+    }
+  )
+
+  ipcMain.handle(
     'sftp:list-remote',
     (_, arg: string | { remotePath: string; sessionId?: string }) => {
       const remotePath = typeof arg === 'string' ? arg : arg.remotePath

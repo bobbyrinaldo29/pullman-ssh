@@ -8,7 +8,8 @@ import {
   RedmineIssue,
   RedmineQuery,
   RedmineConfig,
-  RedmineFilterOptions
+  RedmineFilterOptions,
+  OpenIssueTab
 } from '../types'
 
 const DEFAULT_TRACKERS: RedmineTracker[] = [
@@ -56,7 +57,8 @@ export function useRedmine() {
 
   const isLoading = ref(false)
   const error = ref<string | null>(null)
-  const activeTab = ref<'overview' | 'issues' | 'projects' | 'activity'>('issues')
+  const activeTab = ref<string>('issues')
+  const openIssueTabs = ref<OpenIssueTab[]>([])
 
   const filters = ref<RedmineFilterOptions>({
     status: 'open',
@@ -198,23 +200,137 @@ export function useRedmine() {
     }
   }
 
+  function getMatchedStatus(queryName: string): RedmineStatus | undefined {
+    const qLower = queryName.toLowerCase().replace(/[-_]/g, ' ')
+    return statuses.value.find((s) => {
+      const sLower = s.name.toLowerCase().replace(/[-_]/g, ' ')
+      return qLower.includes(sLower) || sLower.includes(qLower)
+    })
+  }
+
+  function getMatchedTracker(queryName: string): RedmineTracker | undefined {
+    const qLower = queryName.toLowerCase()
+    if (qLower.includes('bug')) {
+      const bug = trackers.value.find((t) => t.name.toLowerCase().includes('bug'))
+      if (bug) return bug
+    }
+    if (qLower.includes('enhancement')) {
+      const enh = trackers.value.find((t) => t.name.toLowerCase().includes('enhancement'))
+      if (enh) return enh
+    }
+    if (qLower.includes('support')) {
+      const sup = trackers.value.find((t) => t.name.toLowerCase().includes('support'))
+      if (sup) return sup
+    }
+    if (qLower.includes('feature')) {
+      const feat = trackers.value.find((t) => t.name.toLowerCase().includes('feature'))
+      if (feat) return feat
+    }
+    return trackers.value.find((t) => {
+      const tLower = t.name.toLowerCase()
+      return tLower !== 'task' && qLower.includes(tLower)
+    })
+  }
+
+  function getMatchedProject(queryName: string): RedmineProject | undefined {
+    const qLower = queryName.toLowerCase()
+    return projects.value.find((p) => {
+      const pName = p.name.toLowerCase()
+      const pIdent = p.identifier.toLowerCase()
+      return (pIdent.length > 2 && qLower.includes(pIdent)) || qLower.includes(pName)
+    })
+  }
+
   async function fetchIssues(): Promise<void> {
     isLoading.value = true
     error.value = null
 
     try {
-      let endpoint = '/issues.json?limit=100'
-
       if (filters.value.queryId !== 'all') {
         const targetQuery = queries.value.find((q) => q.id === filters.value.queryId)
-        const projId = selectedProjectId.value !== 'all' ? selectedProjectId.value : targetQuery?.project_id
+        const projId =
+          selectedProjectId.value !== 'all'
+            ? selectedProjectId.value
+            : targetQuery?.project_id || null
 
+        // 1. Try saved query endpoints using standard query_id
+        const endpointsToTry: string[] = []
         if (projId) {
-          endpoint = `/projects/${projId}/issues.json?limit=100&query_id=${filters.value.queryId}`
-        } else {
-          endpoint = `/issues.json?limit=100&query_id=${filters.value.queryId}`
+          endpointsToTry.push(`/projects/${projId}/issues.json?query_id=${filters.value.queryId}&limit=100`)
+          endpointsToTry.push(`/issues.json?project_id=${projId}&query_id=${filters.value.queryId}&limit=100`)
+        }
+        endpointsToTry.push(`/issues.json?query_id=${filters.value.queryId}&limit=100`)
+
+        let querySuccess = false
+        for (const ep of endpointsToTry) {
+          const res = await apiCall(ep)
+          if (res.ok && Array.isArray(res.data?.issues)) {
+            issues.value = res.data.issues
+            querySuccess = true
+            break
+          }
+        }
+
+        // 2. If query_id failed (e.g. 404 Not Found), fallback to reconstructing filters from query name & metadata
+        if (!querySuccess && targetQuery) {
+          const qName = targetQuery.name.toLowerCase()
+          let fallbackEndpoint = '/issues.json?limit=100'
+
+          // Project scope
+          const matchedProj = projId ? null : getMatchedProject(targetQuery.name)
+          const effectiveProjId = projId || matchedProj?.id
+          if (effectiveProjId) {
+            fallbackEndpoint = `/projects/${effectiveProjId}/issues.json?limit=100`
+          }
+
+          // Status filter
+          if (qName.includes('closed')) {
+            fallbackEndpoint += '&status_id=closed'
+          } else {
+            const matchedStatus = getMatchedStatus(targetQuery.name)
+            if (matchedStatus) {
+              fallbackEndpoint += `&status_id=${matchedStatus.id}`
+            } else if (
+              qName.includes('open') ||
+              qName.includes('new') ||
+              qName.includes('progress') ||
+              qName.includes('test') ||
+              qName.includes('bug')
+            ) {
+              fallbackEndpoint += '&status_id=open'
+            } else {
+              fallbackEndpoint += '&status_id=*'
+            }
+          }
+
+          // Tracker filter
+          const matchedTracker = getMatchedTracker(targetQuery.name)
+          if (matchedTracker) {
+            fallbackEndpoint += `&tracker_id=${matchedTracker.id}`
+          }
+
+          // Assignee filter
+          if (
+            (qName.includes('my task') || qName.includes('hari ini') || qName.includes('my ')) &&
+            currentUser.value
+          ) {
+            fallbackEndpoint += '&assigned_to_id=me'
+          }
+
+          const fallbackRes = await apiCall(fallbackEndpoint)
+          if (fallbackRes.ok && Array.isArray(fallbackRes.data?.issues)) {
+            issues.value = fallbackRes.data.issues
+            querySuccess = true
+            error.value = null
+          }
+        }
+
+        if (!querySuccess) {
+          issues.value = []
+          error.value = 'Failed to load issues for this query.'
         }
       } else {
+        let endpoint = '/issues.json?limit=100'
         if (selectedProjectId.value !== 'all') {
           endpoint = `/projects/${selectedProjectId.value}/issues.json?limit=100`
         }
@@ -225,28 +341,14 @@ export function useRedmine() {
         if (filters.value.trackerId !== 'all') endpoint += `&tracker_id=${filters.value.trackerId}`
         if (filters.value.priorityId !== 'all') endpoint += `&priority_id=${filters.value.priorityId}`
         if (filters.value.assignedToMe && currentUser.value) endpoint += `&assigned_to_id=me`
-      }
 
-      let res = await apiCall(endpoint)
-
-      // Fallback 1: If /projects/:id/issues.json failed (e.g. 404), try /issues.json?query_id=...&project_id=...
-      if (!res.ok && endpoint.startsWith('/projects/') && filters.value.queryId !== 'all') {
-        const targetQuery = queries.value.find((q) => q.id === filters.value.queryId)
-        const projId = selectedProjectId.value !== 'all' ? selectedProjectId.value : targetQuery?.project_id
-        const fallback = `/issues.json?limit=100&query_id=${filters.value.queryId}${projId ? `&project_id=${projId}` : ''}`
-        res = await apiCall(fallback)
-      }
-
-      // Fallback 2: If project_id caused 404, try global query_id
-      if (!res.ok && res.status === 404 && filters.value.queryId !== 'all') {
-        res = await apiCall(`/issues.json?limit=100&query_id=${filters.value.queryId}`)
-      }
-
-      if (res.ok && res.data?.issues) {
-        issues.value = res.data.issues
-      } else if (!res.ok) {
-        issues.value = []
-        error.value = res.error || `HTTP ${res.status}: Failed to fetch issues`
+        const res = await apiCall(endpoint)
+        if (res.ok && res.data?.issues) {
+          issues.value = res.data.issues
+        } else {
+          issues.value = []
+          error.value = res.error || `HTTP ${res.status}: Failed to fetch issues`
+        }
       }
     } catch (err) {
       issues.value = []
@@ -256,16 +358,60 @@ export function useRedmine() {
     }
   }
 
-  async function fetchIssueDetail(issueId: number): Promise<void> {
-    isLoading.value = true
+  async function openIssueTab(issue: RedmineIssue): Promise<void> {
+    const existing = openIssueTabs.value.find((t) => t.id === issue.id)
+    if (!existing) {
+      openIssueTabs.value.push({ id: issue.id, issue })
+    }
+    activeTab.value = `issue-${issue.id}`
+    selectedIssue.value = issue
+
     try {
-      const res = await apiCall(`/issues/${issueId}.json?include=journals,attachments`)
+      const res = await apiCall(`/issues/${issue.id}.json?include=journals,attachments`)
       if (res.ok && res.data?.issue) {
-        selectedIssue.value = res.data.issue
-        showDetailModal.value = true
+        const fullIssue = res.data.issue
+        const idx = openIssueTabs.value.findIndex((t) => t.id === issue.id)
+        if (idx !== -1) {
+          openIssueTabs.value[idx].issue = fullIssue
+        }
+        if (selectedIssue.value?.id === issue.id) {
+          selectedIssue.value = fullIssue
+        }
       }
-    } finally {
-      isLoading.value = false
+    } catch {}
+  }
+
+  function closeIssueTab(issueId: number): void {
+    const idx = openIssueTabs.value.findIndex((t) => t.id === issueId)
+    if (idx !== -1) {
+      openIssueTabs.value.splice(idx, 1)
+      if (activeTab.value === `issue-${issueId}`) {
+        if (openIssueTabs.value.length > 0) {
+          const nextTab = openIssueTabs.value[Math.max(0, idx - 1)]
+          activeTab.value = `issue-${nextTab.id}`
+          selectedIssue.value = nextTab.issue
+        } else {
+          activeTab.value = 'issues'
+          selectedIssue.value = null
+        }
+      }
+    }
+  }
+
+  async function fetchIssueDetail(issueId: number): Promise<void> {
+    const found = issues.value.find((i) => i.id === issueId)
+    if (found) {
+      await openIssueTab(found)
+    } else {
+      isLoading.value = true
+      try {
+        const res = await apiCall(`/issues/${issueId}.json?include=journals,attachments`)
+        if (res.ok && res.data?.issue) {
+          await openIssueTab(res.data.issue)
+        }
+      } finally {
+        isLoading.value = false
+      }
     }
   }
 
@@ -289,6 +435,7 @@ export function useRedmine() {
       if (res.ok && res.data?.issue) {
         issues.value.unshift(res.data.issue)
         showNewIssueModal.value = false
+        await openIssueTab(res.data.issue)
         return { success: true, issue: res.data.issue }
       }
       return { success: false, error: res.data?.errors?.join(', ') || res.error || 'Failed to create issue' }
@@ -310,7 +457,18 @@ export function useRedmine() {
         body: { issue: data }
       })
       if (res.ok) {
-        await fetchIssueDetail(issueId)
+        // Refetch issue to update open tab
+        const dRes = await apiCall(`/issues/${issueId}.json?include=journals,attachments`)
+        if (dRes.ok && dRes.data?.issue) {
+          const updated = dRes.data.issue
+          const idx = openIssueTabs.value.findIndex((t) => t.id === issueId)
+          if (idx !== -1) {
+            openIssueTabs.value[idx].issue = updated
+          }
+          if (selectedIssue.value?.id === issueId) {
+            selectedIssue.value = updated
+          }
+        }
         await fetchIssues()
         return { success: true }
       }
@@ -414,19 +572,56 @@ export function useRedmine() {
   }
 
   const filteredIssues = computed(() => {
+    const activeQuery = filters.value.queryId !== 'all'
+      ? queries.value.find((q) => q.id === filters.value.queryId)
+      : null
+    const qName = activeQuery ? activeQuery.name.toLowerCase() : ''
+    const matchedStatus = activeQuery ? getMatchedStatus(activeQuery.name) : null
+    const isClosedQuery = qName.includes('closed')
+    const isMyTask = qName.includes('my task')
+
     return issues.value.filter((issue) => {
-      // When a custom query is active, server query_id has already filtered the issues
+      // If a custom query specifies closed issues
+      if (isClosedQuery) {
+        if (!issue.status?.is_closed && !issue.status?.name?.toLowerCase().includes('close')) {
+          return false
+        }
+      } else if (matchedStatus) {
+        const issueStatusName = (issue.status?.name || '').toLowerCase().replace(/[-_]/g, ' ')
+        const targetStatusName = matchedStatus.name.toLowerCase().replace(/[-_]/g, ' ')
+        if (
+          issue.status?.id !== matchedStatus.id &&
+          !issueStatusName.includes(targetStatusName) &&
+          !targetStatusName.includes(issueStatusName)
+        ) {
+          return false
+        }
+      }
+
+      if (isMyTask && currentUser.value) {
+        if (issue.assigned_to?.id !== currentUser.value.id) return false
+      }
+
+      // If tracker is mentioned in the query name (e.g. "bug" or "enhancement")
+      if (qName.includes('bug') && !issue.tracker?.name?.toLowerCase().includes('bug')) {
+        return false
+      }
+      if (qName.includes('enhancement') && !issue.tracker?.name?.toLowerCase().includes('enhancement')) {
+        return false
+      }
+
+      // Standard filters when not viewing custom query
       if (filters.value.queryId === 'all') {
-        if (filters.value.trackerId !== 'all' && issue.tracker.id !== filters.value.trackerId) return false
-        if (filters.value.priorityId !== 'all' && issue.priority.id !== filters.value.priorityId) return false
-        if (filters.value.status === 'open' && issue.status.is_closed) return false
-        if (filters.value.status === 'closed' && !issue.status.is_closed) return false
+        if (filters.value.trackerId !== 'all' && issue.tracker?.id !== filters.value.trackerId) return false
+        if (filters.value.priorityId !== 'all' && issue.priority?.id !== filters.value.priorityId) return false
+        if (filters.value.status === 'open' && issue.status?.is_closed) return false
+        if (filters.value.status === 'closed' && !issue.status?.is_closed) return false
       }
       if (filters.value.search) {
         const q = filters.value.search.toLowerCase()
-        const matchSubject = issue.subject.toLowerCase().includes(q)
+        const matchSubject = issue.subject?.toLowerCase().includes(q)
         const matchId = String(issue.id).includes(q)
-        const matchAuthor = issue.author.name.toLowerCase().includes(q)
+        const matchAuthor = issue.author?.name?.toLowerCase().includes(q)
         if (!matchSubject && !matchId && !matchAuthor) return false
       }
       return true
@@ -453,6 +648,9 @@ export function useRedmine() {
     isLoading,
     error,
     activeTab,
+    openIssueTabs,
+    openIssueTab,
+    closeIssueTab,
     filters,
     showLoginModal,
     showDetailModal,

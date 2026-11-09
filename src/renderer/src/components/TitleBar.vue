@@ -21,7 +21,8 @@ import {
   FolderSync,
   Code,
   FolderKanban,
-  ChevronsRight
+  ChevronsRight,
+  Terminal
 } from 'lucide-vue-next'
 
 const props = withDefaults(
@@ -38,6 +39,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'toggle-sidebar'): void
   (e: 'open-hosts'): void
+  (e: 'open-ssh'): void
   (e: 'new-connection'): void
   (e: 'new-query'): void
   (e: 'open-sftp'): void
@@ -152,6 +154,17 @@ function handleClose(): void {
       >
         <Server class="w-3.5 h-3.5 text-blue-400" />
         <span>Connections</span>
+      </button>
+
+      <!-- Button: SSH -->
+      <button
+        type="button"
+        class="app-no-drag flex items-center space-x-1.5 px-2.5 py-1 rounded text-[#C2C9D6] hover:text-white hover:bg-[#2C3345] transition-colors"
+        :class="{ 'bg-[#2C3345] text-white': props.currentView === 'ssh' }"
+        @click="emit('open-ssh')"
+      >
+        <Terminal class="w-3.5 h-3.5 text-cyan-400" />
+        <span>SSH</span>
       </button>
 
       <!-- Button: SFTP (FileZilla Mode) -->

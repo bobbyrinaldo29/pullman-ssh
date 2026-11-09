@@ -46,12 +46,6 @@ const showFilters = ref(true)
 
 function selectQuery(id: number | 'all'): void {
   props.filters.queryId = id
-  if (id !== 'all') {
-    const q = props.queries.find((item) => item.id === id)
-    if (q?.project_id && props.selectedProjectId !== q.project_id) {
-      emit('update:selected-project-id', q.project_id)
-    }
-  }
   emit('apply-filters')
 }
 

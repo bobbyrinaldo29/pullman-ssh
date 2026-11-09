@@ -46,6 +46,11 @@ declare global {
       }) => Promise<{ success: boolean; message: string; cwd?: string }>
       sftpDisconnect: (sessionId?: string) => Promise<void>
       sftpGetStatus: (sessionId?: string) => Promise<boolean>
+      sshExec: (
+        command: string,
+        sessionId?: string,
+        asSudo?: boolean
+      ) => Promise<{ stdout: string; stderr: string; code: number }>
       sftpListRemote: (remotePath: string, sessionId?: string) => Promise<any[]>
       sftpUpload: (localPath: string, remotePath: string, sessionId?: string, asSudo?: boolean) => Promise<void>
       sftpDownload: (remotePath: string, localPath: string, sessionId?: string, asSudo?: boolean) => Promise<void>

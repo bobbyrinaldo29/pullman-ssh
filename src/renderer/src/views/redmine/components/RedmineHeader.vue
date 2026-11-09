@@ -1,19 +1,26 @@
 <script setup lang="ts">
-import { FolderKanban, Plus, ChevronDown, Settings } from 'lucide-vue-next'
-import { RedmineProject } from '../types'
+import { FolderKanban, Plus, ChevronDown, Settings, X } from 'lucide-vue-next'
+import { RedmineProject, OpenIssueTab } from '../types'
 
-const props = defineProps<{
-  projects: RedmineProject[]
-  selectedProjectId: number | 'all'
-  activeTab: 'overview' | 'issues' | 'projects' | 'activity'
-  issuesCount: number
-}>()
+const props = withDefaults(
+  defineProps<{
+    projects: RedmineProject[]
+    selectedProjectId: number | 'all'
+    activeTab: string
+    issuesCount: number
+    openIssueTabs?: OpenIssueTab[]
+  }>(),
+  {
+    openIssueTabs: () => []
+  }
+)
 
 const emit = defineEmits<{
   (e: 'update:selectedProjectId', val: number | 'all'): void
-  (e: 'update:activeTab', val: 'overview' | 'issues' | 'projects' | 'activity'): void
+  (e: 'update:activeTab', val: string): void
   (e: 'open-new-issue'): void
   (e: 'open-login'): void
+  (e: 'close-issue-tab', id: number): void
 }>()
 
 const currentProject = () => {
@@ -136,6 +143,33 @@ const currentProject = () => {
         >
           Activity
         </button>
+
+        <!-- Divider for Open Task Tabs -->
+        <div v-if="props.openIssueTabs.length > 0" class="h-5 w-px bg-white/20 mx-1 self-center"></div>
+
+        <!-- Open Issue / Task Tabs -->
+        <div
+          v-for="tab in props.openIssueTabs"
+          :key="tab.id"
+          class="px-2.5 py-1.5 rounded-t-sm transition-colors cursor-pointer border-t border-x flex items-center space-x-1.5 max-w-[220px]"
+          :class="
+            props.activeTab === `issue-${tab.id}`
+              ? 'bg-[#141822] text-white border-[#242d3e] font-bold shadow-sm'
+              : 'bg-[#3b556b] text-[#d6e2ec] border-transparent hover:bg-[#405c75] hover:text-white'
+          "
+          :title="`#${tab.id}: ${tab.issue.subject}`"
+          @click="emit('update:activeTab', `issue-${tab.id}`)"
+        >
+          <span class="truncate text-xs">#{{ tab.id }}: {{ tab.issue.subject }}</span>
+          <button
+            type="button"
+            class="p-0.5 rounded hover:bg-black/30 text-slate-300 hover:text-white cursor-pointer ml-0.5 shrink-0"
+            title="Close tab"
+            @click.stop="emit('close-issue-tab', tab.id)"
+          >
+            <X class="w-3 h-3" />
+          </button>
+        </div>
       </div>
 
       <!-- Settings / Configuration button -->

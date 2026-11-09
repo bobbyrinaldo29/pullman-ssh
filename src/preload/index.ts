@@ -55,6 +55,12 @@ const api = {
     ipcRenderer.invoke('sftp:disconnect', sessionId),
   sftpGetStatus: (sessionId?: string): Promise<boolean> =>
     ipcRenderer.invoke('sftp:status', sessionId),
+  sshExec: (
+    command: string,
+    sessionId?: string,
+    asSudo?: boolean
+  ): Promise<{ stdout: string; stderr: string; code: number }> =>
+    ipcRenderer.invoke('ssh:exec', { command, sessionId, asSudo }),
   sftpListRemote: (remotePath: string, sessionId?: string): Promise<any[]> =>
     ipcRenderer.invoke('sftp:list-remote', { remotePath, sessionId }),
   sftpUpload: (localPath: string, remotePath: string, sessionId?: string, asSudo?: boolean): Promise<void> =>

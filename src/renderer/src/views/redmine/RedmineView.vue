@@ -10,7 +10,7 @@ import { useRedmine } from './composables/useRedmine'
 import RedmineTopBar from './components/RedmineTopBar.vue'
 import RedmineHeader from './components/RedmineHeader.vue'
 import RedmineIssuesTable from './components/RedmineIssuesTable.vue'
-import RedmineIssueDetailModal from './components/RedmineIssueDetailModal.vue'
+import RedmineIssueDetailView from './components/RedmineIssueDetailView.vue'
 import RedmineNewIssueModal from './components/RedmineNewIssueModal.vue'
 import RedmineProjectsView from './components/RedmineProjectsView.vue'
 import RedmineOverviewView from './components/RedmineOverviewView.vue'
@@ -36,9 +36,11 @@ const {
   isLoading,
   error,
   activeTab,
+  openIssueTabs,
+  openIssueTab,
+  closeIssueTab,
   filters,
   showLoginModal,
-  showDetailModal,
   showNewIssueModal,
   isConnected,
   login,
@@ -54,6 +56,31 @@ const {
 const selectedProject = computed(() => {
   if (selectedProjectId.value === 'all') return null
   return projects.value.find((p) => p.id === selectedProjectId.value) || null
+})
+
+const currentActiveIssue = computed(() => {
+  if (!activeTab.value.startsWith('issue-')) return null
+  const id = Number(activeTab.value.replace('issue-', ''))
+  return openIssueTabs.value.find((t) => t.id === id)?.issue || selectedIssue.value
+})
+
+const assignableUsers = computed(() => {
+  const map = new Map<number, { id: number; name: string }>()
+  if (currentUser.value) {
+    map.set(currentUser.value.id, {
+      id: currentUser.value.id,
+      name: `${currentUser.value.firstname} ${currentUser.value.lastname} (Me)`
+    })
+  }
+  for (const iss of issues.value) {
+    if (iss.assigned_to) {
+      map.set(iss.assigned_to.id, iss.assigned_to)
+    }
+    if (iss.author) {
+      map.set(iss.author.id, iss.author)
+    }
+  }
+  return Array.from(map.values())
 })
 
 function handleSearch(query: string): void {
@@ -94,6 +121,8 @@ function handleRefresh(): void {
       v-model:active-tab="activeTab"
       :projects="projects"
       :issues-count="issues.length"
+      :open-issue-tabs="openIssueTabs"
+      @close-issue-tab="closeIssueTab"
       @open-new-issue="showNewIssueModal = true"
       @open-login="showLoginModal = true"
     />
@@ -144,9 +173,23 @@ function handleRefresh(): void {
 
       <!-- Logged In / Connected Content Pages -->
       <template v-else>
+        <!-- Issue Detail Web View (Tab Mode) -->
+        <RedmineIssueDetailView
+          v-if="activeTab.startsWith('issue-') && currentActiveIssue"
+          :issue="currentActiveIssue"
+          :statuses="statuses"
+          :priorities="priorities"
+          :users="assignableUsers"
+          :is-loading="isLoading"
+          @close="closeIssueTab(currentActiveIssue.id)"
+          @back-to-issues="activeTab = 'issues'"
+          @update-issue="(data) => updateIssue(data.id, data)"
+          @refresh="(id) => fetchIssueDetail(id)"
+        />
+
         <!-- Issues View (Default) -->
         <RedmineIssuesTable
-          v-if="activeTab === 'issues'"
+          v-else-if="activeTab === 'issues'"
           v-model:selected-project-id="selectedProjectId"
           :issues="filteredIssues"
           :trackers="trackers"
@@ -155,7 +198,7 @@ function handleRefresh(): void {
           :filters="filters"
           :is-loading="isLoading"
           :error="error"
-          @select-issue="(issue) => fetchIssueDetail(issue.id)"
+          @select-issue="(issue) => openIssueTab(issue)"
           @new-issue="showNewIssueModal = true"
           @apply-filters="fetchIssues"
           @clear-filters="() => { filters.status = 'open'; filters.trackerId = 'all'; filters.priorityId = 'all'; filters.queryId = 'all'; filters.search = ''; fetchIssues(); }"
@@ -184,7 +227,7 @@ function handleRefresh(): void {
           v-else-if="activeTab === 'activity'"
           :issues="issues"
           :is-loading="isLoading"
-          @select-issue="(issue) => fetchIssueDetail(issue.id)"
+          @select-issue="(issue) => openIssueTab(issue)"
         />
       </template>
     </div>
@@ -209,16 +252,6 @@ function handleRefresh(): void {
       :is-loading="isLoading"
       @close="showNewIssueModal = false"
       @create-issue="(data) => createIssue(data)"
-    />
-
-    <RedmineIssueDetailModal
-      :show="showDetailModal"
-      :issue="selectedIssue"
-      :statuses="statuses"
-      :priorities="priorities"
-      :is-loading="isLoading"
-      @close="showDetailModal = false"
-      @update-issue="(data) => updateIssue(data.id, data)"
     />
   </div>
 </template>

@@ -289,6 +289,7 @@ export class SftpService {
         if (err) return reject(err)
         let stdout = ''
         let stderr = ''
+        let exitCode = 0
 
         if (feedStdin && password) {
           try {
@@ -304,12 +305,11 @@ export class SftpService {
         stream.stderr.on('data', (data: Buffer) => {
           stderr += data.toString()
         })
-        stream.on('close', (code: number) => {
-          if (code !== 0) {
-            const msg = stderr.trim() || stdout.trim() || `Command failed with exit code ${code}`
-            return reject(new Error(msg))
-          }
-          resolve({ stdout, stderr, code })
+        stream.on('exit', (code: number) => {
+          exitCode = typeof code === 'number' ? code : 0
+        })
+        stream.on('close', () => {
+          resolve({ stdout, stderr, code: exitCode })
         })
       })
     })
