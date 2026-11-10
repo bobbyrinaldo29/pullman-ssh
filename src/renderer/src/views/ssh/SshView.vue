@@ -2,8 +2,10 @@
 import { ref, computed } from 'vue'
 import { Terminal, X } from 'lucide-vue-next'
 import { HostItem } from '../../types/connection'
+import { getConnectionColor } from '../../utils/connectionColors'
 import { SshTab } from './types'
 import SshSessionPane from './components/SshSessionPane.vue'
+import ProdBadge from '../../components/ProdBadge.vue'
 
 const props = defineProps<{
   hosts: HostItem[]
@@ -52,7 +54,7 @@ async function openSessionForHost(host: HostItem): Promise<void> {
 
   tabs.value.push(newTab)
   activeTabId.value = newTab.id
-  await connectSession(newTab)
+  connectSession(newTab)
 }
 
 async function connectSession(tab: SshTab): Promise<void> {
@@ -67,7 +69,8 @@ async function connectSession(tab: SshTab): Promise<void> {
         port: Number(tab.host.port) || 22,
         user: tab.host.user || 'root',
         password: (tab.host as any).password || '',
-        timeoutMs: 12000
+        timeoutMs: 12000,
+        skipCwd: true
       })
 
       if (res.success) {
@@ -85,27 +88,28 @@ async function connectSession(tab: SshTab): Promise<void> {
           timestamp: new Date().toLocaleTimeString()
         })
 
-        // Run initial system info discovery & verify working directory from configured Remote Path
-        try {
-          const probeCmd = configuredPath
-            ? `uname -srm && cd '${configuredPath.replace(/'/g, "'\\''")}' 2>/dev/null && pwd || pwd`
-            : 'uname -srm && pwd'
-          const probe = await executeRemoteSsh(probeCmd, tab)
-          if (probe.stdout) {
-            const lines = probe.stdout.trim().split('\n')
-            const sysInfo = lines[0] || ''
-            const pwd = lines[lines.length - 1]?.trim() || tab.currentDir
-            tab.currentDir = pwd
-            tab.logs.push({
-              id: generateId(),
-              type: 'system',
-              text: `Remote System: ${sysInfo} | Working Directory: ${pwd}`,
-              timestamp: new Date().toLocaleTimeString()
-            })
-          }
-        } catch {
-          // non-fatal
-        }
+        // Run initial system info discovery & verify working directory asynchronously in background
+        const probeCmd = configuredPath
+          ? `uname -srm && cd '${configuredPath.replace(/'/g, "'\\''")}' 2>/dev/null && pwd || pwd`
+          : 'uname -srm && pwd'
+        executeRemoteSsh(probeCmd, tab)
+          .then((probe) => {
+            if (probe.stdout) {
+              const lines = probe.stdout.trim().split('\n')
+              const sysInfo = lines[0] || ''
+              const pwd = lines[lines.length - 1]?.trim() || tab.currentDir
+              tab.currentDir = pwd
+              tab.logs.push({
+                id: generateId(),
+                type: 'system',
+                text: `Remote System: ${sysInfo} | Working Directory: ${pwd}`,
+                timestamp: new Date().toLocaleTimeString()
+              })
+            }
+          })
+          .catch(() => {
+            // non-fatal
+          })
       } else {
         tab.status = 'error'
         tab.errorMessage = res.message || 'SSH connection failed'
@@ -203,8 +207,13 @@ async function closeTab(tabId: string): Promise<void> {
   }
 }
 
+function cleanAnsi(text: string): string {
+  if (!text) return ''
+  return text.replace(/\u001b\[[0-9;]*[a-zA-Z]/g, '')
+}
+
 async function handleRunCommand(tab: SshTab, rawCmd: string, asSudo?: boolean): Promise<void> {
-  if (tab.status !== 'connected') return
+  if (tab.status !== 'connected' || tab.isExecuting) return
   const cmd = rawCmd.trim()
   if (!cmd) return
 
@@ -225,48 +234,60 @@ async function handleRunCommand(tab: SshTab, rawCmd: string, asSudo?: boolean): 
     prompt: `${userSnapshot}@${hostSnapshot}:${dirSnapshot}$`
   })
 
-  // Handle cd command to maintain current directory context
-  if (cmd === 'cd' || cmd.startsWith('cd ') || cmd.startsWith('cd/')) {
-    let target = cmd.substring(2).trim()
-    if (!target) target = '~'
-    const cdCmd = `cd '${dirSnapshot.replace(/'/g, "'\\''")}' 2>/dev/null; cd ${target} && pwd`
-    try {
-      const res = await executeRemoteSsh(cdCmd, tab, asSudo)
-      if (res.stdout) {
-        const outLines = res.stdout.trim().split('\n')
-        const newDir = outLines[outLines.length - 1]?.trim()
-        if (newDir && (newDir.startsWith('/') || newDir.startsWith('~'))) {
-          tab.currentDir = newDir
+  tab.isExecuting = true
+  try {
+    // Handle cd command with fast-path for root & home
+    if (cmd === 'cd' || cmd.startsWith('cd ') || cmd.startsWith('cd/')) {
+      let target = cmd.substring(2).trim()
+      if (!target || target === '~') {
+        tab.currentDir = '~'
+        return
+      }
+      if (target === '/') {
+        tab.currentDir = '/'
+        return
+      }
+
+      const cdCmd = target.startsWith('/')
+        ? `cd '${target.replace(/'/g, "'\\''")}' && pwd`
+        : `cd '${dirSnapshot.replace(/'/g, "'\\''")}' 2>/dev/null; cd ${target} && pwd`
+
+      try {
+        const res = await executeRemoteSsh(cdCmd, tab, asSudo)
+        if (res.stdout) {
+          const outLines = res.stdout.trim().split('\n')
+          const newDir = outLines[outLines.length - 1]?.trim()
+          if (newDir && (newDir.startsWith('/') || newDir.startsWith('~'))) {
+            tab.currentDir = newDir
+          }
+        } else if (res.stderr) {
+          tab.logs.push({
+            id: generateId(),
+            type: 'error',
+            text: cleanAnsi(res.stderr.trim()),
+            timestamp: new Date().toLocaleTimeString()
+          })
         }
-      } else if (res.stderr) {
+      } catch (err: any) {
         tab.logs.push({
           id: generateId(),
           type: 'error',
-          text: res.stderr.trim(),
+          text: err.message || 'Failed to change directory',
           timestamp: new Date().toLocaleTimeString()
         })
       }
-    } catch (err: any) {
-      tab.logs.push({
-        id: generateId(),
-        type: 'error',
-        text: err.message || 'Failed to change directory',
-        timestamp: new Date().toLocaleTimeString()
-      })
+      return
     }
-    return
-  }
 
-  // Scoped execution to working directory with full system PATH
-  const fullCmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin; cd '${(tab.currentDir || '~').replace(/'/g, "'\\''")}' 2>/dev/null; ${cmd}`
+    // Scoped execution to working directory with full system PATH
+    const fullCmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin; cd '${(tab.currentDir || '~').replace(/'/g, "'\\''")}' 2>/dev/null; ${cmd}`
 
-  try {
     const res = await executeRemoteSsh(fullCmd, tab, asSudo)
     if (res.stdout) {
       tab.logs.push({
         id: generateId(),
         type: 'output',
-        text: res.stdout,
+        text: cleanAnsi(res.stdout),
         timestamp: new Date().toLocaleTimeString()
       })
     }
@@ -274,7 +295,7 @@ async function handleRunCommand(tab: SshTab, rawCmd: string, asSudo?: boolean): 
       tab.logs.push({
         id: generateId(),
         type: 'error',
-        text: res.stderr,
+        text: cleanAnsi(res.stderr),
         timestamp: new Date().toLocaleTimeString()
       })
     }
@@ -293,6 +314,8 @@ async function handleRunCommand(tab: SshTab, rawCmd: string, asSudo?: boolean): 
       text: err.message || 'Command execution failed',
       timestamp: new Date().toLocaleTimeString()
     })
+  } finally {
+    tab.isExecuting = false
   }
 }
 
@@ -314,21 +337,21 @@ defineExpose({
           class="group h-8 px-3 rounded-t flex items-center space-x-2 border-b-2 transition-colors max-w-[200px]"
           :class="
             activeTabId === t.id
-              ? 'bg-[#12151D] text-white border-cyan-400 font-medium'
+              ? 'bg-[#12151D] text-white font-medium'
               : 'text-[#8E99AF] hover:text-white hover:bg-[#252C3D] border-transparent'
           "
+          :style="activeTabId === t.id ? { borderBottomColor: getConnectionColor(t.host.color) } : {}"
           @click="activeTabId = t.id"
         >
           <span
             class="w-2 h-2 rounded-full shrink-0"
+            :style="{ backgroundColor: getConnectionColor(t.host.color) }"
             :class="{
-              'bg-emerald-400': t.status === 'connected',
-              'bg-amber-400 animate-spin': t.status === 'connecting',
-              'bg-rose-400': t.status === 'error',
-              'bg-slate-500': t.status === 'disconnected'
+              'animate-pulse': t.status === 'connecting'
             }"
           ></span>
           <span class="truncate text-xs">{{ t.title }}</span>
+          <ProdBadge v-if="t.host.isProduction" size="sm" />
           <span
             class="p-0.5 rounded hover:bg-slate-700/60 text-slate-400 hover:text-white transition-colors"
             @click.stop="closeTab(t.id)"

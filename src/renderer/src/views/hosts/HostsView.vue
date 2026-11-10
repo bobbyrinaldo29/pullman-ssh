@@ -12,6 +12,7 @@ import {
   FolderSync
 } from 'lucide-vue-next'
 import { HostItem } from '../../types/connection'
+import ProdBadge from '../../components/ProdBadge.vue'
 
 defineProps<{
   hostsList: HostItem[]
@@ -141,6 +142,7 @@ const emit = defineEmits<{
                     :class="h.statusType === 'success' ? 'bg-emerald-400' : 'bg-amber-400'"
                   ></span>
                   <span class="truncate max-w-[200px]" :title="h.name">{{ h.name }}</span>
+                  <ProdBadge v-if="h.isProduction" size="sm" />
                 </div>
               </td>
               <td class="py-3 px-4 font-mono text-slate-300 whitespace-nowrap">{{ h.ip }}:{{ h.port }}</td>

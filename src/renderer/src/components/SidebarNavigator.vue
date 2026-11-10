@@ -2,7 +2,6 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import {
   ArrowUpDown,
-  ChevronDown,
   ChevronRight,
   FolderPlus,
   RotateCw,
@@ -12,18 +11,18 @@ import {
   Folder,
   FolderOpen,
   Server,
-  FileSpreadsheet,
-  Download,
-  Upload,
   Database,
   X,
   Pin
 } from 'lucide-vue-next'
 import { HostItem } from '../types/connection'
+import { getConnectionColor } from '../utils/connectionColors'
 import SidebarNewGroupModal from './sidebar/SidebarNewGroupModal.vue'
 import SidebarRenameGroupModal from './sidebar/SidebarRenameGroupModal.vue'
+import SidebarDeleteGroupModal from './sidebar/SidebarDeleteGroupModal.vue'
 import SidebarGroupContextMenu from './sidebar/SidebarGroupContextMenu.vue'
 import SidebarHostContextMenu from './sidebar/SidebarHostContextMenu.vue'
+import ProdBadge from './ProdBadge.vue'
 
 export type { HostItem }
 
@@ -48,6 +47,7 @@ const emit = defineEmits<{
   (e: 'add-host-in-group', groupName: string): void
   (e: 'import-data'): void
   (e: 'export-data'): void
+  (e: 'import-dbeaver'): void
   (e: 'group-added', groupName: string): void
   (e: 'group-renamed', payload: { oldName: string; newName: string }): void
   (e: 'group-deleted', groupName: string): void
@@ -59,7 +59,6 @@ const isCollapsed = computed({
   set: (val: boolean) => emit('update:collapsed', val)
 })
 const searchQuery = ref('')
-const showImportExportMenu = ref(false)
 
 // Context Menu State (Group)
 const showContextMenu = ref(false)
@@ -83,10 +82,79 @@ const inlineInputRef = ref<HTMLInputElement | null>(null)
 // Rename Modal State
 const showRenameGroupModal = ref(false)
 
+// Delete Group Modal State
+const showDeleteGroupModal = ref(false)
+const targetDeleteGroupName = ref('')
+
 // New Group Modal State
 const showNewGroupModal = ref(false)
 const newGroupNameInput = ref('')
 const customGroups = ref<string[]>([])
+
+// Resizable Sidebar State
+const DEFAULT_SIDEBAR_WIDTH = 260
+const MIN_SIDEBAR_WIDTH = 180
+const MAX_SIDEBAR_WIDTH = 700
+
+const asideRef = ref<HTMLElement | null>(null)
+const sidebarWidth = ref<number>(DEFAULT_SIDEBAR_WIDTH)
+const isResizing = ref(false)
+
+try {
+  const saved = localStorage.getItem('pullman_sidebar_width')
+  if (saved) {
+    const parsed = parseInt(saved, 10)
+    if (!isNaN(parsed) && parsed >= MIN_SIDEBAR_WIDTH && parsed <= MAX_SIDEBAR_WIDTH) {
+      sidebarWidth.value = parsed
+    }
+  }
+} catch {
+  // ignore
+}
+
+function startResizing(e: MouseEvent): void {
+  e.preventDefault()
+  isResizing.value = true
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+
+  const asideLeft = asideRef.value?.getBoundingClientRect().left ?? 0
+
+  const onMouseMove = (moveEvent: MouseEvent): void => {
+    if (!isResizing.value) return
+    const calculatedWidth = moveEvent.clientX - asideLeft
+    const newWidth = Math.min(
+      Math.max(calculatedWidth, MIN_SIDEBAR_WIDTH),
+      Math.min(window.innerWidth * 0.6, MAX_SIDEBAR_WIDTH)
+    )
+    sidebarWidth.value = Math.round(newWidth)
+  }
+
+  const stopResizing = (): void => {
+    isResizing.value = false
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    window.removeEventListener('mousemove', onMouseMove)
+    window.removeEventListener('mouseup', stopResizing)
+    try {
+      localStorage.setItem('pullman_sidebar_width', String(sidebarWidth.value))
+    } catch {
+      // ignore
+    }
+  }
+
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseup', stopResizing)
+}
+
+function resetSidebarWidth(): void {
+  sidebarWidth.value = DEFAULT_SIDEBAR_WIDTH
+  try {
+    localStorage.setItem('pullman_sidebar_width', String(DEFAULT_SIDEBAR_WIDTH))
+  } catch {
+    // ignore
+  }
+}
 
 // Expand/Collapse groups
 const expandedGroups = ref<Record<string, boolean>>({})
@@ -108,6 +176,8 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('click', closeContextMenu)
   window.removeEventListener('keydown', handleGlobalKeyDown)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
 })
 
 function handleGlobalKeyDown(e: KeyboardEvent): void {
@@ -312,11 +382,16 @@ async function performRename(oldName: string, newName: string): Promise<void> {
   await loadGroups()
 }
 
-async function handleDeleteGroup(): Promise<void> {
+function handleDeleteGroup(): void {
   const g = contextGroup.value
   closeContextMenu()
   if (!g) return
-  if (!confirm(`Are you sure you want to delete group "${g}"?`)) return
+  targetDeleteGroupName.value = g
+  showDeleteGroupModal.value = true
+}
+
+async function confirmDeleteGroup(g: string): Promise<void> {
+  if (!g) return
 
   try {
     if (window.api?.deleteGroup) {
@@ -437,16 +512,6 @@ const standaloneHosts = computed(() => {
   })
 })
 
-function handleTriggerImport(): void {
-  emit('import-data')
-  showImportExportMenu.value = false
-}
-
-function handleTriggerExport(): void {
-  emit('export-data')
-  showImportExportMenu.value = false
-}
-
 function handleOpenAddFolder(): void {
   newGroupNameInput.value = ''
   showNewGroupModal.value = true
@@ -476,56 +541,44 @@ async function handleCreateGroup(): Promise<void> {
 
 <template>
   <aside
-    class="bg-[#20242F] flex flex-col justify-between transition-all duration-200 select-none overflow-hidden h-full z-20 shrink-0"
-    :class="isCollapsed ? 'w-0 border-r-0' : 'w-64 border-r border-[#282F3E]'"
+    ref="asideRef"
+    class="relative bg-[#20242F] flex flex-col justify-between select-none overflow-hidden h-full z-20 shrink-0"
+    :class="[
+      isCollapsed ? 'w-0 border-r-0' : 'border-r border-[#282F3E]',
+      isResizing ? 'transition-none select-none' : 'transition-[width] duration-150'
+    ]"
+    :style="!isCollapsed ? { width: `${sidebarWidth}px` } : {}"
   >
+    <!-- Resize Handle (Drag left & right to resize sidebar) -->
+    <div
+      v-if="!isCollapsed"
+      class="absolute right-0 top-0 bottom-0 w-2.5 -mr-1.5 cursor-col-resize z-40 flex items-center justify-center group select-none"
+      title="Double-click to reset, drag to resize"
+      @mousedown="startResizing"
+      @dblclick="resetSidebarWidth"
+    >
+      <div
+        class="w-[2px] h-full transition-colors duration-150"
+        :class="isResizing ? 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]' : 'group-hover:bg-blue-500/70'"
+      />
+    </div>
+
     <!-- Expanded Full View -->
-    <div class="flex flex-col flex-1 overflow-hidden min-w-[256px]">
+    <div class="flex flex-col flex-1 overflow-hidden min-w-0">
       <!-- 1. Header Row (Import / Export ⌵ on left + 4 Action Icons on right) -->
       <div
         class="h-9 px-3 border-b border-[#282F3E] flex items-center justify-between text-xs relative bg-[#20242F]"
       >
-        <!-- Left: Import / Export Dropdown Trigger -->
-        <div class="relative">
-          <button
-            type="button"
-            class="flex items-center space-x-1.5 px-1 py-1 rounded text-[#9CA5B8] hover:text-white transition-colors text-[12px] font-medium"
-            @click="showImportExportMenu = !showImportExportMenu"
-          >
-            <ArrowUpDown class="w-3.5 h-3.5 text-[#9CA5B8]" />
-            <span>Import / Export</span>
-            <ChevronDown class="w-3 h-3 text-[#64748B]" />
-          </button>
-
-          <!-- Dropdown Menu -->
-          <div
-            v-if="showImportExportMenu"
-            class="absolute left-0 top-full mt-1 w-52 bg-[#171B24] border border-[#2D3547] rounded-lg shadow-xl shadow-black/70 py-1 z-50 text-xs"
-          >
-            <button
-              class="w-full text-left px-3 py-1.5 flex items-center space-x-2 text-[#CBD5E1] hover:text-white hover:bg-[#283145] transition-colors"
-              @click="handleTriggerImport"
-            >
-              <Upload class="w-3.5 h-3.5 text-blue-400" />
-              <span>Import Configurations (CSV/JSON)</span>
-            </button>
-            <button
-              class="w-full text-left px-3 py-1.5 flex items-center space-x-2 text-[#CBD5E1] hover:text-white hover:bg-[#283145] transition-colors"
-              @click="handleTriggerExport"
-            >
-              <Download class="w-3.5 h-3.5 text-emerald-400" />
-              <span>Export Configurations</span>
-            </button>
-            <div class="my-1 border-t border-[#282F3E]"></div>
-            <button
-              class="w-full text-left px-3 py-1.5 flex items-center space-x-2 text-[#CBD5E1] hover:text-white hover:bg-[#283145] transition-colors"
-              @click="showImportExportMenu = false"
-            >
-              <FileSpreadsheet class="w-3.5 h-3.5 text-amber-400" />
-              <span>Import from DBeaver / DataGrip</span>
-            </button>
-          </div>
-        </div>
+        <!-- Left: Import / Export Button (Direct modal trigger) -->
+        <button
+          type="button"
+          class="flex items-center space-x-1.5 px-2 py-1 rounded text-[#9CA5B8] hover:text-white hover:bg-[#283145] transition-colors text-[12px] font-medium"
+          title="Import / Export Configurations"
+          @click="emit('import-data')"
+        >
+          <ArrowUpDown class="w-3.5 h-3.5 text-[#9CA5B8]" />
+          <span>Import / Export</span>
+        </button>
 
         <!-- Right: 4 Action Tools Icons (Exact match to screenshot) -->
         <div class="flex items-center space-x-2.5 text-[#8E99AF]">
@@ -613,25 +666,36 @@ async function handleCreateGroup(): Promise<void> {
             v-for="host in standaloneHosts"
             :key="host.id"
             class="flex items-center justify-between px-2 py-1.5 rounded cursor-pointer transition-colors text-xs"
-            :class="
+            :class="[
               selectedHostId === host.id
-                ? 'bg-[#293247] text-white font-medium border border-blue-500/20'
-                : 'text-[#A0ABC0] hover:bg-[#222736] hover:text-white'
-            "
+                ? host.isProduction
+                  ? 'bg-[#38232B] text-white font-medium border border-rose-500/30'
+                  : 'bg-[#293247] text-white font-medium border border-blue-500/20'
+                : host.isProduction
+                  ? 'bg-[#241B20]/60 text-slate-200 hover:bg-[#301F27] hover:text-white'
+                  : 'text-[#A0ABC0] hover:bg-[#222736] hover:text-white'
+            ]"
+            :style="selectedHostId === host.id ? { borderLeft: `2px solid ${getConnectionColor(host.color)}` } : {}"
             @click="emit('select-host', host)"
             @dblclick="emit('dblclick-host', host)"
             @contextmenu.prevent.stop="openHostContextMenu($event, host)"
           >
-            <div class="flex items-center space-x-2 truncate">
-              <Server class="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <div class="flex items-center space-x-2 truncate flex-1 min-w-0 mr-2">
+              <Server
+                class="w-3.5 h-3.5 shrink-0 transition-colors"
+                :style="{ color: getConnectionColor(host.color) }"
+              />
               <span class="truncate">{{ host.name }}</span>
             </div>
 
-            <!-- Status Dot -->
-            <span
-              class="w-1.5 h-1.5 rounded-full shrink-0 ml-1.5"
-              :class="host.statusType === 'success' ? 'bg-emerald-400' : 'bg-amber-400'"
-            ></span>
+            <div class="flex items-center space-x-2 shrink-0">
+              <!-- Status Dot (green dot when connected) -->
+              <span
+                v-if="host.statusType === 'success'"
+                class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"
+              ></span>
+              <ProdBadge v-if="host.isProduction" size="md" />
+            </div>
           </div>
         </div>
 
@@ -693,25 +757,36 @@ async function handleCreateGroup(): Promise<void> {
               v-for="host in items"
               :key="host.id"
               class="flex items-center justify-between px-2 py-1.5 rounded cursor-pointer transition-colors text-xs"
-              :class="
+              :class="[
                 selectedHostId === host.id
-                  ? 'bg-[#293247] text-white font-medium border border-blue-500/20'
-                  : 'text-[#A0ABC0] hover:bg-[#222736] hover:text-white'
-              "
+                  ? host.isProduction
+                    ? 'bg-[#38232B] text-white font-medium border border-rose-500/30'
+                    : 'bg-[#293247] text-white font-medium border border-blue-500/20'
+                  : host.isProduction
+                    ? 'bg-[#241B20]/60 text-slate-200 hover:bg-[#301F27] hover:text-white'
+                    : 'text-[#A0ABC0] hover:bg-[#222736] hover:text-white'
+              ]"
+              :style="selectedHostId === host.id ? { borderLeft: `2px solid ${getConnectionColor(host.color)}` } : {}"
               @click="emit('select-host', host)"
               @dblclick="emit('dblclick-host', host)"
               @contextmenu.prevent.stop="openHostContextMenu($event, host)"
             >
-              <div class="flex items-center space-x-2 truncate">
-                <Server class="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <div class="flex items-center space-x-2 truncate flex-1 min-w-0 mr-2">
+                <Server
+                  class="w-3.5 h-3.5 shrink-0 transition-colors"
+                  :style="{ color: getConnectionColor(host.color) }"
+                />
                 <span class="truncate">{{ host.name }}</span>
               </div>
 
-              <!-- Status Dot -->
-              <span
-                class="w-1.5 h-1.5 rounded-full shrink-0 ml-1.5"
-                :class="host.statusType === 'success' ? 'bg-emerald-400' : 'bg-amber-400'"
-              ></span>
+              <div class="flex items-center space-x-2 shrink-0">
+                <!-- Status Dot (green dot when connected) -->
+                <span
+                  v-if="host.statusType === 'success'"
+                  class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"
+                ></span>
+                <ProdBadge v-if="host.isProduction" size="md" />
+              </div>
             </div>
 
             <!-- Empty Folder State -->
@@ -750,6 +825,13 @@ async function handleCreateGroup(): Promise<void> {
       v-model:show="showRenameGroupModal"
       :group-name="contextGroup"
       @rename="({ oldName, newName }) => performRename(oldName, newName)"
+    />
+
+    <SidebarDeleteGroupModal
+      v-model:show="showDeleteGroupModal"
+      :group-name="targetDeleteGroupName"
+      :hosts="props.hosts"
+      @confirm="confirmDeleteGroup"
     />
 
     <SidebarGroupContextMenu

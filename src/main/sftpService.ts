@@ -62,6 +62,7 @@ export class SftpService {
     user: string
     password?: string
     timeoutMs?: number
+    skipCwd?: boolean
   }): Promise<{ success: boolean; message: string; cwd?: string }> {
     const sid = config.sessionId || 'default'
     await this.disconnect(sid)
@@ -99,15 +100,17 @@ export class SftpService {
       })
 
       let cwd = '/'
-      try {
-        cwd = await Promise.race([
-          client.cwd(),
-          new Promise<string>((_, reject) =>
-            setTimeout(() => reject(new Error('cwd timeout')), 1500)
-          )
-        ])
-      } catch {
-        cwd = '/'
+      if (!config.skipCwd) {
+        try {
+          cwd = await Promise.race([
+            client.cwd(),
+            new Promise<string>((_, reject) =>
+              setTimeout(() => reject(new Error('cwd timeout')), 400)
+            )
+          ])
+        } catch {
+          cwd = '/'
+        }
       }
 
       this.sessions.set(sid, {

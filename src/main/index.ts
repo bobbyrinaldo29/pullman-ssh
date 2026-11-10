@@ -1,5 +1,7 @@
-import { app, shell, BrowserWindow, ipcMain, Notification, net } from 'electron'
-import { join } from 'path'
+import { app, shell, BrowserWindow, ipcMain, Notification, net, dialog } from 'electron'
+import { join, dirname } from 'path'
+import { readFileSync, writeFileSync, existsSync } from 'fs'
+import * as os from 'os'
 import { Client as SshClient } from 'ssh2'
 import mysql from 'mysql2/promise'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -8,8 +10,7 @@ import { dbService, ConnectionInput } from './database'
 import { sftpService } from './sftpService'
 import { googleAuthService } from './googleAuthService'
 import { redmineService } from './redmineService'
-
-
+import { extractDBeaverProjectFile, decryptDBeaverCredentialsNode } from './dbpExtractor'
 
 function testSshConnection(input: {
   host: string
@@ -448,6 +449,125 @@ app.whenReady().then(() => {
     return dbService.deleteConnection(id)
   })
 
+  ipcMain.handle(
+    'connections:import-multiple',
+    (_, inputs: ConnectionInput[], extraGroups?: string[]) => {
+      return dbService.importMultipleConnections(inputs, extraGroups)
+    }
+  )
+
+  // Dialog & File Transfer IPC Handlers for Import / Export
+  ipcMain.handle(
+    'dialog:open-file',
+    async (
+      _,
+      options?: {
+        title?: string
+        filters?: { name: string; extensions: string[] }[]
+      }
+    ) => {
+      const win = BrowserWindow.getFocusedWindow()
+      const result = await dialog.showOpenDialog(win || (undefined as any), {
+        title: options?.title || 'Open File',
+        properties: ['openFile'],
+        filters: options?.filters || [{ name: 'All Files', extensions: ['*'] }]
+      })
+      if (result.canceled || !result.filePaths.length) {
+        return { canceled: true }
+      }
+      try {
+        const filePath = result.filePaths[0]
+        const buf = readFileSync(filePath)
+        const isZip =
+          filePath.toLowerCase().endsWith('.dbp') ||
+          filePath.toLowerCase().endsWith('.zip') ||
+          (buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b)
+        if (isZip) {
+          const extracted = extractDBeaverProjectFile(filePath)
+          return { canceled: false, filePath, content: extracted.content, credentials: extracted.credentials }
+        }
+        const content = buf.toString('utf-8')
+        return { canceled: false, filePath, content }
+      } catch (err: any) {
+        return { canceled: false, error: err.message || String(err) }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'dialog:save-file',
+    async (
+      _,
+      options: {
+        title?: string
+        defaultPath?: string
+        content: string
+        filters?: { name: string; extensions: string[] }[]
+      }
+    ) => {
+      const win = BrowserWindow.getFocusedWindow()
+      const result = await dialog.showSaveDialog(win || (undefined as any), {
+        title: options.title || 'Save File',
+        defaultPath: options.defaultPath,
+        filters: options.filters || [{ name: 'All Files', extensions: ['*'] }]
+      })
+      if (result.canceled || !result.filePath) {
+        return { canceled: true }
+      }
+      try {
+        writeFileSync(result.filePath, options.content, 'utf-8')
+        return { canceled: false, filePath: result.filePath }
+      } catch (err: any) {
+        return { canceled: false, error: err.message || String(err) }
+      }
+    }
+  )
+
+  ipcMain.handle('tools:detect-dbeaver', () => {
+    const home = os.homedir()
+    const candidates = [
+      // macOS
+      join(home, 'Library/DBeaverData/workspace6/General/.dbeaver/data-sources.json'),
+      join(home, 'Library/DBeaverData/workspace6/.metadata/.plugins/org.jkiss.dbeaver.core/data-sources.json'),
+      // Windows
+      join(process.env.APPDATA || '', 'DBeaverData/workspace6/General/.dbeaver/data-sources.json'),
+      // Linux
+      join(home, '.local/share/DBeaverData/workspace6/General/.dbeaver/data-sources.json'),
+      join(home, '.var/app/io.dbeaver.DBeaverCommunity/data/DBeaverData/workspace6/General/.dbeaver/data-sources.json')
+    ]
+    for (const p of candidates) {
+      if (existsSync(p)) {
+        try {
+          const content = readFileSync(p, 'utf-8')
+          let credentials: Record<string, any> | undefined
+          const credPath = join(dirname(p), 'credentials-config.json')
+          if (existsSync(credPath)) {
+            try { credentials = decryptDBeaverCredentialsNode(readFileSync(credPath)) } catch { /* ignore */ }
+          }
+          return { found: true, path: p, content, credentials }
+        } catch { /* ignore */ }
+      }
+    }
+    return { found: false }
+  })
+
+  ipcMain.handle('tools:extract-dbeaver-dbp', (_, filePath: string) => {
+    try {
+      const res = extractDBeaverProjectFile(filePath)
+      return { success: true, content: res.content, credentials: res.credentials }
+    } catch (err: any) {
+      return { success: false, error: err.message || String(err) }
+    }
+  })
+
+  ipcMain.handle('tools:decrypt-dbeaver-credentials', (_, byteArr: number[]) => {
+    try {
+      return decryptDBeaverCredentialsNode(Buffer.from(byteArr))
+    } catch {
+      return {}
+    }
+  })
+
   // SQLite Connection Groups IPC Handlers
   ipcMain.handle('groups:get-all', () => {
     return dbService.getAllGroups()
@@ -477,6 +597,7 @@ app.whenReady().then(() => {
         user: string
         password?: string
         timeoutMs?: number
+        skipCwd?: boolean
       }
     ) => {
       return sftpService.connect(config)

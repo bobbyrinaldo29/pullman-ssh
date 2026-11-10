@@ -16,6 +16,7 @@ export interface SshTab {
   host: HostItem
   title: string
   status: 'connected' | 'connecting' | 'disconnected' | 'error'
+  isExecuting?: boolean
   errorMessage?: string
   logs: SshLogEntry[]
   commandHistory: string[]

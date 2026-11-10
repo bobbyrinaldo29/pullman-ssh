@@ -21,5 +21,6 @@ export interface HostItem {
   dbUser?: string
   dbPassword?: string
   dbSavePassword?: boolean
+  isProduction?: boolean
 }
 

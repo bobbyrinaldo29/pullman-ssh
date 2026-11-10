@@ -11,8 +11,10 @@ import {
   Check,
   CheckCircle2,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  ShieldAlert
 } from 'lucide-vue-next'
+import { PRESET_COLORS } from '../utils/connectionColors'
 
 const props = defineProps<{
   show: boolean
@@ -44,6 +46,7 @@ const group = ref('')
 const remotePath = ref('')
 const branch = ref('main')
 const notes = ref('')
+const isProduction = ref(false)
 
 // Form State (Database Connection)
 const dbHost = ref('127.0.0.1')
@@ -77,9 +80,17 @@ function initFormData(): void {
     database.value = String(ec.database || '')
     notes.value = String(ec.notes || '')
     group.value = String(ec.group || '')
-    selectedColor.value = String(ec.color || colors[0].id)
+    if (ec.color) {
+      const match = colors.find((c) => c.id.toLowerCase() === String(ec.color).toLowerCase())
+      selectedColor.value = match ? match.id : String(ec.color)
+      customColorHex.value = match ? '' : String(ec.color)
+    } else {
+      selectedColor.value = colors[0].id
+      customColorHex.value = ''
+    }
     remotePath.value = String(ec.remotePath || '')
     branch.value = String(ec.branch || 'main')
+    isProduction.value = Boolean(ec.isProduction || (ec as any).is_production)
 
     dbHost.value = String(ec.dbHost || ec.db_host || '127.0.0.1')
     dbPort.value = Number(ec.dbPort || ec.db_port || 3306)
@@ -98,8 +109,10 @@ function initFormData(): void {
     database.value = ''
     notes.value = ''
     selectedColor.value = colors[0].id
+    customColorHex.value = ''
     remotePath.value = ''
     branch.value = 'main'
+    isProduction.value = false
 
     dbHost.value = '127.0.0.1'
     dbPort.value = 3306
@@ -204,16 +217,31 @@ onUnmounted(() => {
 })
 
 // Colors
-const colors = [
-  { id: 'dark', hex: '#1E293B', border: '#475569' },
-  { id: 'green', hex: '#10B981', border: '#059669' },
-  { id: 'yellow', hex: '#F59E0B', border: '#D97706' },
-  { id: 'orange', hex: '#F97316', border: '#EA580C' },
-  { id: 'red', hex: '#EF4444', border: '#DC2626' },
-  { id: 'blue', hex: '#3B82F6', border: '#2563EB' },
-  { id: 'purple', hex: '#A855F7', border: '#9333EA' }
-]
+const colors = PRESET_COLORS
 const selectedColor = ref(colors[0].id)
+const customColorHex = ref('')
+const colorInputRef = ref<HTMLInputElement | null>(null)
+
+const isCustomColor = computed(() => {
+  return !colors.some((c) => c.id.toLowerCase() === selectedColor.value.toLowerCase())
+})
+
+function selectColor(colorId: string): void {
+  selectedColor.value = colorId
+  customColorHex.value = ''
+}
+
+function triggerColorPicker(): void {
+  colorInputRef.value?.click()
+}
+
+function onCustomColorInput(event: Event): void {
+  const target = event.target as HTMLInputElement
+  if (target.value) {
+    customColorHex.value = target.value
+    selectedColor.value = target.value
+  }
+}
 
 function selectGroup(g: string): void {
   group.value = g
@@ -317,7 +345,8 @@ function handleSaveAndConnect(): void {
     dbPort: Number(dbPort.value) || 3306,
     dbUser: dbUser.value.trim() || 'root',
     dbPassword: dbPassword.value,
-    dbSavePassword: dbSavePassword.value
+    dbSavePassword: dbSavePassword.value,
+    isProduction: isProduction.value
   }
 
   emit('save', connectionPayload)
@@ -417,24 +446,45 @@ const testButtonLabel = computed(() => {
                   :key="c.id"
                   type="button"
                   :style="{ backgroundColor: c.hex }"
-                  class="w-5 h-5 rounded-full transition-transform hover:scale-110 flex items-center justify-center relative"
+                  class="w-5 h-5 rounded-full transition-transform hover:scale-110 flex items-center justify-center relative cursor-pointer"
                   :class="
-                    selectedColor === c.id
+                    selectedColor.toLowerCase() === c.id.toLowerCase()
                       ? 'ring-2 ring-offset-2 ring-offset-[#1D222E] ring-blue-400'
                       : ''
                   "
-                  @click="selectedColor = c.id"
+                  @click="selectColor(c.id)"
                 >
-                  <Check v-if="selectedColor === c.id" class="w-3 h-3 text-white drop-shadow" />
+                  <Check
+                    v-if="selectedColor.toLowerCase() === c.id.toLowerCase()"
+                    class="w-3 h-3 text-white drop-shadow"
+                  />
                 </button>
 
-                <button
-                  type="button"
-                  class="w-5 h-5 rounded-full border border-dashed border-[#475569] flex items-center justify-center text-[#94A3B8] hover:text-white hover:border-slate-300 transition-colors"
-                  title="Custom Color"
-                >
-                  <Pipette class="w-3 h-3" />
-                </button>
+                <!-- Custom Color (Pipette) -->
+                <div class="relative flex items-center">
+                  <button
+                    type="button"
+                    class="w-5 h-5 rounded-full border border-dashed border-[#475569] flex items-center justify-center text-[#94A3B8] hover:text-white hover:border-slate-300 transition-colors relative cursor-pointer"
+                    :class="
+                      isCustomColor
+                        ? 'ring-2 ring-offset-2 ring-offset-[#1D222E] ring-blue-400'
+                        : ''
+                    "
+                    :style="isCustomColor ? { backgroundColor: customColorHex || selectedColor } : {}"
+                    title="Choose custom color"
+                    @click="triggerColorPicker"
+                  >
+                    <Check v-if="isCustomColor" class="w-3 h-3 text-white drop-shadow" />
+                    <Pipette v-else class="w-3 h-3" />
+                  </button>
+                  <input
+                    ref="colorInputRef"
+                    type="color"
+                    class="sr-only opacity-0 absolute pointer-events-none"
+                    :value="customColorHex || '#3B82F6'"
+                    @input="onCustomColorInput"
+                  />
+                </div>
               </div>
 
               <!-- Group Selector (Dynamically populated from user's created groups) -->
@@ -479,6 +529,45 @@ const testButtonLabel = computed(() => {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <!-- Production Safeguards Card (Screenshot 2) -->
+          <div
+            class="rounded-lg border border-rose-500/35 bg-[#25181E] px-3.5 py-2.5 flex items-center justify-between transition-colors shadow-sm"
+          >
+            <!-- Left: Icon & Label -->
+            <div class="flex items-center space-x-1.5 text-rose-400 font-bold text-[10px] tracking-wider shrink-0 select-none">
+              <ShieldAlert class="w-3 h-3 text-rose-400 shrink-0" />
+              <span>PROD</span>
+              <HelpCircle
+                class="w-3.5 h-3.5 text-rose-400/80 hover:text-rose-300 cursor-pointer ml-0.5"
+                title="Enable production safeguards and display a production environment banner when connecting to this host"
+              />
+            </div>
+
+            <!-- Middle Text & Switch Toggle -->
+            <div class="flex-1 ml-5 flex items-center justify-between">
+              <div class="space-y-0.5 select-none">
+                <div class="text-slate-200 text-xs font-medium">Enable production safeguards</div>
+                <div class="text-slate-400 text-[11px]">Protection scope</div>
+              </div>
+
+              <!-- Switch -->
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="isProduction"
+                class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+                :class="isProduction ? 'bg-blue-600' : 'bg-[#333D52]'"
+                @click="isProduction = !isProduction"
+              >
+                <span
+                  aria-hidden="true"
+                  class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                  :class="isProduction ? 'translate-x-4' : 'translate-x-0'"
+                />
+              </button>
             </div>
           </div>
 
