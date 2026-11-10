@@ -1,7 +1,4 @@
 <script setup lang="ts">
-import { FolderKanban, Plus, ChevronDown, Settings, X, BellRing } from 'lucide-vue-next'
-import { RedmineProject, OpenIssueTab, RedmineChangeNotification } from '../types'
-import RedmineNotificationBell from './RedmineNotificationBell.vue'
 import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import {
   FolderKanban,
@@ -10,9 +7,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Settings,
-  X
+  X,
+  BellRing
 } from 'lucide-vue-next'
-import { RedmineProject, OpenIssueTab } from '../types'
+import { RedmineProject, OpenIssueTab, RedmineChangeNotification } from '../types'
+import RedmineNotificationBell from './RedmineNotificationBell.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -240,54 +239,6 @@ const currentProject = () => {
         </button>
       </div>
 
-      <!-- Settings / Configuration button -->
-      <button
-        type="button"
-        class="mb-1 text-[11px] text-[#c0d4e5] hover:text-white flex items-center space-x-1 cursor-pointer shrink-0 ml-3"
-        title="Redmine API Key & Server Connection Settings"
-        @click="emit('open-login')"
-      >
-        <Settings class="w-3 h-3" />
-        <span>Settings</span>
-      </button>
-    </div>
-
-    <!-- Task / Issue Sub-Tabs Bar (Positioned under Overview, Issues, etc.) -->
-    <div
-      v-if="props.openIssueTabs && props.openIssueTabs.length > 0"
-      class="bg-[#243544] border-t border-[#344b5d] px-2 pt-1.5 flex items-center justify-between text-xs select-none shadow-inner"
-    >
-      <!-- Horizontally Scrollable & Shrinkable Task Tabs -->
-      <div
-        ref="taskTabsContainerRef"
-        class="flex-1 flex items-center space-x-1 overflow-x-auto no-scrollbar scroll-smooth"
-        @wheel="handleWheelScroll"
-      >
-        <div
-          v-for="tab in props.openIssueTabs"
-          :key="tab.id"
-          class="h-7 px-2.5 rounded-t-sm transition-all cursor-pointer border-t border-x flex items-center justify-between space-x-1 flex-1 min-w-[100px] max-w-[210px] shrink group"
-          :class="[
-            props.activeTab === `issue-${tab.id}`
-              ? 'active-task-tab bg-[#141822] text-white border-[#273244] font-bold shadow-sm'
-              : 'bg-[#314457] text-[#c0d4e5] border-transparent hover:bg-[#3b5166] hover:text-white'
-          ]"
-          :title="`#${tab.id}: ${tab.issue.subject}`"
-          @click="emit('update:activeTab', `issue-${tab.id}`)"
-        >
-          <span class="truncate text-[11px] leading-tight">#{{ tab.id }}: {{ tab.issue.subject }}</span>
-          <button
-            type="button"
-            class="p-0.5 rounded hover:bg-black/40 text-slate-400 hover:text-white cursor-pointer ml-1 shrink-0 transition-colors"
-            title="Close tab"
-            @click.stop="emit('close-issue-tab', tab.id)"
-          >
-            <X class="w-3 h-3" />
-          </button>
-        </div>
-      </div>
-
-<<<<<<< HEAD
       <!-- Right Action Controls: Notifications & Connection Settings -->
       <div class="mb-1 flex items-center space-x-2 shrink-0 pl-3">
         <RedmineNotificationBell
@@ -327,7 +278,45 @@ const currentProject = () => {
         >
           <Settings class="w-3 h-3" />
           <span>Koneksi API</span>
-=======
+        </button>
+      </div>
+    </div>
+
+    <!-- Task / Issue Sub-Tabs Bar (Positioned under Overview, Issues, etc.) -->
+    <div
+      v-if="props.openIssueTabs && props.openIssueTabs.length > 0"
+      class="bg-[#243544] border-t border-[#344b5d] px-2 pt-1.5 flex items-center justify-between text-xs select-none shadow-inner"
+    >
+      <!-- Horizontally Scrollable & Shrinkable Task Tabs -->
+      <div
+        ref="taskTabsContainerRef"
+        class="flex-1 flex items-center space-x-1 overflow-x-auto no-scrollbar scroll-smooth"
+        @wheel="handleWheelScroll"
+      >
+        <div
+          v-for="tab in props.openIssueTabs"
+          :key="tab.id"
+          class="h-7 px-2.5 rounded-t-sm transition-all cursor-pointer border-t border-x flex items-center justify-between space-x-1 flex-1 min-w-[100px] max-w-[210px] shrink group"
+          :class="[
+            props.activeTab === `issue-${tab.id}`
+              ? 'active-task-tab bg-[#141822] text-white border-[#273244] font-bold shadow-sm'
+              : 'bg-[#314457] text-[#c0d4e5] border-transparent hover:bg-[#3b5166] hover:text-white'
+          ]"
+          :title="`#${tab.id}: ${tab.issue.subject}`"
+          @click="emit('update:activeTab', `issue-${tab.id}`)"
+        >
+          <span class="truncate text-[11px] leading-tight">#{{ tab.id }}: {{ tab.issue.subject }}</span>
+          <button
+            type="button"
+            class="p-0.5 rounded hover:bg-black/40 text-slate-400 hover:text-white cursor-pointer ml-1 shrink-0 transition-colors"
+            title="Close tab"
+            @click.stop="emit('close-issue-tab', tab.id)"
+          >
+            <X class="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+
       <!-- Scroll Buttons when overflowing -->
       <div
         v-if="canScrollTabs"
@@ -348,7 +337,6 @@ const currentProject = () => {
           @click="scrollTabs('right')"
         >
           <ChevronRight class="w-3.5 h-3.5" />
->>>>>>> bd6b8714750d23d3c8634342e4a77917c3da6c2b
         </button>
       </div>
     </div>
