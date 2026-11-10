@@ -29,10 +29,14 @@ const props = withDefaults(
   defineProps<{
     currentView?: string
     isSidebarCollapsed?: boolean
+    redmineUnreadCount?: number
+    redmineMonitoringActive?: boolean
   }>(),
   {
     currentView: 'hosts',
-    isSidebarCollapsed: false
+    isSidebarCollapsed: false,
+    redmineUnreadCount: 0,
+    redmineMonitoringActive: false
   }
 )
 
@@ -192,12 +196,25 @@ function handleClose(): void {
       <!-- Button: Redmine -->
       <button
         type="button"
-        class="app-no-drag flex items-center space-x-1.5 px-2.5 py-1 rounded text-[#C2C9D6] hover:text-white hover:bg-[#2C3345] transition-colors"
+        class="app-no-drag relative flex items-center space-x-1.5 px-2.5 py-1 rounded text-[#C2C9D6] hover:text-white hover:bg-[#2C3345] transition-colors"
         :class="{ 'bg-[#2C3345] text-white': props.currentView === 'redmine' }"
         @click="emit('open-redmine')"
       >
-        <FolderKanban class="w-3.5 h-3.5 text-rose-400" />
+        <div class="relative flex items-center">
+          <FolderKanban class="w-3.5 h-3.5 text-rose-400" />
+          <span
+            v-if="props.redmineMonitoringActive && props.redmineUnreadCount === 0"
+            class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400 ring-1 ring-[#20242F]"
+            title="Monitoring perubahan Redmine aktif"
+          ></span>
+        </div>
         <span>Redmine</span>
+        <span
+          v-if="props.redmineUnreadCount > 0"
+          class="px-1.5 py-0 rounded-full bg-[#e11d48] text-white text-[9px] font-bold leading-tight font-mono"
+        >
+          {{ props.redmineUnreadCount > 99 ? '99+' : props.redmineUnreadCount }}
+        </span>
       </button>
 
       <!-- Button: New Query -->
@@ -320,7 +337,7 @@ function handleClose(): void {
         <!-- Settings -->
         <button
           type="button"
-          title="Settings & Preferences"
+          title="Pengaturan Notifikasi Redmine & Preferensi"
           class="app-no-drag w-7 h-7 flex items-center justify-center rounded text-[#9CA5B8] hover:text-white hover:bg-[#2C3345] transition-colors"
           @click="emit('open-settings')"
         >

@@ -782,18 +782,34 @@ app.whenReady().then(() => {
   ipcMain.handle(
     'app:show-notification',
     (
-      _,
+      event,
       {
         title,
-        body
-      }: { title: string; body: string }
+        body,
+        silent,
+        tag,
+        issueId
+      }: { title: string; body: string; silent?: boolean; tag?: string; issueId?: number }
     ) => {
       try {
         if (Notification.isSupported()) {
           const notif = new Notification({
-            title: title || 'Pullman SFTP',
+            title: title || 'DO.MBA Pull Manager',
             body: body || '',
+            silent: Boolean(silent),
             icon
+          })
+          notif.on('click', () => {
+            const win =
+              BrowserWindow.fromWebContents(event.sender) || BrowserWindow.getAllWindows()[0]
+            if (win && !win.isDestroyed()) {
+              if (win.isMinimized()) win.restore()
+              win.show()
+              win.focus()
+              if (tag || issueId !== undefined) {
+                win.webContents.send('app:notification-clicked', { tag, issueId })
+              }
+            }
           })
           notif.show()
         }

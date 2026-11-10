@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { FolderKanban, Plus, ChevronDown, Settings, X } from 'lucide-vue-next'
-import { RedmineProject, OpenIssueTab } from '../types'
+import { FolderKanban, Plus, ChevronDown, Settings, X, BellRing } from 'lucide-vue-next'
+import { RedmineProject, OpenIssueTab, RedmineChangeNotification } from '../types'
+import RedmineNotificationBell from './RedmineNotificationBell.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -9,9 +10,21 @@ const props = withDefaults(
     activeTab: string
     issuesCount: number
     openIssueTabs?: OpenIssueTab[]
+    notifications?: RedmineChangeNotification[]
+    unreadNotificationCount?: number
+    isMonitoringActive?: boolean
+    isCheckingUpdates?: boolean
+    isConnected?: boolean
+    lastCheckedAt?: string | null
   }>(),
   {
-    openIssueTabs: () => []
+    openIssueTabs: () => [],
+    notifications: () => [],
+    unreadNotificationCount: 0,
+    isMonitoringActive: false,
+    isCheckingUpdates: false,
+    isConnected: false,
+    lastCheckedAt: null
   }
 )
 
@@ -20,7 +33,12 @@ const emit = defineEmits<{
   (e: 'update:activeTab', val: string): void
   (e: 'open-new-issue'): void
   (e: 'open-login'): void
+  (e: 'open-notification-settings'): void
   (e: 'close-issue-tab', id: number): void
+  (e: 'select-notification', item: RedmineChangeNotification): void
+  (e: 'mark-all-notifications-read'): void
+  (e: 'clear-notifications'): void
+  (e: 'check-updates-now'): void
 }>()
 
 const currentProject = () => {
@@ -172,16 +190,47 @@ const currentProject = () => {
         </div>
       </div>
 
-      <!-- Settings / Configuration button -->
-      <button
-        type="button"
-        class="mb-1 text-[11px] text-[#c0d4e5] hover:text-white flex items-center space-x-1 cursor-pointer"
-        title="Redmine API Key & Server Connection Settings"
-        @click="emit('open-login')"
-      >
-        <Settings class="w-3 h-3" />
-        <span>Settings</span>
-      </button>
+      <!-- Right Action Controls: Notifications & Connection Settings -->
+      <div class="mb-1 flex items-center space-x-2 shrink-0 pl-3">
+        <RedmineNotificationBell
+          :notifications="props.notifications"
+          :unread-count="props.unreadNotificationCount"
+          :is-monitoring-active="props.isMonitoringActive"
+          :is-checking="props.isCheckingUpdates"
+          :is-connected="props.isConnected"
+          :last-checked-at="props.lastCheckedAt"
+          @select-notification="(item) => emit('select-notification', item)"
+          @mark-all-read="emit('mark-all-notifications-read')"
+          @clear-all="emit('clear-notifications')"
+          @check-now="emit('check-updates-now')"
+          @open-settings="emit('open-notification-settings')"
+        />
+
+        <button
+          type="button"
+          class="px-2 py-1 rounded text-[11px] flex items-center space-x-1 transition-colors cursor-pointer"
+          :class="
+            props.isMonitoringActive
+              ? 'bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30 border border-emerald-400/30'
+              : 'text-[#c0d4e5] hover:text-white hover:bg-[#3b556b]'
+          "
+          title="Pengaturan Notifikasi Perubahan Redmine"
+          @click="emit('open-notification-settings')"
+        >
+          <BellRing class="w-3 h-3" />
+          <span>Pengaturan</span>
+        </button>
+
+        <button
+          type="button"
+          class="px-2 py-1 rounded text-[11px] text-[#c0d4e5] hover:text-white hover:bg-[#3b556b] flex items-center space-x-1 cursor-pointer transition-colors"
+          title="Redmine API Key &amp; Server Connection Settings"
+          @click="emit('open-login')"
+        >
+          <Settings class="w-3 h-3" />
+          <span>Koneksi API</span>
+        </button>
+      </div>
     </div>
   </div>
 </template>

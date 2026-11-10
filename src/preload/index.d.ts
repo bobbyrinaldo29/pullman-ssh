@@ -109,7 +109,16 @@ declare global {
       sftpListLocal: (dirPath: string) => Promise<any[]>
       sftpMkdirLocal: (dirPath: string, asSudo?: boolean) => Promise<void>
       sftpDeleteLocal: (filePath: string, asSudo?: boolean) => Promise<void>
-      showNotification: (payload: { title: string; body: string }) => Promise<void>
+      showNotification: (payload: {
+        title: string
+        body: string
+        silent?: boolean
+        tag?: string
+        issueId?: number
+      }) => Promise<void>
+      onNotificationClick: (
+        callback: (payload: { tag?: string; issueId?: number }) => void
+      ) => () => void
       callGeminiApi: (payload: {
         url: string
         headers?: Record<string, string>

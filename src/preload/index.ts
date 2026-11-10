@@ -204,8 +204,23 @@ const api = {
     ipcRenderer.invoke('sftp:mkdir-local', { dirPath, asSudo }),
   sftpDeleteLocal: (filePath: string, asSudo?: boolean): Promise<void> =>
     ipcRenderer.invoke('sftp:delete-local', { filePath, asSudo }),
-  showNotification: (payload: { title: string; body: string }): Promise<void> =>
-    ipcRenderer.invoke('app:show-notification', payload),
+  showNotification: (payload: {
+    title: string
+    body: string
+    silent?: boolean
+    tag?: string
+    issueId?: number
+  }): Promise<void> => ipcRenderer.invoke('app:show-notification', payload),
+  onNotificationClick: (
+    callback: (payload: { tag?: string; issueId?: number }) => void
+  ): (() => void) => {
+    const listener = (
+      _: Electron.IpcRendererEvent,
+      payload: { tag?: string; issueId?: number }
+    ): void => callback(payload)
+    ipcRenderer.on('app:notification-clicked', listener)
+    return () => ipcRenderer.removeListener('app:notification-clicked', listener)
+  },
   callGeminiApi: (payload: {
     url: string
     headers?: Record<string, string>

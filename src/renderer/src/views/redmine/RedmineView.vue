@@ -16,6 +16,7 @@ import RedmineProjectsView from './components/RedmineProjectsView.vue'
 import RedmineOverviewView from './components/RedmineOverviewView.vue'
 import RedmineActivityView from './components/RedmineActivityView.vue'
 import RedmineLoginModal from './components/RedmineLoginModal.vue'
+import type { RedmineChangeNotification } from './types'
 
 defineEmits<{
   (e: 'back-to-hosts'): void
@@ -42,7 +43,13 @@ const {
   filters,
   showLoginModal,
   showNewIssueModal,
+  showNotificationSettingsModal,
+  notificationFeed,
+  unreadNotificationCount,
+  isCheckingUpdates,
+  lastCheckedAt,
   isConnected,
+  isMonitoringActive,
   login,
   disconnect,
   fetchProjects,
@@ -52,7 +59,11 @@ const {
   updateIssue,
   uploadAttachment,
   loadAttachmentDataUrl,
-  loadSampleData
+  loadSampleData,
+  checkForUpdates,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  clearNotificationFeed
 } = useRedmine()
 
 const selectedProject = computed(() => {
@@ -99,6 +110,16 @@ function handleSelectProject(id: number): void {
 function handleRefresh(): void {
   fetchProjects()
   fetchIssues()
+  checkForUpdates({ manual: true })
+}
+
+function handleSelectNotification(item: RedmineChangeNotification): void {
+  markNotificationAsRead(item.id)
+  if (item.isSimulated) {
+    activeTab.value = 'issues'
+    return
+  }
+  fetchIssueDetail(item.issueId)
 }
 </script>
 
@@ -124,9 +145,20 @@ function handleRefresh(): void {
       :projects="projects"
       :issues-count="issues.length"
       :open-issue-tabs="openIssueTabs"
+      :notifications="notificationFeed"
+      :unread-notification-count="unreadNotificationCount"
+      :is-monitoring-active="isMonitoringActive"
+      :is-checking-updates="isCheckingUpdates"
+      :is-connected="isConnected"
+      :last-checked-at="lastCheckedAt"
       @close-issue-tab="closeIssueTab"
       @open-new-issue="showNewIssueModal = true"
       @open-login="showLoginModal = true"
+      @open-notification-settings="showNotificationSettingsModal = true"
+      @select-notification="handleSelectNotification"
+      @mark-all-notifications-read="markAllNotificationsAsRead"
+      @clear-notifications="clearNotificationFeed"
+      @check-updates-now="checkForUpdates({ manual: true })"
     />
 
     <!-- Main Content Area -->

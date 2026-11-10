@@ -125,3 +125,54 @@ export interface OpenIssueTab {
   issue: RedmineIssue
 }
 
+export type RedmineNotificationScope = 'assigned_to_me' | 'involved' | 'project' | 'all'
+
+export interface RedmineNotificationEvents {
+  newIssue: boolean
+  statusChange: boolean
+  assigneeChange: boolean
+  priorityChange: boolean
+  newComment: boolean
+  descriptionOrAttachment: boolean
+  otherUpdates: boolean
+}
+
+export interface RedmineNotificationSettings {
+  enabled: boolean
+  intervalSeconds: number
+  scope: RedmineNotificationScope
+  projectId: number | 'all'
+  ignoreOwnChanges: boolean
+  desktopNotification: boolean
+  inAppToast: boolean
+  soundEnabled: boolean
+  autoRefreshList: boolean
+  events: RedmineNotificationEvents
+}
+
+export type RedmineChangeType =
+  | 'new_issue'
+  | 'status'
+  | 'assignee'
+  | 'priority'
+  | 'comment'
+  | 'description'
+  | 'attachment'
+  | 'update'
+
+export interface RedmineChangeNotification {
+  id: string
+  issueId: number
+  issueSubject: string
+  projectName: string
+  authorName: string
+  changeType: RedmineChangeType
+  title: string
+  summary: string
+  detailLines: string[]
+  timestamp: string
+  read: boolean
+  isSimulated?: boolean
+}
+
+

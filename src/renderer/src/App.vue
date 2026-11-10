@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import TitleBar from './components/TitleBar.vue'
 import NewConnectionDialog from './components/NewConnectionDialog.vue'
 import SidebarNavigator from './components/SidebarNavigator.vue'
@@ -10,6 +10,31 @@ import QueryView from './views/query/QueryView.vue'
 import RedmineView from './views/redmine/RedmineView.vue'
 import EditorView from './views/editor/EditorView.vue'
 import SshView from './views/ssh/SshView.vue'
+import RedmineNotificationToasts from './views/redmine/components/RedmineNotificationToasts.vue'
+import RedmineNotificationSettingsModal from './views/redmine/components/RedmineNotificationSettingsModal.vue'
+import { useRedmine } from './views/redmine/composables/useRedmine'
+import type { RedmineChangeNotification } from './views/redmine/types'
+
+const {
+  projects: redmineProjects,
+  isConnected: isRedmineConnected,
+  showLoginModal: showRedmineLoginModal,
+  showNotificationSettingsModal,
+  notificationSettings,
+  activeToasts,
+  unreadNotificationCount,
+  isCheckingUpdates,
+  lastCheckedAt,
+  lastCheckError,
+  isMonitoringActive,
+  fetchIssueDetail,
+  saveNotificationSettings,
+  resetNotificationSettings,
+  checkForUpdates,
+  triggerTestNotification,
+  markNotificationAsRead,
+  dismissToast
+} = useRedmine()
 
 const appVersion = '1.3.1'
 const currentView = ref<'hosts' | 'ssh' | 'query' | 'sftp' | 'redmine' | 'editor'>('hosts')
@@ -108,9 +133,47 @@ function handleGroupDeleted(groupName: string): void {
   loadGroupsFromDb()
 }
 
+let cleanupNotificationListener: (() => void) | null = null
+
+function openRedmineIssueFromNotification(issueId?: number): void {
+  visitedViews.value.add('redmine')
+  currentView.value = 'redmine'
+  if (issueId) {
+    fetchIssueDetail(issueId)
+  }
+}
+
+function handleOpenToastIssue(item: RedmineChangeNotification): void {
+  markNotificationAsRead(item.id)
+  dismissToast(item.id)
+  openRedmineIssueFromNotification(item.isSimulated ? undefined : item.issueId)
+}
+
+function handleRedirectToRedmineLogin(): void {
+  showNotificationSettingsModal.value = false
+  visitedViews.value.add('redmine')
+  currentView.value = 'redmine'
+  showRedmineLoginModal.value = true
+}
+
 onMounted(() => {
   loadConnectionsFromDb()
   loadGroupsFromDb()
+
+  if (window.api?.onNotificationClick) {
+    cleanupNotificationListener = window.api.onNotificationClick((payload) => {
+      if (payload.tag === 'redmine' || payload.issueId !== undefined) {
+        openRedmineIssueFromNotification(payload.issueId)
+      }
+    })
+  }
+})
+
+onUnmounted(() => {
+  if (cleanupNotificationListener) {
+    cleanupNotificationListener()
+    cleanupNotificationListener = null
+  }
 })
 
 const availableFilterGroups = computed(() => {
@@ -331,6 +394,8 @@ function handlePluginCenter(): void {
     <TitleBar
       :current-view="currentView"
       :is-sidebar-collapsed="isSidebarCollapsed"
+      :redmine-unread-count="unreadNotificationCount"
+      :redmine-monitoring-active="isMonitoringActive"
       @toggle-sidebar="isSidebarCollapsed = !isSidebarCollapsed"
       @open-hosts="currentView = 'hosts'"
       @open-ssh="currentView = 'ssh'"
@@ -342,7 +407,7 @@ function handlePluginCenter(): void {
       @data-transfer="handleDataTransfer"
       @driver-manager="currentView = 'hosts'"
       @plugin-center="handlePluginCenter"
-      @open-settings="console.log('Settings')"
+      @open-settings="showNotificationSettingsModal = true"
       @toggle-theme="console.log('Toggle Theme')"
       @open-history="console.log('History')"
       @open-git="console.log('Git Graph')"
@@ -445,5 +510,30 @@ function handlePluginCenter(): void {
         />
       </main>
     </div>
+
+    <!-- Global Redmine In-App Change Notification Toasts -->
+    <RedmineNotificationToasts
+      :toasts="activeToasts"
+      @dismiss="dismissToast"
+      @open-issue="handleOpenToastIssue"
+      @open-settings="showNotificationSettingsModal = true"
+    />
+
+    <!-- Redmine Notification Settings Modal -->
+    <RedmineNotificationSettingsModal
+      :show="showNotificationSettingsModal"
+      :settings="notificationSettings"
+      :projects="redmineProjects"
+      :is-connected="isRedmineConnected"
+      :is-checking="isCheckingUpdates"
+      :last-checked-at="lastCheckedAt"
+      :last-check-error="lastCheckError"
+      @close="showNotificationSettingsModal = false"
+      @save="saveNotificationSettings"
+      @reset="resetNotificationSettings"
+      @check-now="checkForUpdates({ manual: true })"
+      @test-notification="triggerTestNotification"
+      @open-login="handleRedirectToRedmineLogin"
+    />
   </div>
 </template>
