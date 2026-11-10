@@ -234,6 +234,8 @@ const api = {
     method?: string
     headers?: Record<string, string>
     body?: string
+    bodyBase64?: string
+    responseType?: 'json' | 'text' | 'dataUrl'
   }): Promise<{
     ok: boolean
     status: number

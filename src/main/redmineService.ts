@@ -7,6 +7,8 @@ export interface RedmineRequestPayload {
   method?: string
   headers?: Record<string, string>
   body?: string
+  bodyBase64?: string
+  responseType?: 'json' | 'text' | 'dataUrl'
 }
 
 export interface RedmineResponseResult {
@@ -40,15 +42,26 @@ export const redmineService = {
 
     return new Promise((resolve) => {
       const headers: Record<string, string> = {
-        Accept: 'application/json, text/plain, */*',
+        Accept: payload.responseType === 'dataUrl' ? 'image/*, */*' : 'application/json, text/plain, */*',
         'User-Agent': 'Pullman-SSH/1.3.1 (RedmineClient)',
         ...(payload.headers || {})
       }
 
-      const bodyData = payload.body
-      if (bodyData) {
+      if (payload.headers?.['X-Redmine-API-Key'] && !headers['Authorization']) {
+        try {
+          headers['Authorization'] = `Basic ${Buffer.from(`${payload.headers['X-Redmine-API-Key']}:x`).toString('base64')}`
+        } catch {}
+      }
+
+      let bodyBuffer: Buffer | null = null
+      if (payload.bodyBase64) {
+        bodyBuffer = Buffer.from(payload.bodyBase64, 'base64')
+        headers['Content-Type'] = headers['Content-Type'] || 'application/octet-stream'
+        headers['Content-Length'] = bodyBuffer.length.toString()
+      } else if (payload.body) {
+        bodyBuffer = Buffer.from(payload.body, 'utf-8')
         headers['Content-Type'] = headers['Content-Type'] || 'application/json'
-        headers['Content-Length'] = Buffer.byteLength(bodyData).toString()
+        headers['Content-Length'] = bodyBuffer.length.toString()
       }
 
       const reqOptions: https.RequestOptions = {
@@ -69,18 +82,63 @@ export const redmineService = {
         // Handle HTTP Redirects (301, 302, 307, 308)
         if ([301, 302, 303, 307, 308].includes(statusCode) && res.headers.location) {
           const redirectLocation = new URL(res.headers.location, parsedUrl).toString()
-          return resolve(redmineService.request({ ...payload, url: redirectLocation }, redirectCount + 1))
+          const nextHeaders = { ...headers }
+          if (res.headers['set-cookie']) {
+            const cookieStr = Array.isArray(res.headers['set-cookie'])
+              ? res.headers['set-cookie'].map((c) => c.split(';')[0]).join('; ')
+              : String(res.headers['set-cookie']).split(';')[0]
+            nextHeaders['Cookie'] = cookieStr
+          }
+          return resolve(
+            redmineService.request(
+              { ...payload, url: redirectLocation, headers: nextHeaders },
+              redirectCount + 1
+            )
+          )
         }
 
         const chunks: Buffer[] = []
         res.on('data', (chunk) => chunks.push(chunk))
         res.on('end', () => {
-          const raw = Buffer.concat(chunks).toString('utf-8')
+          const buffer = Buffer.concat(chunks)
+          const contentType = (res.headers['content-type'] || '').toLowerCase()
+          const isImageContentType = contentType.startsWith('image/')
+          const rawPrefix = buffer.slice(0, 100).toString('utf-8').trim().toLowerCase()
+          const isHtml =
+            contentType.includes('text/html') ||
+            rawPrefix.startsWith('<!doctype') ||
+            rawPrefix.startsWith('<html')
+
           let parsedData: any = null
-          try {
-            parsedData = JSON.parse(raw)
-          } catch {
-            parsedData = raw
+
+          if (payload.responseType === 'dataUrl' || isImageContentType) {
+            if (isHtml) {
+              return resolve({
+                ok: false,
+                status: statusCode >= 200 && statusCode < 300 ? 401 : statusCode,
+                error: 'Received HTML page instead of image data. Authentication required.'
+              })
+            }
+
+            let mime = isImageContentType ? contentType.split(';')[0].trim() : ''
+            if (!mime || mime === 'application/octet-stream') {
+              const pathname = parsedUrl.pathname.toLowerCase()
+              if (pathname.endsWith('.jpg') || pathname.endsWith('.jpeg')) mime = 'image/jpeg'
+              else if (pathname.endsWith('.gif')) mime = 'image/gif'
+              else if (pathname.endsWith('.webp')) mime = 'image/webp'
+              else if (pathname.endsWith('.svg')) mime = 'image/svg+xml'
+              else if (pathname.endsWith('.bmp')) mime = 'image/bmp'
+              else mime = 'image/png'
+            }
+
+            parsedData = `data:${mime};base64,${buffer.toString('base64')}`
+          } else {
+            const raw = buffer.toString('utf-8')
+            try {
+              parsedData = JSON.parse(raw)
+            } catch {
+              parsedData = raw
+            }
           }
 
           const ok = statusCode >= 200 && statusCode < 300
@@ -119,8 +177,8 @@ export const redmineService = {
         resolve({ ok: false, status: 0, error: message })
       })
 
-      if (bodyData) {
-        req.write(bodyData)
+      if (bodyBuffer) {
+        req.write(bodyBuffer)
       }
       req.end()
     })

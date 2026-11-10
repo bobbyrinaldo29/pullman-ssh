@@ -26,8 +26,8 @@ function formatDateTime(dateStr: string): string {
 </script>
 
 <template>
-  <div class="flex-1 p-6 overflow-y-auto bg-[#141822] text-slate-200 font-sans select-none">
-    <div class="max-w-3xl mx-auto space-y-4">
+  <div class="flex-1 p-6 overflow-y-auto bg-[#141822] text-slate-200 font-sans select-none w-full">
+    <div class="w-full space-y-4">
       <div class="pb-2 border-b border-[#242d3e]">
         <h2 class="text-base font-bold text-white flex items-center space-x-2">
           <Clock class="w-4 h-4 text-sky-400" />

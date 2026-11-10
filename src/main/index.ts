@@ -846,7 +846,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle(
     'redmine:request',
-    (_, payload: { url: string; method?: string; headers?: Record<string, string>; body?: string }) =>
+    (_, payload: { url: string; method?: string; headers?: Record<string, string>; body?: string; bodyBase64?: string; responseType?: 'json' | 'text' | 'dataUrl' }) =>
       redmineService.request(payload)
   )
 

@@ -58,6 +58,25 @@ export interface RedmineCustomField {
   value: string | string[] | null
 }
 
+export interface RedmineAttachment {
+  id: number
+  filename: string
+  filesize: number
+  content_type?: string
+  description?: string
+  content_url: string
+  thumbnail_url?: string
+  author?: { id: number; name: string }
+  created_on?: string
+}
+
+export interface RedmineUploadItem {
+  token: string
+  filename: string
+  description?: string
+  content_type?: string
+}
+
 export interface RedmineIssue {
   id: number
   project: { id: number; name: string }
@@ -77,6 +96,7 @@ export interface RedmineIssue {
   updated_on: string
   custom_fields?: RedmineCustomField[]
   journals?: RedmineJournal[]
+  attachments?: RedmineAttachment[]
 }
 
 export interface RedmineQuery {

@@ -71,24 +71,53 @@ export function useRedmine() {
 
   const isConnected = computed(() => Boolean(config.value.url && config.value.apiKey && currentUser.value))
 
-  async function apiCall(endpoint: string, options?: { method?: string; body?: unknown }): Promise<{ ok: boolean; status: number; data?: any; error?: string }> {
+  async function apiCall(
+    endpoint: string,
+    options?: {
+      method?: string
+      body?: unknown
+      bodyBase64?: string
+      responseType?: 'json' | 'text' | 'dataUrl'
+      headers?: Record<string, string>
+    }
+  ): Promise<{ ok: boolean; status: number; data?: any; error?: string }> {
     if (!config.value.url || !config.value.apiKey) {
       return { ok: false, status: 401, error: 'Redmine URL and API Key are required.' }
     }
 
-    let cleanBase = config.value.url.trim().replace(/\/$/, '')
-    if (!cleanBase.startsWith('http://') && !cleanBase.startsWith('https://')) {
-      cleanBase = `https://${cleanBase}`
+    let fullUrl = ''
+    if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+      const separator = endpoint.includes('?') ? '&' : '?'
+      fullUrl = endpoint.includes('key=')
+        ? endpoint
+        : `${endpoint}${separator}key=${encodeURIComponent(config.value.apiKey)}`
+    } else {
+      let cleanBase = config.value.url.trim().replace(/\/$/, '')
+      if (!cleanBase.startsWith('http://') && !cleanBase.startsWith('https://')) {
+        cleanBase = `https://${cleanBase}`
+      }
+      const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
+      const separator = cleanEndpoint.includes('?') ? '&' : '?'
+      fullUrl = `${cleanBase}${cleanEndpoint}${separator}key=${encodeURIComponent(config.value.apiKey)}`
     }
 
-    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
-    // Pass API key via both query param and header for maximum compatibility across proxies
-    const separator = cleanEndpoint.includes('?') ? '&' : '?'
-    const fullUrl = `${cleanBase}${cleanEndpoint}${separator}key=${encodeURIComponent(config.value.apiKey)}`
-
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'X-Redmine-API-Key': config.value.apiKey
+      'X-Redmine-API-Key': config.value.apiKey,
+      ...(options?.headers || {})
+    }
+
+    if (config.value.apiKey) {
+      try {
+        headers['Authorization'] = `Basic ${btoa(`${config.value.apiKey}:x`)}`
+      } catch {}
+    }
+
+    if (!options?.bodyBase64 && options?.responseType !== 'dataUrl' && options?.method && options.method !== 'GET') {
+      headers['Content-Type'] = headers['Content-Type'] || 'application/json'
+    }
+
+    if (options?.responseType === 'dataUrl') {
+      headers['Accept'] = 'image/*, */*'
     }
 
     const bodyStr = options?.body ? JSON.stringify(options.body) : undefined
@@ -98,7 +127,9 @@ export function useRedmine() {
         url: fullUrl,
         method: options?.method || 'GET',
         headers,
-        body: bodyStr
+        body: bodyStr,
+        bodyBase64: options?.bodyBase64,
+        responseType: options?.responseType
       })
     }
 
@@ -446,9 +477,58 @@ export function useRedmine() {
     }
   }
 
+  async function loadAttachmentDataUrl(contentUrl: string): Promise<string | null> {
+    try {
+      const res = await apiCall(contentUrl, { responseType: 'dataUrl' })
+      if (res.ok && typeof res.data === 'string' && res.data.startsWith('data:')) {
+        return res.data
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  async function uploadAttachment(file: File): Promise<{ success: boolean; token?: string; error?: string }> {
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const result = reader.result as string
+          const commaIdx = result.indexOf(',')
+          resolve(commaIdx !== -1 ? result.substring(commaIdx + 1) : result)
+        }
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+
+      const res = await apiCall(`/uploads.json?filename=${encodeURIComponent(file.name)}`, {
+        method: 'POST',
+        bodyBase64: base64,
+        headers: {
+          'Content-Type': 'application/octet-stream'
+        }
+      })
+
+      if (res.ok && res.data?.upload?.token) {
+        return { success: true, token: res.data.upload.token }
+      }
+      return { success: false, error: res.error || 'Failed to upload attachment to Redmine.' }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
   async function updateIssue(
     issueId: number,
-    data: { status_id?: number; done_ratio?: number; notes?: string; priority_id?: number; assigned_to_id?: number }
+    data: {
+      status_id?: number
+      done_ratio?: number
+      notes?: string
+      priority_id?: number
+      assigned_to_id?: number
+      uploads?: Array<{ token: string; filename: string; description?: string; content_type?: string }>
+    }
   ): Promise<{ success: boolean; error?: string }> {
     isLoading.value = true
     try {
@@ -663,6 +743,9 @@ export function useRedmine() {
     fetchIssueDetail,
     createIssue,
     updateIssue,
+    uploadAttachment,
+    loadAttachmentDataUrl,
+    apiCall,
     loadSampleData
   }
 }

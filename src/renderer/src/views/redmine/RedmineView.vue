@@ -50,6 +50,8 @@ const {
   fetchIssueDetail,
   createIssue,
   updateIssue,
+  uploadAttachment,
+  loadAttachmentDataUrl,
   loadSampleData
 } = useRedmine()
 
@@ -181,6 +183,9 @@ function handleRefresh(): void {
           :priorities="priorities"
           :users="assignableUsers"
           :is-loading="isLoading"
+          :config="config"
+          :upload-attachment="uploadAttachment"
+          :load-attachment-data-url="loadAttachmentDataUrl"
           @close="closeIssueTab(currentActiveIssue.id)"
           @back-to-issues="activeTab = 'issues'"
           @update-issue="(data) => updateIssue(data.id, data)"

@@ -19,8 +19,8 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="flex-1 p-6 overflow-y-auto bg-[#141822] text-slate-200 font-sans select-none">
-    <div class="max-w-5xl mx-auto space-y-4">
+  <div class="flex-1 p-6 overflow-y-auto bg-[#141822] text-slate-200 font-sans select-none w-full">
+    <div class="w-full space-y-4">
       <div class="flex items-center justify-between pb-2 border-b border-[#242d3e]">
         <div>
           <h2 class="text-base font-bold text-white flex items-center space-x-2">

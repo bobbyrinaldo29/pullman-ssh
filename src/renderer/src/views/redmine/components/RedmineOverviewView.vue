@@ -26,8 +26,8 @@ const featureCount = computed(() => props.issues.filter((i) => i.tracker.name.to
 </script>
 
 <template>
-  <div class="flex-1 p-6 overflow-y-auto bg-[#141822] text-slate-200 font-sans select-none">
-    <div class="max-w-4xl mx-auto space-y-6">
+  <div class="flex-1 p-6 overflow-y-auto bg-[#141822] text-slate-200 font-sans select-none w-full">
+    <div class="w-full space-y-6">
       <!-- Project Title Banner -->
       <div class="p-5 rounded-lg bg-[#1a202c] border border-[#273244] flex items-center justify-between shadow-sm">
         <div class="space-y-1">
