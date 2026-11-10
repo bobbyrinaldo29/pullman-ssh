@@ -823,6 +823,17 @@ export class SftpService {
     return res.stdout.trim()
   }
 
+  public async getGitFileDiff(remotePath: string, hash: string, filePath: string, sessionId?: string): Promise<string> {
+    const session = this.getSession(sessionId)
+    if (!session || !session.isConnected) return ''
+    const escDir = (remotePath || '').replace(/\/+/g, '/').replace(/'/g, "'\\''")
+    const escHash = hash.replace(/[^a-f0-9]/gi, '')
+    const escFile = (filePath || '').replace(/'/g, "'\\''")
+    const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; cd '${escDir}' 2>/dev/null; R=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null); if [ -n "$R" ]; then cd "$R" 2>/dev/null && git -c safe.directory=* show '${escHash}' -- '${escFile}' 2>/dev/null; fi`
+    const res = await this.execRemote(cmd, sessionId, false)
+    return res.stdout.trim()
+  }
+
   public async searchRemote(
     query: string,
     rootPath: string,

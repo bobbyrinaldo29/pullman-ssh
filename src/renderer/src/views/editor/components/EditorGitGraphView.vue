@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import {
   GitBranch,
@@ -8,7 +8,10 @@ import {
   Check,
   X,
   FileCode,
-  Tag
+  Tag,
+  ChevronLeft,
+  Minus,
+  Plus
 } from 'lucide-vue-next'
 import { GitGraphCommit } from '../types'
 import { parseGitGraphCommits, parseCommitDetails, computeGraphLayout } from '../utils/gitGraphParser'
@@ -37,6 +40,11 @@ const commitDetails = ref<{ body: string; files: { status: 'M' | 'A' | 'D'; path
 })
 const isLoadingDetails = ref(false)
 const isCopied = ref(false)
+
+// Diff viewer state
+const selectedDiffFile = ref<{ status: 'M' | 'A' | 'D'; path: string } | null>(null)
+const diffContent = ref('')
+const isLoadingDiff = ref(false)
 
 const allBranches = computed(() => {
   const branches = new Set<string>()
@@ -79,20 +87,33 @@ const graphWidth = computed(() => {
   return Math.max(90, layout.value.width)
 })
 
+// Parse diff output into structured lines
+const diffLines = computed(() => {
+  if (!diffContent.value) return []
+  return diffContent.value.split('\n').map((line) => {
+    if (line.startsWith('+++') || line.startsWith('---')) return { type: 'meta', text: line }
+    if (line.startsWith('@@')) return { type: 'hunk', text: line }
+    if (line.startsWith('+')) return { type: 'add', text: line }
+    if (line.startsWith('-')) return { type: 'del', text: line }
+    if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('new file') || line.startsWith('deleted file')) return { type: 'meta', text: line }
+    return { type: 'ctx', text: line }
+  })
+})
+
 async function fetchCommits(): Promise<void> {
   if (!props.isConnected || !window.api?.sftpGitGraphCommits) return
   isLoading.value = true
   try {
+    // Use rootPath directly as primary target — do NOT fall back to '/'
+    // This prevents showing commits from unrelated repos
     const targets = [
       activeGitPath.value,
       props.activeFilePath,
-      props.rootPath,
-      '/'
-    ].filter(Boolean) as string[]
+      props.rootPath
+    ].filter((p): p is string => !!p && p !== 'git-graph')
 
     let raw = ''
     for (const t of targets) {
-      if (!t || t === 'git-graph') continue
       raw = await window.api.sftpGitGraphCommits(t, props.sessionId, 100)
       if (raw && raw.trim()) {
         activeGitPath.value = t
@@ -100,15 +121,12 @@ async function fetchCommits(): Promise<void> {
       }
     }
 
+    // If still empty, try detecting git root from rootPath only (no '/')
     if (!raw && window.api?.sftpGetGitStatus) {
-      for (const t of targets) {
-        if (!t || t === 'git-graph') continue
-        const st = await window.api.sftpGetGitStatus(t, props.sessionId).catch(() => null)
-        if (st?.root) {
-          activeGitPath.value = st.root
-          raw = await window.api.sftpGitGraphCommits(st.root, props.sessionId, 100)
-          if (raw && raw.trim()) break
-        }
+      const st = await window.api.sftpGetGitStatus(props.rootPath, props.sessionId).catch(() => null)
+      if (st?.root) {
+        activeGitPath.value = st.root
+        raw = await window.api.sftpGitGraphCommits(st.root, props.sessionId, 100)
       }
     }
 
@@ -125,6 +143,8 @@ async function fetchCommits(): Promise<void> {
 
 async function selectCommit(c: GitGraphCommit): Promise<void> {
   selectedCommit.value = c
+  selectedDiffFile.value = null
+  diffContent.value = ''
   if (!window.api?.sftpGitCommitDetails) return
   isLoadingDetails.value = true
   try {
@@ -135,6 +155,23 @@ async function selectCommit(c: GitGraphCommit): Promise<void> {
     console.error('Failed to load commit details:', err)
   } finally {
     isLoadingDetails.value = false
+  }
+}
+
+async function openFileDiff(f: { status: 'M' | 'A' | 'D'; path: string }): Promise<void> {
+  if (!selectedCommit.value) return
+  selectedDiffFile.value = f
+  diffContent.value = ''
+  isLoadingDiff.value = true
+  try {
+    const target = activeGitPath.value || props.rootPath
+    if (window.api?.sftpGitFileDiff) {
+      diffContent.value = await window.api.sftpGitFileDiff(target, selectedCommit.value.hash, f.path, props.sessionId)
+    }
+  } catch (err) {
+    console.error('Failed to load file diff:', err)
+  } finally {
+    isLoadingDiff.value = false
   }
 }
 
@@ -160,7 +197,10 @@ function cleanRef(ref: string): string {
 
 watch(
   [() => props.rootPath, () => props.isConnected],
-  () => fetchCommits(),
+  () => {
+    activeGitPath.value = ''
+    fetchCommits()
+  },
   { immediate: true }
 )
 
@@ -179,6 +219,13 @@ onMounted(() => {
           <GitBranch class="w-4 h-4 text-blue-400" />
           <span>Git Graph</span>
         </div>
+
+        <!-- Active git path chip -->
+        <span
+          v-if="activeGitPath"
+          class="text-[10px] font-mono text-slate-400 bg-[#252A36] border border-[#32394C] rounded px-1.5 py-0.5 max-w-[160px] truncate"
+          :title="activeGitPath"
+        >{{ activeGitPath }}</span>
 
         <!-- Branch Filter Dropdown -->
         <select
@@ -364,13 +411,27 @@ onMounted(() => {
     <!-- Selected Commit Details Bottom Drawer -->
     <div
       v-if="selectedCommit"
-      class="h-56 border-t border-[#24272E] bg-[#16181E] flex flex-col shrink-0 text-xs shadow-2xl"
+      class="border-t border-[#24272E] bg-[#16181E] flex flex-col shrink-0 text-xs shadow-2xl"
+      style="height: 260px"
     >
       <!-- Details Drawer Header -->
       <div class="h-8 px-4 border-b border-[#24272E] bg-[#1a1d24] flex items-center justify-between font-semibold shrink-0">
         <div class="flex items-center space-x-3">
-          <span class="text-slate-100">{{ selectedCommit.subject }}</span>
+          <!-- Back button when viewing diff -->
           <button
+            v-if="selectedDiffFile"
+            type="button"
+            class="p-1 rounded hover:bg-[#252A36] text-slate-400 hover:text-white transition-colors flex items-center space-x-1"
+            @click="selectedDiffFile = null; diffContent = ''"
+          >
+            <ChevronLeft class="w-3.5 h-3.5" />
+            <span class="text-[11px]">Back</span>
+          </button>
+          <span class="text-slate-100 truncate max-w-xs">
+            {{ selectedDiffFile ? selectedDiffFile.path : selectedCommit.subject }}
+          </span>
+          <button
+            v-if="!selectedDiffFile"
             type="button"
             class="px-2 py-0.5 rounded bg-[#252A36] hover:bg-[#32394C] text-[11px] font-mono text-blue-400 flex items-center space-x-1 transition-colors"
             :title="selectedCommit.hash"
@@ -387,53 +448,90 @@ onMounted(() => {
           <button
             type="button"
             class="p-1 rounded hover:bg-[#252A36] text-slate-400 hover:text-white"
-            @click="selectedCommit = null"
+            @click="selectedCommit = null; selectedDiffFile = null; diffContent = ''"
           >
             ✕
           </button>
         </div>
       </div>
 
-      <!-- Details Drawer Content (Split: Message vs Files) -->
+      <!-- Details Drawer Content -->
       <div class="flex-1 flex overflow-hidden">
-        <!-- Full Commit Message -->
-        <div class="w-1/2 p-3 border-r border-[#24272E] overflow-y-auto whitespace-pre-wrap font-sans text-xs text-slate-300 leading-relaxed">
-          <div class="font-bold text-slate-200 mb-1">{{ selectedCommit.subject }}</div>
-          <div v-if="selectedCommit.email" class="text-[11px] text-slate-500 mb-2">Author: {{ selectedCommit.author }} &lt;{{ selectedCommit.email }}&gt;</div>
-          <div class="text-[11px] text-slate-400 font-mono">Parents: {{ selectedCommit.parents.join(', ') || 'None' }}</div>
-        </div>
-
-        <!-- Modified Files List in Commit -->
-        <div class="w-1/2 flex flex-col overflow-hidden">
-          <div class="px-3 py-1 bg-[#1a1d24] border-b border-[#24272E] text-[11px] font-bold text-slate-400">
-            <span>Files Changed ({{ commitDetails.files.length }})</span>
-          </div>
-
-          <div class="flex-1 p-2 overflow-y-auto space-y-1">
-            <div
-              v-for="f in commitDetails.files"
-              :key="f.path"
-              class="px-2 py-1 rounded hover:bg-[#252A36] flex items-center justify-between text-xs cursor-pointer"
-              @click="emit('open-file', { name: f.path.split('/').pop() || f.path, path: `${rootPath}/${f.path}`.replace(/\/+/g, '/'), isDirectory: false })"
-            >
-              <div class="flex items-center space-x-2 truncate pr-2">
-                <FileCode class="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span class="truncate text-slate-200">{{ f.path }}</span>
-              </div>
-              <span
-                class="font-mono text-xs font-bold"
-                :class="f.status === 'M' ? 'text-sky-400' : f.status === 'A' ? 'text-emerald-400' : 'text-rose-400'"
+        <!-- DIFF VIEWER (when a file is selected) -->
+        <template v-if="selectedDiffFile">
+          <div class="flex-1 overflow-y-auto font-mono text-[11px] leading-5">
+            <div v-if="isLoadingDiff" class="flex items-center justify-center py-8 text-slate-400 space-x-2">
+              <RotateCw class="w-4 h-4 animate-spin text-blue-400" />
+              <span>Loading diff...</span>
+            </div>
+            <div v-else-if="!diffContent" class="flex items-center justify-center py-8 text-slate-500">
+              No diff available for this file.
+            </div>
+            <div v-else>
+              <div
+                v-for="(line, idx) in diffLines"
+                :key="idx"
+                class="px-4 whitespace-pre-wrap break-all"
+                :class="{
+                  'bg-emerald-900/30 text-emerald-300': line.type === 'add',
+                  'bg-rose-900/30 text-rose-300': line.type === 'del',
+                  'bg-sky-900/20 text-sky-400 font-semibold': line.type === 'hunk',
+                  'text-slate-500': line.type === 'meta',
+                  'text-slate-300': line.type === 'ctx'
+                }"
               >
-                {{ f.status }}
-              </span>
-            </div>
-            <div v-if="commitDetails.files.length === 0" class="text-center py-6 text-slate-500 text-xs">
-              {{ isLoadingDetails ? 'Loading changed files...' : 'No changed files' }}
+                <span v-if="line.type === 'add'" class="mr-1 text-emerald-500"><Plus class="w-3 h-3 inline" /></span>
+                <span v-else-if="line.type === 'del'" class="mr-1 text-rose-500"><Minus class="w-3 h-3 inline" /></span>
+                <span v-else class="mr-1 opacity-0">·</span>
+                {{ line.text.substring(line.type === 'add' || line.type === 'del' ? 1 : 0) }}
+              </div>
             </div>
           </div>
-        </div>
+        </template>
+
+        <!-- COMMIT META + FILES LIST (default view) -->
+        <template v-else>
+          <!-- Full Commit Message -->
+          <div class="w-1/2 p-3 border-r border-[#24272E] overflow-y-auto whitespace-pre-wrap font-sans text-xs text-slate-300 leading-relaxed">
+            <div class="font-bold text-slate-200 mb-1">{{ selectedCommit.subject }}</div>
+            <div v-if="selectedCommit.email" class="text-[11px] text-slate-500 mb-2">Author: {{ selectedCommit.author }} &lt;{{ selectedCommit.email }}&gt;</div>
+            <div class="text-[11px] text-slate-400 font-mono">Parents: {{ selectedCommit.parents.join(', ') || 'None' }}</div>
+          </div>
+
+          <!-- Modified Files List in Commit -->
+          <div class="w-1/2 flex flex-col overflow-hidden">
+            <div class="px-3 py-1 bg-[#1a1d24] border-b border-[#24272E] text-[11px] font-bold text-slate-400">
+              <span>Files Changed ({{ commitDetails.files.length }})</span>
+            </div>
+
+            <div class="flex-1 p-2 overflow-y-auto space-y-0.5">
+              <div
+                v-for="f in commitDetails.files"
+                :key="f.path"
+                class="px-2 py-1 rounded hover:bg-[#252A36] flex items-center justify-between text-xs cursor-pointer group"
+                @click="openFileDiff(f)"
+              >
+                <div class="flex items-center space-x-2 truncate pr-2">
+                  <FileCode class="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span class="truncate text-slate-200">{{ f.path }}</span>
+                </div>
+                <div class="flex items-center space-x-1.5 shrink-0">
+                  <span
+                    class="font-mono text-xs font-bold"
+                    :class="f.status === 'M' ? 'text-sky-400' : f.status === 'A' ? 'text-emerald-400' : 'text-rose-400'"
+                  >
+                    {{ f.status }}
+                  </span>
+                  <span class="text-[10px] text-slate-500 group-hover:text-slate-300 transition-colors">diff →</span>
+                </div>
+              </div>
+              <div v-if="commitDetails.files.length === 0" class="text-center py-6 text-slate-500 text-xs">
+                {{ isLoadingDetails ? 'Loading changed files...' : 'No changed files' }}
+              </div>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
   </div>
 </template>
-

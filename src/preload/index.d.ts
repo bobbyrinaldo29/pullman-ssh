@@ -96,6 +96,7 @@ declare global {
       sftpGitLog: (remotePath: string, sessionId?: string) => Promise<string>
       sftpGitGraphCommits: (remotePath: string, sessionId?: string, limit?: number) => Promise<string>
       sftpGitCommitDetails: (remotePath: string, hash: string, sessionId?: string) => Promise<string>
+      sftpGitFileDiff: (remotePath: string, hash: string, filePath: string, sessionId?: string) => Promise<string>
       sftpSearchRemote: (
         query: string,
         rootPath: string,

@@ -738,6 +738,13 @@ app.whenReady().then(() => {
   )
 
   ipcMain.handle(
+    'sftp:git-file-diff',
+    (_, { remotePath, hash, filePath, sessionId }: { remotePath: string; hash: string; filePath: string; sessionId?: string }) => {
+      return sftpService.getGitFileDiff(remotePath, hash, filePath, sessionId)
+    }
+  )
+
+  ipcMain.handle(
     'sftp:search-remote',
     (
       _,

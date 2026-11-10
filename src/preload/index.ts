@@ -172,6 +172,13 @@ const api = {
     sessionId?: string
   ): Promise<string> =>
     ipcRenderer.invoke('sftp:git-commit-details', { remotePath, hash, sessionId }),
+  sftpGitFileDiff: (
+    remotePath: string,
+    hash: string,
+    filePath: string,
+    sessionId?: string
+  ): Promise<string> =>
+    ipcRenderer.invoke('sftp:git-file-diff', { remotePath, hash, filePath, sessionId }),
   sftpSearchRemote: (
     query: string,
     rootPath: string,

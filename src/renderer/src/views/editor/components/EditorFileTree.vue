@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import {
   RefreshCw,
   FolderPlus,
@@ -14,7 +14,8 @@ import {
   Folder,
   FileCode,
   File,
-  Copy
+  Copy,
+  CornerDownRight
 } from 'lucide-vue-next'
 import { HostItem } from '../../../types/connection'
 import { EditorFileNode, EditorGitInfo } from '../types'
@@ -45,6 +46,35 @@ const emit = defineEmits<{
 
 const canGoUp = computed(() => {
   return props.rootPath !== '/' && props.rootPath.length > 1
+})
+
+// Path input state
+const isEditingPath = ref(false)
+const pathInputValue = ref('')
+const pathInputEl = ref<HTMLInputElement | null>(null)
+
+function startEditPath(): void {
+  pathInputValue.value = props.rootPath
+  isEditingPath.value = true
+  setTimeout(() => {
+    pathInputEl.value?.select()
+  }, 50)
+}
+
+function commitPathInput(): void {
+  const p = pathInputValue.value.trim()
+  if (p && p !== props.rootPath) {
+    emit('set-root', p.startsWith('/') ? p : '/' + p)
+  }
+  isEditingPath.value = false
+}
+
+function cancelPathInput(): void {
+  isEditingPath.value = false
+}
+
+watch(() => props.rootPath, () => {
+  if (isEditingPath.value) isEditingPath.value = false
 })
 
 const contextMenu = ref<{
@@ -186,15 +216,42 @@ onUnmounted(() => {
       </div>
 
       <!-- Root Folder Path Row (Geany-style workspace root) -->
-      <div class="px-2.5 py-1.5 flex items-center justify-between text-[11px] bg-[#222733] border-b border-[#2A3142] shrink-0">
-        <div class="flex items-center space-x-1.5 min-w-0 flex-1 mr-2">
+      <div class="px-2 py-1 flex items-center gap-1 text-[11px] bg-[#222733] border-b border-[#2A3142] shrink-0">
+        <!-- Path display (click to edit) -->
+        <template v-if="!isEditingPath">
           <Server class="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-          <span class="font-bold text-white truncate text-[11px]" :title="rootPath">{{ rootPath }}</span>
-        </div>
+          <span
+            class="font-mono text-white truncate flex-1 min-w-0 cursor-text px-1 py-0.5 rounded hover:bg-[#2C3446] transition-colors"
+            :title="`${rootPath} — click to navigate to path`"
+            @click="startEditPath"
+          >{{ rootPath }}</span>
+        </template>
 
-        <!-- Root Navigation Tools (Go Up, Reset to /) -->
-        <div class="flex items-center space-x-1 shrink-0">
-          <!-- Go Up (..) Button -->
+        <!-- Path input (editing mode) -->
+        <template v-else>
+          <Server class="w-3.5 h-3.5 text-sky-400 shrink-0" />
+          <input
+            ref="pathInputEl"
+            v-model="pathInputValue"
+            type="text"
+            class="flex-1 min-w-0 bg-[#1a1f2e] border border-sky-500/60 text-white font-mono text-[11px] px-1.5 py-0.5 rounded focus:outline-none focus:border-sky-400"
+            placeholder="/path/to/folder"
+            @keydown.enter="commitPathInput"
+            @keydown.escape="cancelPathInput"
+            @blur="commitPathInput"
+          />
+          <button
+            type="button"
+            class="shrink-0 p-0.5 rounded text-sky-400 hover:text-sky-200 hover:bg-sky-500/20 transition-colors"
+            title="Go to path (Enter)"
+            @click="commitPathInput"
+          >
+            <CornerDownRight class="w-3.5 h-3.5" />
+          </button>
+        </template>
+
+        <!-- Navigation buttons (always visible) -->
+        <div class="flex items-center gap-0.5 shrink-0">
           <button
             type="button"
             class="p-1 rounded text-slate-400 hover:text-white hover:bg-[#2C3446] transition-colors"
@@ -204,8 +261,6 @@ onUnmounted(() => {
           >
             <CornerLeftUp class="w-3.5 h-3.5" />
           </button>
-
-          <!-- Reset to / Button -->
           <button
             v-if="canGoUp"
             type="button"
