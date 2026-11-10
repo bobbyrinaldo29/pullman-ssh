@@ -36,6 +36,42 @@ const api = {
   }): Promise<{ success: boolean; message: string; latency?: number }> =>
     ipcRenderer.invoke('connections:test', input),
   deleteConnection: (id: number): Promise<boolean> => ipcRenderer.invoke('connections:delete', id),
+  importMultipleConnections: (
+    inputs: unknown[],
+    extraGroups?: string[]
+  ): Promise<{ imported: number; failed: number }> => {
+    const safeInputs = JSON.parse(JSON.stringify(inputs || []))
+    const safeGroups = extraGroups ? JSON.parse(JSON.stringify(extraGroups)) : []
+    return ipcRenderer.invoke('connections:import-multiple', safeInputs, safeGroups)
+  },
+  openFileDialog: (options?: {
+    title?: string
+    filters?: { name: string; extensions: string[] }[]
+  }): Promise<{ canceled: boolean; filePath?: string; content?: string; error?: string }> =>
+    ipcRenderer.invoke('dialog:open-file', options),
+  saveFileDialog: (options: {
+    title?: string
+    defaultPath?: string
+    content: string
+    filters?: { name: string; extensions: string[] }[]
+  }): Promise<{ canceled: boolean; filePath?: string; error?: string }> =>
+    ipcRenderer.invoke('dialog:save-file', options),
+  detectDBeaver: (): Promise<{
+    found: boolean
+    path?: string
+    content?: string
+    credentials?: Record<string, any>
+  }> => ipcRenderer.invoke('tools:detect-dbeaver'),
+  extractDBeaverDbp: (
+    filePath: string
+  ): Promise<{
+    success: boolean
+    content?: string
+    credentials?: Record<string, any>
+    error?: string
+  }> => ipcRenderer.invoke('tools:extract-dbeaver-dbp', filePath),
+  decryptDBeaverCredentials: (byteArr: number[]): Promise<Record<string, any>> =>
+    ipcRenderer.invoke('tools:decrypt-dbeaver-credentials', byteArr),
   getGroups: (): Promise<string[]> => ipcRenderer.invoke('groups:get-all'),
   addGroup: (name: string): Promise<string> => ipcRenderer.invoke('groups:add', name),
   renameGroup: (oldName: string, newName: string): Promise<boolean> =>
@@ -49,6 +85,7 @@ const api = {
     user: string
     password?: string
     timeoutMs?: number
+    skipCwd?: boolean
   }): Promise<{ success: boolean; message: string; cwd?: string }> =>
     ipcRenderer.invoke('sftp:connect', config),
   sftpDisconnect: (sessionId?: string): Promise<void> =>

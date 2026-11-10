@@ -32,6 +32,35 @@ declare global {
         }
       }) => Promise<{ success: boolean; message: string; latency?: number }>
       deleteConnection: (id: number) => Promise<boolean>
+      importMultipleConnections: (
+        inputs: unknown[],
+        extraGroups?: string[]
+      ) => Promise<{ imported: number; failed: number }>
+      openFileDialog: (options?: {
+        title?: string
+        filters?: { name: string; extensions: string[] }[]
+      }) => Promise<{ canceled: boolean; filePath?: string; content?: string; error?: string }>
+      saveFileDialog: (options: {
+        title?: string
+        defaultPath?: string
+        content: string
+        filters?: { name: string; extensions: string[] }[]
+      }) => Promise<{ canceled: boolean; filePath?: string; error?: string }>
+      detectDBeaver: () => Promise<{
+        found: boolean
+        path?: string
+        content?: string
+        credentials?: Record<string, any>
+      }>
+      extractDBeaverDbp: (
+        filePath: string
+      ) => Promise<{
+        success: boolean
+        content?: string
+        credentials?: Record<string, any>
+        error?: string
+      }>
+      decryptDBeaverCredentials: (byteArr: number[]) => Promise<Record<string, any>>
       getGroups: () => Promise<string[]>
       addGroup: (name: string) => Promise<string>
       renameGroup: (oldName: string, newName: string) => Promise<boolean>
@@ -43,6 +72,7 @@ declare global {
         user: string
         password?: string
         timeoutMs?: number
+        skipCwd?: boolean
       }) => Promise<{ success: boolean; message: string; cwd?: string }>
       sftpDisconnect: (sessionId?: string) => Promise<void>
       sftpGetStatus: (sessionId?: string) => Promise<boolean>

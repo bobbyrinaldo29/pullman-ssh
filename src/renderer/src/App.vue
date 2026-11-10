@@ -3,6 +3,7 @@ import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import TitleBar from './components/TitleBar.vue'
 import NewConnectionDialog from './components/NewConnectionDialog.vue'
 import SidebarNavigator from './components/SidebarNavigator.vue'
+import ImportExportDialog from './components/ImportExportDialog.vue'
 import { HostItem } from './types/connection'
 import SftpView from './views/sftp/SftpView.vue'
 import HostsView from './views/hosts/HostsView.vue'
@@ -31,6 +32,18 @@ const hostsList = ref<HostItem[]>([])
 const groupsList = ref<string[]>([])
 const targetGroupForNewConn = ref('')
 const editingHost = ref<Record<string, unknown> | null>(null)
+const showImportExportModal = ref(false)
+const importExportInitialTab = ref<'import' | 'export' | 'dbeaver'>('import')
+
+function openImportExport(tab: 'import' | 'export' | 'dbeaver'): void {
+  importExportInitialTab.value = tab
+  showImportExportModal.value = true
+}
+
+async function handleConnectionsImported(): Promise<void> {
+  await loadConnectionsFromDb()
+  await loadGroupsFromDb()
+}
 
 async function loadConnectionsFromDb(): Promise<void> {
   if (window.api?.getConnections) {
@@ -59,7 +72,8 @@ async function loadConnectionsFromDb(): Promise<void> {
         dbPort: Number(r.dbPort || r.db_port || 3306),
         dbUser: String(r.dbUser || r.db_user || 'root'),
         dbPassword: String(r.dbPassword || r.db_password || ''),
-        dbSavePassword: r.dbSavePassword !== false && r.db_save_password !== 0
+        dbSavePassword: r.dbSavePassword !== false && r.db_save_password !== 0,
+        isProduction: Boolean(r.isProduction || r.is_production)
       }))
       if (hostsList.value.length > 0 && !selectedHostId.value) {
         selectedHostId.value = hostsList.value[0].id
@@ -104,6 +118,9 @@ function handleGroupRenamed(payload: { oldName: string; newName: string }): void
 
 function handleGroupDeleted(groupName: string): void {
   groupsList.value = groupsList.value.filter((g) => g !== groupName)
+  hostsList.value = hostsList.value.filter(
+    (h) => (h.group || '').trim().toLowerCase() !== groupName.trim().toLowerCase()
+  )
   loadConnectionsFromDb()
   loadGroupsFromDb()
 }
@@ -174,11 +191,13 @@ function handleEditHost(host: HostItem): void {
     database: host.database,
     notes: host.notes,
     remotePath: host.remotePath,
+    branch: host.branch || 'main',
     dbHost: host.dbHost,
     dbPort: host.dbPort,
     dbUser: host.dbUser,
     dbPassword: host.dbPassword,
-    dbSavePassword: host.dbSavePassword
+    dbSavePassword: host.dbSavePassword,
+    isProduction: Boolean(host.isProduction)
   }
   targetGroupForNewConn.value = host.group || ''
   showNewConnectionDialog.value = true
@@ -206,7 +225,8 @@ async function handleSaveConnection(data: Record<string, unknown>): Promise<void
           dbPort: data.dbPort,
           dbUser: data.dbUser,
           dbPassword: data.dbPassword,
-          dbSavePassword: data.dbSavePassword
+          dbSavePassword: data.dbSavePassword,
+          isProduction: Boolean(data.isProduction)
         })
       } else {
         console.warn('window.api.updateConnection is not available')
@@ -234,7 +254,8 @@ async function handleSaveConnection(data: Record<string, unknown>): Promise<void
           dbPort: data.dbPort,
           dbUser: data.dbUser,
           dbPassword: data.dbPassword,
-          dbSavePassword: data.dbSavePassword
+          dbSavePassword: data.dbSavePassword,
+          isProduction: Boolean(data.isProduction)
         })
         if (saved) {
           await loadConnectionsFromDb()
@@ -379,8 +400,18 @@ function handlePluginCenter(): void {
         @group-added="handleGroupAdded"
         @group-renamed="handleGroupRenamed"
         @group-deleted="handleGroupDeleted"
-        @import-data="console.log('Import data')"
-        @export-data="console.log('Export data')"
+        @import-data="openImportExport('import')"
+        @export-data="openImportExport('export')"
+        @import-dbeaver="openImportExport('dbeaver')"
+      />
+
+      <!-- Import / Export Configurations Modal -->
+      <ImportExportDialog
+        v-if="showImportExportModal"
+        :initial-tab="importExportInitialTab"
+        :hosts="hostsList"
+        @close="showImportExportModal = false"
+        @imported="handleConnectionsImported"
       />
 
       <!-- Center Main Workspace Canvas -->
