@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { FolderKanban, Plus, ChevronDown, Settings, X } from 'lucide-vue-next'
+import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import {
+  FolderKanban,
+  Plus,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Settings,
+  X
+} from 'lucide-vue-next'
 import { RedmineProject, OpenIssueTab } from '../types'
 
 const props = withDefaults(
@@ -22,6 +31,72 @@ const emit = defineEmits<{
   (e: 'open-login'): void
   (e: 'close-issue-tab', id: number): void
 }>()
+
+const taskTabsContainerRef = ref<HTMLElement | null>(null)
+const canScrollTabs = ref(false)
+
+function checkScrollable(): void {
+  if (taskTabsContainerRef.value) {
+    canScrollTabs.value =
+      taskTabsContainerRef.value.scrollWidth > taskTabsContainerRef.value.clientWidth
+  }
+}
+
+function handleWheelScroll(e: WheelEvent): void {
+  if (taskTabsContainerRef.value && e.deltaY !== 0) {
+    e.preventDefault()
+    taskTabsContainerRef.value.scrollLeft += e.deltaY
+  }
+}
+
+function scrollTabs(direction: 'left' | 'right'): void {
+  if (taskTabsContainerRef.value) {
+    const scrollAmount = 180
+    taskTabsContainerRef.value.scrollBy({
+      left: direction === 'left' ? -scrollAmount : scrollAmount,
+      behavior: 'smooth'
+    })
+  }
+}
+
+watch(
+  () => props.openIssueTabs,
+  () => {
+    nextTick(() => {
+      checkScrollable()
+      if (taskTabsContainerRef.value) {
+        const activeElem = taskTabsContainerRef.value.querySelector('.active-task-tab')
+        if (activeElem) {
+          activeElem.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+        }
+      }
+    })
+  },
+  { deep: true }
+)
+
+watch(
+  () => props.activeTab,
+  () => {
+    nextTick(() => {
+      if (taskTabsContainerRef.value) {
+        const activeElem = taskTabsContainerRef.value.querySelector('.active-task-tab')
+        if (activeElem) {
+          activeElem.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+        }
+      }
+    })
+  }
+)
+
+onMounted(() => {
+  checkScrollable()
+  window.addEventListener('resize', checkScrollable)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', checkScrollable)
+})
 
 const currentProject = () => {
   if (props.selectedProjectId === 'all') return null
@@ -143,27 +218,47 @@ const currentProject = () => {
         >
           Activity
         </button>
+      </div>
 
-        <!-- Divider for Open Task Tabs -->
-        <div v-if="props.openIssueTabs.length > 0" class="h-5 w-px bg-white/20 mx-1 self-center"></div>
+      <!-- Settings / Configuration button -->
+      <button
+        type="button"
+        class="mb-1 text-[11px] text-[#c0d4e5] hover:text-white flex items-center space-x-1 cursor-pointer shrink-0 ml-3"
+        title="Redmine API Key & Server Connection Settings"
+        @click="emit('open-login')"
+      >
+        <Settings class="w-3 h-3" />
+        <span>Settings</span>
+      </button>
+    </div>
 
-        <!-- Open Issue / Task Tabs -->
+    <!-- Task / Issue Sub-Tabs Bar (Positioned under Overview, Issues, etc.) -->
+    <div
+      v-if="props.openIssueTabs && props.openIssueTabs.length > 0"
+      class="bg-[#243544] border-t border-[#344b5d] px-2 pt-1.5 flex items-center justify-between text-xs select-none shadow-inner"
+    >
+      <!-- Horizontally Scrollable & Shrinkable Task Tabs -->
+      <div
+        ref="taskTabsContainerRef"
+        class="flex-1 flex items-center space-x-1 overflow-x-auto no-scrollbar scroll-smooth"
+        @wheel="handleWheelScroll"
+      >
         <div
           v-for="tab in props.openIssueTabs"
           :key="tab.id"
-          class="px-2.5 py-1.5 rounded-t-sm transition-colors cursor-pointer border-t border-x flex items-center space-x-1.5 max-w-[220px]"
-          :class="
+          class="h-7 px-2.5 rounded-t-sm transition-all cursor-pointer border-t border-x flex items-center justify-between space-x-1 flex-1 min-w-[100px] max-w-[210px] shrink group"
+          :class="[
             props.activeTab === `issue-${tab.id}`
-              ? 'bg-[#141822] text-white border-[#242d3e] font-bold shadow-sm'
-              : 'bg-[#3b556b] text-[#d6e2ec] border-transparent hover:bg-[#405c75] hover:text-white'
-          "
+              ? 'active-task-tab bg-[#141822] text-white border-[#273244] font-bold shadow-sm'
+              : 'bg-[#314457] text-[#c0d4e5] border-transparent hover:bg-[#3b5166] hover:text-white'
+          ]"
           :title="`#${tab.id}: ${tab.issue.subject}`"
           @click="emit('update:activeTab', `issue-${tab.id}`)"
         >
-          <span class="truncate text-xs">#{{ tab.id }}: {{ tab.issue.subject }}</span>
+          <span class="truncate text-[11px] leading-tight">#{{ tab.id }}: {{ tab.issue.subject }}</span>
           <button
             type="button"
-            class="p-0.5 rounded hover:bg-black/30 text-slate-300 hover:text-white cursor-pointer ml-0.5 shrink-0"
+            class="p-0.5 rounded hover:bg-black/40 text-slate-400 hover:text-white cursor-pointer ml-1 shrink-0 transition-colors"
             title="Close tab"
             @click.stop="emit('close-issue-tab', tab.id)"
           >
@@ -172,16 +267,28 @@ const currentProject = () => {
         </div>
       </div>
 
-      <!-- Settings / Configuration button -->
-      <button
-        type="button"
-        class="mb-1 text-[11px] text-[#c0d4e5] hover:text-white flex items-center space-x-1 cursor-pointer"
-        title="Redmine API Key & Server Connection Settings"
-        @click="emit('open-login')"
+      <!-- Scroll Buttons when overflowing -->
+      <div
+        v-if="canScrollTabs"
+        class="flex items-center space-x-0.5 pl-1.5 shrink-0 text-[#c0d4e5] border-l border-[#344b5d] ml-1"
       >
-        <Settings class="w-3 h-3" />
-        <span>Settings</span>
-      </button>
+        <button
+          type="button"
+          class="p-1 rounded hover:bg-[#3b556b] hover:text-white transition-colors"
+          title="Scroll tabs left"
+          @click="scrollTabs('left')"
+        >
+          <ChevronLeft class="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          class="p-1 rounded hover:bg-[#3b556b] hover:text-white transition-colors"
+          title="Scroll tabs right"
+          @click="scrollTabs('right')"
+        >
+          <ChevronRight class="w-3.5 h-3.5" />
+        </button>
+      </div>
     </div>
   </div>
 </template>
