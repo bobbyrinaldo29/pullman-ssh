@@ -7,8 +7,11 @@ import {
   SftpFileItem,
   LocalFileItem
 } from '../types'
+import { useActiveConnections } from '../../../composables/useActiveConnections'
 
 export function useSftpOperations() {
+  const { registerSession, unregisterSession } = useActiveConnections()
+
   // Multi-Connection Tabs State
   const tabs = ref<SftpTab[]>([])
   const activeTabId = ref<string>('')
@@ -184,6 +187,9 @@ export function useSftpOperations() {
         if (res.success) {
           tab.isConnected = true
           tab.statusText = 'Connected'
+          if (tab.hostId) {
+            registerSession(tab.hostId, 'sftp_' + tab.id)
+          }
           addTabLog(
             tab,
             'response',
@@ -193,6 +199,9 @@ export function useSftpOperations() {
           await loadRemoteListForTab(tab, tab.remotePath)
         } else {
           tab.isConnected = false
+          if (tab.hostId) {
+            unregisterSession(tab.hostId, 'sftp_' + tab.id)
+          }
           tab.statusText = res.message || 'Connection failed'
           addTabLog(tab, 'error', `SFTP Connection failed: ${res.message}`)
         }
@@ -212,6 +221,9 @@ export function useSftpOperations() {
       await window.api.sftpDisconnect(tab.sessionId)
     }
     tab.isConnected = false
+    if (tab.hostId) {
+      unregisterSession(tab.hostId, 'sftp_' + tab.id)
+    }
     tab.statusText = 'Disconnected'
     tab.remoteItems = []
     tab.selectedRemoteFile = null

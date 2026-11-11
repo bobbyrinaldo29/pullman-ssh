@@ -8,6 +8,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { dbService, ConnectionInput } from './database'
 import { sftpService } from './sftpService'
+import { SshShellService } from './sshShellService'
 import { googleAuthService } from './googleAuthService'
 import { redmineService } from './redmineService'
 import { extractDBeaverProjectFile, decryptDBeaverCredentialsNode } from './dbpExtractor'
@@ -608,6 +609,8 @@ app.whenReady().then(() => {
     return sftpService.disconnect(sessionId)
   })
 
+  new SshShellService(sftpService).registerIpcHandlers()
+
   ipcMain.handle('sftp:status', (_, sessionId?: string) => {
     return sftpService.getConnectedStatus(sessionId)
   })
@@ -902,16 +905,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle(
     'app:show-notification',
-    (
-      event,
-      {
-        title,
-        body,
-        silent,
-        tag,
-        issueId
-      }: { title: string; body: string; silent?: boolean; tag?: string; issueId?: number }
-    ) => {
+    (event, { title, body, silent, tag, issueId }: { title: string; body: string; silent?: boolean; tag?: string; issueId?: number }) => {
       try {
         if (Notification.isSupported()) {
           const notif = new Notification({
@@ -921,8 +915,7 @@ app.whenReady().then(() => {
             icon
           })
           notif.on('click', () => {
-            const win =
-              BrowserWindow.fromWebContents(event.sender) || BrowserWindow.getAllWindows()[0]
+            const win = BrowserWindow.fromWebContents(event.sender) || BrowserWindow.getAllWindows()[0]
             if (win && !win.isDestroyed()) {
               if (win.isMinimized()) win.restore()
               win.show()
@@ -989,21 +982,13 @@ app.whenReady().then(() => {
 
   createWindow()
 
-  app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
+  app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
 })
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.

@@ -23,6 +23,7 @@ import SidebarDeleteGroupModal from './sidebar/SidebarDeleteGroupModal.vue'
 import SidebarGroupContextMenu from './sidebar/SidebarGroupContextMenu.vue'
 import SidebarHostContextMenu from './sidebar/SidebarHostContextMenu.vue'
 import ProdBadge from './ProdBadge.vue'
+import { useActiveConnections } from '../composables/useActiveConnections'
 
 export type { HostItem }
 
@@ -59,6 +60,7 @@ const isCollapsed = computed({
   set: (val: boolean) => emit('update:collapsed', val)
 })
 const searchQuery = ref('')
+const { activeConnectedHostIds } = useActiveConnections()
 
 // Context Menu State (Group)
 const showContextMenu = ref(false)
@@ -689,10 +691,10 @@ async function handleCreateGroup(nameInput?: string): Promise<void> {
             </div>
 
             <div class="flex items-center space-x-2 shrink-0">
-              <!-- Status Dot (green dot when connected) -->
+              <!-- Status Dot (green dot only when connected) -->
               <span
-                v-if="host.statusType === 'success'"
-                class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"
+                v-if="activeConnectedHostIds.has(host.id)"
+                class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)] shrink-0 animate-pulse"
               ></span>
               <ProdBadge v-if="host.isProduction" size="md" />
             </div>
@@ -780,10 +782,10 @@ async function handleCreateGroup(nameInput?: string): Promise<void> {
               </div>
 
               <div class="flex items-center space-x-2 shrink-0">
-                <!-- Status Dot (green dot when connected) -->
+                <!-- Status Dot (green dot only when connected) -->
                 <span
-                  v-if="host.statusType === 'success'"
-                  class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"
+                  v-if="activeConnectedHostIds.has(host.id)"
+                  class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)] shrink-0 animate-pulse"
                 ></span>
                 <ProdBadge v-if="host.isProduction" size="md" />
               </div>

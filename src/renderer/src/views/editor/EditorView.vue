@@ -6,10 +6,13 @@ import { getConnectionColor } from '../../utils/connectionColors'
 import { EditorConnectionTab } from './types'
 import ProdBadge from '../../components/ProdBadge.vue'
 import EditorSessionWorkspace from './components/EditorSessionWorkspace.vue'
+import { useActiveConnections } from '../../composables/useActiveConnections'
 
 const props = defineProps<{
   hosts: HostItem[]
 }>()
+
+const { registerSession, unregisterSession } = useActiveConnections()
 
 const connectionTabs = ref<EditorConnectionTab[]>([])
 const activeConnectionTabId = ref<string>('')
@@ -51,9 +54,13 @@ function openSessionForHost(host: HostItem): void {
 }
 
 function closeConnectionTab(tabId: string): void {
+  const tab = connectionTabs.value.find((t) => t.id === tabId)
+  if (tab) {
+    unregisterSession(tab.host.id, 'editor_' + tabId)
+  }
+
   const workspace = sessionWorkspaceRefs.value[tabId]
   if (workspace?.hasUnsavedChanges && workspace.hasUnsavedChanges()) {
-    const tab = connectionTabs.value.find((t) => t.id === tabId)
     const hostName = tab?.title || 'this session'
     if (!confirm(`You have unsaved changes in "${hostName}". Are you sure you want to close this connection?`)) {
       return
@@ -84,6 +91,11 @@ function updateTabStatus(tabId: string, status: EditorConnectionTab['status']): 
   const tab = connectionTabs.value.find((t) => t.id === tabId)
   if (tab) {
     tab.status = status
+    if (status === 'connected') {
+      registerSession(tab.host.id, 'editor_' + tab.id)
+    } else {
+      unregisterSession(tab.host.id, 'editor_' + tab.id)
+    }
   }
 }
 

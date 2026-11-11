@@ -81,6 +81,17 @@ declare global {
         sessionId?: string,
         asSudo?: boolean
       ) => Promise<{ stdout: string; stderr: string; code: number }>
+      sshShellStart: (
+        sessionId: string,
+        cols?: number,
+        rows?: number,
+        initialPath?: string
+      ) => Promise<{ success: boolean; message?: string }>
+      sshShellWrite: (sessionId: string, data: string) => void
+      sshShellResize: (sessionId: string, cols: number, rows: number) => void
+      sshShellClose: (sessionId: string) => Promise<{ success: boolean }>
+      onSshShellData: (sessionId: string, callback: (data: string) => void) => () => void
+      onSshShellClose: (sessionId: string, callback: () => void) => () => void
       sftpListRemote: (remotePath: string, sessionId?: string) => Promise<any[]>
       sftpUpload: (localPath: string, remotePath: string, sessionId?: string, asSudo?: boolean) => Promise<void>
       sftpDownload: (remotePath: string, localPath: string, sessionId?: string, asSudo?: boolean) => Promise<void>

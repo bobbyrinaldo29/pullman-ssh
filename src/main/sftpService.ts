@@ -46,7 +46,7 @@ interface SftpSession {
 export class SftpService {
   private sessions = new Map<string, SftpSession>()
 
-  private getSession(sessionId?: string): SftpSession | undefined {
+  public getSession(sessionId?: string): SftpSession | undefined {
     return this.sessions.get(sessionId || 'default')
   }
 

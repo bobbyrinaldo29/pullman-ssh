@@ -98,6 +98,31 @@ const api = {
     asSudo?: boolean
   ): Promise<{ stdout: string; stderr: string; code: number }> =>
     ipcRenderer.invoke('ssh:exec', { command, sessionId, asSudo }),
+  sshShellStart: (
+    sessionId: string,
+    cols?: number,
+    rows?: number,
+    initialPath?: string
+  ): Promise<{ success: boolean; message?: string }> =>
+    ipcRenderer.invoke('ssh:shell-start', { sessionId, cols, rows, initialPath }),
+  sshShellWrite: (sessionId: string, data: string): void =>
+    ipcRenderer.send('ssh:shell-write', { sessionId, data }),
+  sshShellResize: (sessionId: string, cols: number, rows: number): void =>
+    ipcRenderer.send('ssh:shell-resize', { sessionId, cols, rows }),
+  sshShellClose: (sessionId: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('ssh:shell-close', { sessionId }),
+  onSshShellData: (sessionId: string, callback: (data: string) => void): (() => void) => {
+    const handler = (_: any, data: string) => callback(data)
+    const channel = `ssh:shell-data:${sessionId}`
+    ipcRenderer.on(channel, handler)
+    return () => ipcRenderer.removeListener(channel, handler)
+  },
+  onSshShellClose: (sessionId: string, callback: () => void): (() => void) => {
+    const handler = () => callback()
+    const channel = `ssh:shell-close:${sessionId}`
+    ipcRenderer.on(channel, handler)
+    return () => ipcRenderer.removeListener(channel, handler)
+  },
   sftpListRemote: (remotePath: string, sessionId?: string): Promise<any[]> =>
     ipcRenderer.invoke('sftp:list-remote', { remotePath, sessionId }),
   sftpUpload: (localPath: string, remotePath: string, sessionId?: string, asSudo?: boolean): Promise<void> =>

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, reactive } from 'vue'
 import { Terminal, X } from 'lucide-vue-next'
 import { HostItem } from '../../types/connection'
 import { getConnectionColor } from '../../utils/connectionColors'
 import { SshTab } from './types'
 import SshSessionPane from './components/SshSessionPane.vue'
 import ProdBadge from '../../components/ProdBadge.vue'
+import { useActiveConnections } from '../../composables/useActiveConnections'
 
 const props = defineProps<{
   hosts: HostItem[]
@@ -15,10 +16,10 @@ defineEmits<{
   (e: 'back-to-hosts'): void
 }>()
 
+const { registerSession, unregisterSession } = useActiveConnections()
+
 const tabs = ref<SshTab[]>([])
 const activeTabId = ref<string>('')
-
-const activeTab = computed(() => tabs.value.find((t) => t.id === activeTabId.value) || null)
 
 function generateId(): string {
   return 'ssh_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7)
@@ -77,6 +78,7 @@ async function connectSession(tabInput: SshTab): Promise<void> {
       const liveTab = tabs.value.find((t) => t.id === tab.id) || tab
       if (res.success) {
         liveTab.status = 'connected'
+        registerSession(liveTab.host.id, 'ssh_' + liveTab.id)
         liveTab.latency = Date.now() - startTime
         liveTab.connectedAt = new Date().toLocaleTimeString()
 
@@ -188,6 +190,7 @@ async function disconnectSession(tabInput: SshTab): Promise<void> {
     await window.api.sftpDisconnect(tab.id).catch(() => {})
   }
   tab.status = 'disconnected'
+  unregisterSession(tab.host.id, 'ssh_' + tab.id)
   tab.logs.push({
     id: generateId(),
     type: 'system',
@@ -200,6 +203,7 @@ async function closeTab(tabId: string): Promise<void> {
   const idx = tabs.value.findIndex((t) => t.id === tabId)
   if (idx === -1) return
   const tab = tabs.value[idx]
+  unregisterSession(tab.host.id, 'ssh_' + tab.id)
   if (tab.status === 'connected') {
     await disconnectSession(tab)
   }
@@ -369,18 +373,25 @@ defineExpose({
       </div>
     </div>
 
-    <!-- Active Terminal Session Pane -->
-    <div v-if="activeTab" class="flex-1 flex flex-col overflow-hidden">
-      <SshSessionPane
-        :key="activeTab.id"
-        :tab="activeTab"
-        @reconnect="connectSession(activeTab)"
-        @disconnect="disconnectSession(activeTab)"
-        @clear-logs="activeTab.logs = []"
-        @run-command="(cmd, sudo) => handleRunCommand(activeTab!, cmd, sudo)"
-        @print-log="(l) => activeTab?.logs.push({ id: generateId(), text: l.text, type: l.type, timestamp: new Date().toLocaleTimeString() })"
-      />
-    </div>
+    <!-- Active Terminal Session Panes (Kept alive across tab switches) -->
+    <template v-if="tabs.length > 0">
+      <div
+        v-for="t in tabs"
+        v-show="activeTabId === t.id"
+        :key="t.id"
+        class="flex-1 flex flex-col overflow-hidden"
+      >
+        <SshSessionPane
+          :tab="t"
+          :is-active="activeTabId === t.id"
+          @reconnect="connectSession(t)"
+          @disconnect="disconnectSession(t)"
+          @clear-logs="t.logs = []"
+          @run-command="(cmd, sudo) => handleRunCommand(t, cmd, sudo)"
+          @print-log="(l) => t.logs.push({ id: generateId(), text: l.text, type: l.type, timestamp: new Date().toLocaleTimeString() })"
+        />
+      </div>
+    </template>
 
     <!-- Empty State: Sleek Terminal Placeholder (like text editor) -->
     <div v-else class="flex-1 flex flex-col items-center justify-center text-center p-8 select-none">

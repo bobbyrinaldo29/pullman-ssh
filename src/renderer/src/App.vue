@@ -350,6 +350,55 @@ async function handleDeleteHost(id: number): Promise<void> {
   }
 }
 
+async function handleBulkUpdateHosts(payload: { hostIds: number[]; updates: Record<string, unknown> }): Promise<void> {
+  if (!window.api?.updateConnection || payload.hostIds.length === 0) return
+  isLoading.value = true
+  try {
+    for (const id of payload.hostIds) {
+      const existing = hostsList.value.find((h) => h.id === id)
+      if (!existing) continue
+      await window.api.updateConnection(id, {
+        name: existing.name,
+        ip: existing.ip,
+        host: existing.ip,
+        port: payload.updates.port !== undefined ? Number(payload.updates.port) : existing.port,
+        remotePath: payload.updates.remotePath !== undefined ? String(payload.updates.remotePath) : existing.remotePath,
+        branch: existing.branch || 'main',
+        group: payload.updates.group !== undefined ? String(payload.updates.group) : existing.group,
+        color: payload.updates.color !== undefined ? String(payload.updates.color) : existing.color,
+        user: payload.updates.user !== undefined ? String(payload.updates.user) : existing.user,
+        database: payload.updates.database !== undefined ? String(payload.updates.database) : existing.database,
+        dbHost: payload.updates.dbHost !== undefined ? String(payload.updates.dbHost) : existing.dbHost,
+        dbPort: payload.updates.dbPort !== undefined ? Number(payload.updates.dbPort) : existing.dbPort,
+        dbUser: payload.updates.dbUser !== undefined ? String(payload.updates.dbUser) : existing.dbUser,
+        isProduction: payload.updates.isProduction !== undefined ? Boolean(payload.updates.isProduction) : Boolean(existing.isProduction)
+      })
+    }
+    await loadConnectionsFromDb()
+    await loadGroupsFromDb()
+  } catch (err) {
+    console.error('Failed to bulk update connections in SQLite:', err)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+async function handleBulkDeleteHosts(hostIds: number[]): Promise<void> {
+  if (!window.api?.deleteConnection || hostIds.length === 0) return
+  if (!confirm(`Are you sure you want to delete ${hostIds.length} connections from database?`)) return
+  isLoading.value = true
+  try {
+    for (const id of hostIds) {
+      await window.api.deleteConnection(id)
+    }
+    await loadConnectionsFromDb()
+  } catch (err) {
+    console.error('Failed to bulk delete connections from SQLite:', err)
+  } finally {
+    isLoading.value = false
+  }
+}
+
 function handleSelectHost(host: HostItem): void {
   selectedHostId.value = host.id
   if (currentView.value === 'ssh') {
@@ -528,6 +577,8 @@ function handlePluginCenter(): void {
           @open-sftp="openSftpForHost"
           @edit-host="handleEditHost"
           @delete-host="handleDeleteHost"
+          @bulk-update="handleBulkUpdateHosts"
+          @bulk-delete="handleBulkDeleteHosts"
         />
 
         <!-- Query Console Canvas -->

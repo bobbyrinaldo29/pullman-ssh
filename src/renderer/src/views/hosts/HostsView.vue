@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, computed } from 'vue'
 import {
   Server,
   Filter,
@@ -9,12 +10,15 @@ import {
   Pencil,
   Database,
   Terminal,
-  FolderSync
+  FolderSync,
+  CheckSquare
 } from 'lucide-vue-next'
 import { HostItem } from '../../types/connection'
 import ProdBadge from '../../components/ProdBadge.vue'
+import HostsBulkEditModal from './components/HostsBulkEditModal.vue'
+import { useActiveConnections } from '../../composables/useActiveConnections'
 
-defineProps<{
+const props = defineProps<{
   hostsList: HostItem[]
   filteredHosts: HostItem[]
   availableFilterGroups: string[]
@@ -33,7 +37,56 @@ const emit = defineEmits<{
   (e: 'open-sftp', hostId: number): void
   (e: 'edit-host', host: HostItem): void
   (e: 'delete-host', hostId: number): void
+  (e: 'bulk-update', payload: { hostIds: number[]; updates: Record<string, unknown> }): void
+  (e: 'bulk-delete', hostIds: number[]): void
 }>()
+
+// Multi-Selection State
+const { activeConnectedHostIds } = useActiveConnections()
+const selectedHostIds = ref<Set<number>>(new Set())
+const showBulkEditModal = ref(false)
+
+const isAllSelected = computed(() => {
+  if (props.filteredHosts.length === 0) return false
+  return props.filteredHosts.every((h) => selectedHostIds.value.has(h.id))
+})
+
+const isSomeSelected = computed(() => {
+  return selectedHostIds.value.size > 0 && !isAllSelected.value
+})
+
+function toggleSelectAll(): void {
+  if (isAllSelected.value) {
+    selectedHostIds.value.clear()
+  } else {
+    for (const h of props.filteredHosts) {
+      selectedHostIds.value.add(h.id)
+    }
+  }
+}
+
+function toggleSelectHost(id: number): void {
+  if (selectedHostIds.value.has(id)) {
+    selectedHostIds.value.delete(id)
+  } else {
+    selectedHostIds.value.add(id)
+  }
+}
+
+function handleApplyBulkEdit(updates: Record<string, unknown>): void {
+  emit('bulk-update', {
+    hostIds: Array.from(selectedHostIds.value),
+    updates
+  })
+  selectedHostIds.value.clear()
+  showBulkEditModal.value = false
+}
+
+function handleBulkDelete(): void {
+  if (selectedHostIds.value.size === 0) return
+  emit('bulk-delete', Array.from(selectedHostIds.value))
+  selectedHostIds.value.clear()
+}
 </script>
 
 <template>
@@ -104,13 +157,66 @@ const emit = defineEmits<{
       </div>
     </div>
 
+    <!-- Bulk Action Toolbar (When 1 or more connections are selected) -->
+    <div
+      v-if="selectedHostIds.size > 0"
+      class="h-9 bg-[#18233C] border-b border-blue-500/30 px-4 flex items-center justify-between text-xs shrink-0 select-none transition-all duration-150"
+    >
+      <div class="flex items-center space-x-2.5">
+        <CheckSquare class="w-4 h-4 text-blue-400" />
+        <span class="text-blue-200 font-medium">
+          {{ selectedHostIds.size }} connection{{ selectedHostIds.size > 1 ? 's' : '' }} selected
+        </span>
+      </div>
+
+      <div class="flex items-center space-x-2">
+        <button
+          type="button"
+          class="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded flex items-center space-x-1.5 transition-colors shadow-sm"
+          @click="showBulkEditModal = true"
+        >
+          <Pencil class="w-3 h-3" />
+          <span>Bulk Edit</span>
+        </button>
+
+        <button
+          type="button"
+          class="px-2.5 py-1 bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 font-medium rounded flex items-center space-x-1.5 transition-colors"
+          @click="handleBulkDelete"
+        >
+          <Trash2 class="w-3 h-3" />
+          <span>Delete Selected</span>
+        </button>
+
+        <button
+          type="button"
+          class="p-1 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded transition-colors"
+          title="Deselect All"
+          @click="selectedHostIds.clear()"
+        >
+          <X class="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+
     <!-- Main Content Area: Hosts Table Preview -->
     <div class="flex-1 overflow-auto p-4">
       <div class="border border-[#282F3E] rounded-lg overflow-x-auto bg-[#1C202B]">
-        <table class="w-full min-w-[780px] text-left text-xs border-collapse">
+        <table class="w-full min-w-[820px] text-left text-xs border-collapse">
           <thead>
             <tr class="bg-[#202532] text-[#8E99AF] border-b border-[#282F3E] font-medium whitespace-nowrap">
-              <th class="py-2.5 px-3 w-10 text-center whitespace-nowrap">#</th>
+              <!-- Select All Checkbox -->
+              <th class="py-2.5 px-3 w-8 text-center whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  :checked="isAllSelected"
+                  :indeterminate="isSomeSelected"
+                  class="rounded bg-[#161922] border-[#2D3547] text-blue-500 focus:ring-0 cursor-pointer w-3.5 h-3.5"
+                  title="Select All"
+                  @change="toggleSelectAll"
+                />
+              </th>
+              <th class="py-2.5 px-2 w-10 text-center whitespace-nowrap">#</th>
               <th class="py-2.5 px-4 whitespace-nowrap">Host Name</th>
               <th class="py-2.5 px-4 whitespace-nowrap">SSH (Host:Port)</th>
               <th class="py-2.5 px-4 whitespace-nowrap">Database</th>
@@ -121,7 +227,7 @@ const emit = defineEmits<{
           </thead>
           <tbody class="divide-y divide-[#282F3E]">
             <tr v-if="filteredHosts.length === 0">
-              <td colspan="7" class="py-12 text-center text-[#556073]">
+              <td colspan="8" class="py-12 text-center text-[#556073]">
                 <Server class="w-8 h-8 mx-auto mb-2 text-[#40495C] opacity-50" />
                 <p class="text-sm font-medium text-[#7E8B9F]">No connections found</p>
                 <p class="text-xs text-[#556073] mt-1">
@@ -132,14 +238,26 @@ const emit = defineEmits<{
             <tr
               v-for="(h, index) in filteredHosts"
               :key="h.id"
-              class="hover:bg-[#222736] transition-colors"
+              class="transition-colors cursor-pointer"
+              :class="selectedHostIds.has(h.id) ? 'bg-blue-900/20 hover:bg-blue-900/30' : 'hover:bg-[#222736]'"
+              @click="toggleSelectHost(h.id)"
             >
-              <td class="py-3 px-3 text-center text-[#64748B] whitespace-nowrap">{{ index + 1 }}</td>
+              <!-- Row Checkbox -->
+              <td class="py-3 px-3 text-center whitespace-nowrap" @click.stop>
+                <input
+                  type="checkbox"
+                  :checked="selectedHostIds.has(h.id)"
+                  class="rounded bg-[#161922] border-[#2D3547] text-blue-500 focus:ring-0 cursor-pointer w-3.5 h-3.5"
+                  @change="toggleSelectHost(h.id)"
+                />
+              </td>
+
+              <td class="py-3 px-2 text-center text-[#64748B] whitespace-nowrap">{{ index + 1 }}</td>
               <td class="py-3 px-4 text-white font-medium whitespace-nowrap">
                 <div class="flex items-center space-x-2">
                   <span
                     class="w-2 h-2 rounded-full shrink-0"
-                    :class="h.statusType === 'success' ? 'bg-emerald-400' : 'bg-amber-400'"
+                    :class="activeConnectedHostIds.has(h.id) ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]' : 'bg-slate-600'"
                   ></span>
                   <span class="truncate max-w-[200px]" :title="h.name">{{ h.name }}</span>
                   <ProdBadge v-if="h.isProduction" size="sm" />
@@ -160,15 +278,15 @@ const emit = defineEmits<{
                 <span
                   class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[11px]"
                   :class="
-                    h.statusType === 'success'
+                    activeConnectedHostIds.has(h.id)
                       ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                      : 'bg-slate-800 text-slate-400 border border-slate-700/60'
                   "
                 >
-                  <span>{{ h.status }}</span>
+                  <span>{{ activeConnectedHostIds.has(h.id) ? 'Connected' : (h.status || 'Ready') }}</span>
                 </span>
               </td>
-              <td class="py-3 px-4 text-right whitespace-nowrap space-x-1 shrink-0">
+              <td class="py-3 px-4 text-right whitespace-nowrap space-x-1 shrink-0" @click.stop>
                 <button
                   type="button"
                   class="px-1.5 py-1 hover:bg-sky-500/20 text-slate-400 hover:text-sky-400 rounded text-[11px] transition-colors"
@@ -223,6 +341,14 @@ const emit = defineEmits<{
         <span>v{{ appVersion }} • UTF-8 • macOS Darwin</span>
       </div>
     </footer>
+
+    <!-- Bulk Edit Modal Dialog -->
+    <HostsBulkEditModal
+      :show="showBulkEditModal"
+      :selected-count="selectedHostIds.size"
+      :available-groups="availableFilterGroups"
+      @close="showBulkEditModal = false"
+      @apply="handleApplyBulkEdit"
+    />
   </div>
 </template>
-
