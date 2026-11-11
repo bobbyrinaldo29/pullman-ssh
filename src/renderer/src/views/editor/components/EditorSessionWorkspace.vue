@@ -42,6 +42,7 @@ let blameTimeout: ReturnType<typeof setTimeout> | null = null
 const isSplit = ref(false)
 const splitActiveTabId = ref<string>('')
 const isResizingSidebar = ref(false)
+const activeGitGraphPath = ref('')
 
 function startSidebarResize(e: MouseEvent): void {
   e.preventDefault()
@@ -87,7 +88,10 @@ const {
   saveActiveTab,
   closeTab,
   setRootFolder,
-  navigateUp
+  navigateUp,
+  createRemoteFile,
+  createRemoteFolder,
+  deleteRemoteNode
 } = useEditorSsh()
 
 const splitActiveTab = computed(() => {
@@ -196,6 +200,14 @@ function handleInsertCode(code: string): void {
   }
 }
 
+function handleGitPathUpdate(path: string): void {
+  activeGitGraphPath.value = path
+  const graphTab = openTabs.value.find((t) => t.id === 'git-graph-tab')
+  if (graphTab) {
+    graphTab.path = path
+  }
+}
+
 function openGitGraphTab(): void {
   const existing = openTabs.value.find((t) => t.id === 'git-graph-tab')
   if (existing) {
@@ -205,7 +217,7 @@ function openGitGraphTab(): void {
   openTabs.value.push({
     id: 'git-graph-tab',
     name: 'Git Graph',
-    path: '',
+    path: activeGitGraphPath.value || rootPath.value || '',
     content: '',
     originalContent: '',
     isDirty: false,
@@ -308,6 +320,9 @@ defineExpose({
           @set-root="setRootFolder"
           @navigate-up="navigateUp"
           @reset-root="setRootFolder('/')"
+          @create-file="createRemoteFile"
+          @create-folder="createRemoteFolder"
+          @delete-node="deleteRemoteNode"
         />
 
         <!-- Search In Root Folder View -->
@@ -371,6 +386,7 @@ defineExpose({
             :tabs="openTabs"
             :active-tab="activeTab"
             :current-host-name="currentHost?.name"
+            :git-path="activeGitGraphPath || activeTab?.path || rootPath"
             :is-split="isSplit"
             @select-tab="(id) => (activeTabId = id)"
             @close-tab="closeTab"
@@ -398,6 +414,7 @@ defineExpose({
             :active-file-path="gitCandidatePath"
             @close="closeTab(activeTab.id)"
             @open-file="openFile"
+            @update:active-git-path="handleGitPathUpdate"
           />
 
           <!-- Code Editor Area -->

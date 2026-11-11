@@ -15,11 +15,14 @@ import {
   FileCode,
   File,
   Copy,
+  Trash2,
   CornerDownRight
 } from 'lucide-vue-next'
 import { HostItem } from '../../../types/connection'
 import { EditorFileNode, EditorGitInfo } from '../types'
 import EditorTreeNode from './EditorTreeNode.vue'
+import EditorNewItemModal from './EditorNewItemModal.vue'
+import EditorDeleteModal from './EditorDeleteModal.vue'
 
 const props = defineProps<{
   isConnected: boolean
@@ -42,6 +45,9 @@ const emit = defineEmits<{
   (e: 'set-root', path: string): void
   (e: 'navigate-up'): void
   (e: 'reset-root'): void
+  (e: 'create-file', targetDir: string, name: string): void
+  (e: 'create-folder', targetDir: string, name: string): void
+  (e: 'delete-node', node: EditorFileNode): void
 }>()
 
 const canGoUp = computed(() => {
@@ -116,6 +122,74 @@ function handleCopyPath(): void {
   closeContextMenu()
 }
 
+// Modal State for New File / New Folder
+const modalState = ref<{
+  show: boolean
+  type: 'file' | 'folder'
+  targetDir: string
+}>({
+  show: false,
+  type: 'file',
+  targetDir: '/'
+})
+
+function openNewItemModal(type: 'file' | 'folder', targetDir?: string): void {
+  modalState.value = {
+    show: true,
+    type,
+    targetDir: targetDir || props.rootPath || '/'
+  }
+}
+
+function handleCreateItem(name: string): void {
+  if (modalState.value.type === 'file') {
+    emit('create-file', modalState.value.targetDir, name)
+  } else {
+    emit('create-folder', modalState.value.targetDir, name)
+  }
+  modalState.value.show = false
+}
+
+// Modal State for Delete File / Folder
+const deleteModalState = ref<{
+  show: boolean
+  node: EditorFileNode | null
+  isDeleting: boolean
+}>({
+  show: false,
+  node: null,
+  isDeleting: false
+})
+
+function openDeleteModal(node: EditorFileNode): void {
+  deleteModalState.value = {
+    show: true,
+    node,
+    isDeleting: false
+  }
+}
+
+function handleConfirmDelete(node: EditorFileNode): void {
+  deleteModalState.value.isDeleting = true
+  emit('delete-node', node)
+  deleteModalState.value.show = false
+  deleteModalState.value.isDeleting = false
+}
+
+function collapseAll(): void {
+  function collapse(nodes: EditorFileNode[]) {
+    for (const node of nodes) {
+      if (node.isDirectory) {
+        node.isExpanded = false
+        if (node.children && node.children.length > 0) {
+          collapse(node.children)
+        }
+      }
+    }
+  }
+  collapse(props.fileTree)
+}
+
 onMounted(() => {
   window.addEventListener('click', closeContextMenu)
 })
@@ -135,6 +209,7 @@ onUnmounted(() => {
           type="button"
           title="New File"
           class="hover:text-white p-0.5 rounded transition-colors"
+          @click="openNewItemModal('file')"
         >
           <FilePlus class="w-3.5 h-3.5" />
         </button>
@@ -142,6 +217,7 @@ onUnmounted(() => {
           type="button"
           title="New Folder"
           class="hover:text-white p-0.5 rounded transition-colors"
+          @click="openNewItemModal('folder')"
         >
           <FolderPlus class="w-3.5 h-3.5" />
         </button>
@@ -157,6 +233,7 @@ onUnmounted(() => {
           type="button"
           title="Collapse All"
           class="hover:text-white p-0.5 rounded transition-colors"
+          @click="collapseAll"
         >
           <ChevronsDownUp class="w-3.5 h-3.5" />
         </button>
@@ -314,6 +391,28 @@ onUnmounted(() => {
 
         <!-- Directory Actions -->
         <template v-if="contextMenu.node?.isDirectory">
+          <!-- New File inside folder -->
+          <button
+            type="button"
+            class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-[#283145] hover:text-white text-slate-300 transition-colors text-left"
+            @click="openNewItemModal('file', contextMenu.node!.path); closeContextMenu()"
+          >
+            <FilePlus class="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span>New File...</span>
+          </button>
+
+          <!-- New Folder inside folder -->
+          <button
+            type="button"
+            class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-[#283145] hover:text-white text-slate-300 transition-colors text-left"
+            @click="openNewItemModal('folder', contextMenu.node!.path); closeContextMenu()"
+          >
+            <FolderPlus class="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>New Folder...</span>
+          </button>
+
+          <div class="my-1 border-t border-[#282F40]"></div>
+
           <!-- Make as Root Folder (Geany Feature) -->
           <button
             type="button"
@@ -358,7 +457,37 @@ onUnmounted(() => {
           <Copy class="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <span>Copy Path</span>
         </button>
+
+        <div class="my-1 border-t border-[#282F40]"></div>
+
+        <!-- Delete Item -->
+        <button
+          type="button"
+          class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-rose-600/20 text-rose-400 hover:text-rose-300 transition-colors text-left font-medium"
+          @click="openDeleteModal(contextMenu.node!); closeContextMenu()"
+        >
+          <Trash2 class="w-3.5 h-3.5 shrink-0" />
+          <span>Delete</span>
+        </button>
       </div>
     </Teleport>
+
+    <!-- New File / New Folder Modal -->
+    <EditorNewItemModal
+      :show="modalState.show"
+      :type="modalState.type"
+      :target-dir="modalState.targetDir"
+      @close="modalState.show = false"
+      @create="handleCreateItem"
+    />
+
+    <!-- Delete Confirmation Modal -->
+    <EditorDeleteModal
+      :show="deleteModalState.show"
+      :node="deleteModalState.node"
+      :is-deleting="deleteModalState.isDeleting"
+      @close="deleteModalState.show = false"
+      @confirm="handleConfirmDelete"
+    />
   </div>
 </template>

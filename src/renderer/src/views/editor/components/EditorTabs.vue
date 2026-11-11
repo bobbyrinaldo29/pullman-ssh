@@ -7,6 +7,7 @@ defineProps<{
   activeTab: EditorTab | null
   currentHostName?: string
   isSplit?: boolean
+  gitPath?: string
 }>()
 
 const emit = defineEmits<{
@@ -124,12 +125,27 @@ function getIconColor(tab: EditorTab): string {
       v-if="activeTab"
       class="h-6 px-3 bg-[#1E222B] border-t border-[#24272E] flex items-center space-x-1.5 text-[11px] text-[#848D97] overflow-x-auto"
     >
-      <span class="text-blue-400 font-medium">{{ currentHostName || 'remote' }}</span>
-      <template v-for="(segment, idx) in activeTab.path.split('/').filter(Boolean)" :key="idx">
-        <ChevronRight class="w-3 h-3 opacity-50 shrink-0" />
-        <span class="hover:text-white transition-colors cursor-pointer truncate" :class="{ 'text-slate-200': idx === activeTab.path.split('/').filter(Boolean).length - 1 }">
-          {{ segment }}
+      <span class="text-blue-400 font-medium shrink-0">{{ currentHostName || 'remote' }}</span>
+
+      <!-- Git Graph Active Path Label/Chip beside Host Name -->
+      <template v-if="activeTab.viewType === 'git-graph'">
+        <span
+          v-if="gitPath || activeTab.path"
+          class="text-[10px] font-mono text-slate-400 bg-[#252A36] border border-[#32394C] rounded px-1.5 py-0.5 max-w-[280px] truncate ml-1"
+          :title="gitPath || activeTab.path"
+        >
+          {{ gitPath || activeTab.path }}
         </span>
+      </template>
+
+      <!-- Standard File Breadcrumbs -->
+      <template v-else>
+        <template v-for="(segment, idx) in activeTab.path.split('/').filter(Boolean)" :key="idx">
+          <ChevronRight class="w-3 h-3 opacity-50 shrink-0" />
+          <span class="hover:text-white transition-colors cursor-pointer truncate" :class="{ 'text-slate-200': idx === activeTab.path.split('/').filter(Boolean).length - 1 }">
+            {{ segment }}
+          </span>
+        </template>
       </template>
     </div>
   </div>

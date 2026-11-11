@@ -126,6 +126,20 @@ export function useEditorSsh() {
     if (!isConnected.value) return
     isTreeLoading.value = true
 
+    // Preserve expanded folders state across reloads
+    const expandedPaths = new Set<string>()
+    function collectExpanded(nodes: EditorFileNode[]) {
+      for (const n of nodes) {
+        if (n.isDirectory && n.isExpanded) {
+          expandedPaths.add(n.path)
+          if (n.children && n.children.length > 0) {
+            collectExpanded(n.children)
+          }
+        }
+      }
+    }
+    collectExpanded(fileTree.value)
+
     try {
       if (window.api?.sftpListRemote) {
         let clean = (rootPath.value || '/').trim()
@@ -141,7 +155,7 @@ export function useEditorSsh() {
           items = await window.api.sftpListRemote('/', sessionId.value)
         }
 
-        fileTree.value = (items || [])
+        const newTree: EditorFileNode[] = (items || [])
           .filter((i) => i.name !== '.' && i.name !== '..')
           .map((item) => ({
             name: item.name,
@@ -158,6 +172,47 @@ export function useEditorSsh() {
             if (!a.isDirectory && b.isDirectory) return 1
             return a.name.localeCompare(b.name)
           })
+
+        async function restoreSubtree(nodes: EditorFileNode[]): Promise<void> {
+          for (const node of nodes) {
+            if (node.isDirectory && expandedPaths.has(node.path)) {
+              node.isExpanded = true
+              try {
+                let subClean = (node.path || '/').trim().replace(/\/+/g, '/')
+                if (!subClean.startsWith('/')) subClean = `/${subClean}`
+                const children = await window.api.sftpListRemote(subClean, sessionId.value)
+                node.children = (children || [])
+                  .filter((i: any) => i.name !== '.' && i.name !== '..')
+                  .map((item: any) => ({
+                    name: item.name,
+                    path: item.path,
+                    isDirectory: item.isDirectory,
+                    size: item.size,
+                    modifyTime: item.modifyTime,
+                    children: item.isDirectory ? [] : undefined,
+                    isExpanded: false,
+                    isLoading: false
+                  }))
+                  .sort((a: any, b: any) => {
+                    if (a.isDirectory && !b.isDirectory) return -1
+                    if (!a.isDirectory && b.isDirectory) return 1
+                    return a.name.localeCompare(b.name)
+                  })
+                if (node.children && node.children.length > 0) {
+                  await restoreSubtree(node.children)
+                }
+              } catch {
+                node.children = []
+              }
+            }
+          }
+        }
+
+        if (expandedPaths.size > 0) {
+          await restoreSubtree(newTree)
+        }
+
+        fileTree.value = newTree
       }
       fetchGitInfo(rootPath.value)
     } catch (err) {
@@ -313,6 +368,99 @@ export function useEditorSsh() {
     }
   }
 
+  async function createRemoteFile(targetDir: string, name: string): Promise<boolean> {
+    if (!isConnected.value || !window.api?.sftpWriteFile) return false
+    const trimmed = name.trim().replace(/^\/+/, '')
+    if (!trimmed) return false
+
+    const cleanDir = (targetDir || rootPath.value || '/').trim().replace(/\/+$/, '')
+    const fullPath = `${cleanDir}/${trimmed}`
+
+    try {
+      await window.api.sftpWriteFile(fullPath, '', sessionId.value)
+      await loadRootDirectory()
+
+      const fileName = fullPath.split('/').pop() || trimmed
+      const newTab: EditorTab = {
+        id: 'tab_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        name: fileName,
+        path: fullPath,
+        content: '',
+        originalContent: '',
+        isDirty: false,
+        isSaving: false,
+        language: detectLanguage(fileName)
+      }
+      openTabs.value.push(newTab)
+      activeTabId.value = newTab.id
+      return true
+    } catch (err) {
+      console.error(`Failed to create remote file ${fullPath}:`, err)
+      const errMsg = err instanceof Error ? err.message : String(err)
+      alert(`Could not create file "${trimmed}": ${errMsg}`)
+      return false
+    }
+  }
+
+  async function createRemoteFolder(targetDir: string, name: string): Promise<boolean> {
+    if (!isConnected.value || !window.api?.sftpMkdirRemote) return false
+    const trimmed = name.trim().replace(/^\/+/, '')
+    if (!trimmed) return false
+
+    const cleanDir = (targetDir || rootPath.value || '/').trim().replace(/\/+$/, '')
+    const fullPath = `${cleanDir}/${trimmed}`
+
+    try {
+      await window.api.sftpMkdirRemote(fullPath, sessionId.value)
+      await loadRootDirectory()
+      return true
+    } catch (err) {
+      console.error(`Failed to create remote directory ${fullPath}:`, err)
+      const errMsg = err instanceof Error ? err.message : String(err)
+      alert(`Could not create folder "${trimmed}": ${errMsg}`)
+      return false
+    }
+  }
+
+  async function deleteRemoteNode(node: EditorFileNode, asSudo = false): Promise<boolean> {
+    if (!isConnected.value || !window.api?.sftpDeleteRemote) return false
+    try {
+      await window.api.sftpDeleteRemote(node.path, node.isDirectory, sessionId.value, asSudo)
+
+      // Close any open tabs associated with the deleted file or directory
+      const tabsToClose = openTabs.value.filter((tab) => {
+        if (!node.isDirectory) {
+          return tab.path === node.path
+        }
+        return tab.path === node.path || tab.path.startsWith(node.path + '/')
+      })
+      for (const tab of tabsToClose) {
+        const idx = openTabs.value.findIndex((t) => t.id === tab.id)
+        if (idx !== -1) {
+          openTabs.value.splice(idx, 1)
+          if (activeTabId.value === tab.id) {
+            activeTabId.value = openTabs.value.length > 0 ? openTabs.value[Math.max(0, idx - 1)].id : ''
+          }
+        }
+      }
+
+      await loadRootDirectory()
+      return true
+    } catch (err) {
+      console.error(`Failed to delete remote node ${node.path}:`, err)
+      const errMsg = err instanceof Error ? err.message : String(err)
+      if (!asSudo && (errMsg.toLowerCase().includes('permission') || errMsg.toLowerCase().includes('access denied') || errMsg.toLowerCase().includes('eacces'))) {
+        const retrySudo = confirm(`Permission denied when deleting "${node.name}". Would you like to retry as Sudo (Root)?`)
+        if (retrySudo) {
+          return await deleteRemoteNode(node, true)
+        }
+      } else {
+        alert(`Delete failed for "${node.name}": ${errMsg}`)
+      }
+      return false
+    }
+  }
+
   return {
     sessionId,
     isConnected,
@@ -335,7 +483,10 @@ export function useEditorSsh() {
     toggleFolder,
     openFile,
     saveActiveTab,
-    closeTab
+    closeTab,
+    createRemoteFile,
+    createRemoteFolder,
+    deleteRemoteNode
   }
 }
 
