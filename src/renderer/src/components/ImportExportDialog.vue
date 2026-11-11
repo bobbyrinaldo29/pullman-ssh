@@ -300,7 +300,7 @@ async function executeImport(): Promise<void> {
       >
         <button
           type="button"
-          class="px-3.5 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/40 transition-colors"
+          class="px-3.5 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-slate-300 text-xs font-medium transition-colors"
           @click="emit('close')"
         >
           Cancel

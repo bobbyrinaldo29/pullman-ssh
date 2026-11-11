@@ -172,25 +172,25 @@ function handleBulkDelete(): void {
       <div class="flex items-center space-x-2">
         <button
           type="button"
-          class="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded flex items-center space-x-1.5 transition-colors shadow-sm"
+          class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg flex items-center space-x-1.5 transition-colors shadow-sm"
           @click="showBulkEditModal = true"
         >
-          <Pencil class="w-3 h-3" />
+          <Pencil class="w-3.5 h-3.5" />
           <span>Bulk Edit</span>
         </button>
 
         <button
           type="button"
-          class="px-2.5 py-1 bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 font-medium rounded flex items-center space-x-1.5 transition-colors"
+          class="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 text-xs font-medium rounded-lg flex items-center space-x-1.5 transition-colors"
           @click="handleBulkDelete"
         >
-          <Trash2 class="w-3 h-3" />
+          <Trash2 class="w-3.5 h-3.5" />
           <span>Delete Selected</span>
         </button>
 
         <button
           type="button"
-          class="p-1 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded transition-colors"
+          class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors"
           title="Deselect All"
           @click="selectedHostIds.clear()"
         >

@@ -137,14 +137,14 @@ function handleDemo(): void {
         <div class="flex items-center space-x-2">
           <button
             type="button"
-            class="px-3 py-1.5 rounded text-xs text-slate-300 hover:text-white bg-[#252d3d] hover:bg-[#2c3649] transition-colors cursor-pointer"
+            class="px-3.5 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-slate-300 text-xs font-medium transition-colors cursor-pointer"
             @click="emit('close')"
           >
             Cancel
           </button>
           <button
             type="button"
-            class="px-3.5 py-1.5 rounded text-xs font-semibold text-white bg-[#b32d2e] hover:bg-[#c93637] transition-all flex items-center space-x-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
+            class="px-4 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#b32d2e] hover:bg-[#c93637] transition-all flex items-center space-x-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
             :disabled="props.isLoading"
             @click="handleSave"
           >

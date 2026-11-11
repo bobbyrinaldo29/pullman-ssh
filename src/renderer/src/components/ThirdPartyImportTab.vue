@@ -176,7 +176,7 @@ const currentLabel = computed(() => {
     <div class="flex items-center space-x-2 border-b border-[#252C3D] pb-2">
       <button
         type="button"
-        class="px-3 py-1 rounded text-xs transition-colors"
+        class="px-3 py-1 rounded-lg text-xs transition-colors"
         :class="
           activeSubTab === 'dbeaver'
             ? 'bg-amber-500/20 text-amber-300 font-semibold'
@@ -189,7 +189,7 @@ const currentLabel = computed(() => {
 
       <button
         type="button"
-        class="px-3 py-1 rounded text-xs transition-colors"
+        class="px-3 py-1 rounded-lg text-xs transition-colors"
         :class="
           activeSubTab === 'datagrip'
             ? 'bg-amber-500/20 text-amber-300 font-semibold'
@@ -202,7 +202,7 @@ const currentLabel = computed(() => {
 
       <button
         type="button"
-        class="px-3 py-1 rounded text-xs transition-colors"
+        class="px-3 py-1 rounded-lg text-xs transition-colors"
         :class="
           activeSubTab === 'navicat'
             ? 'bg-amber-500/20 text-amber-300 font-semibold'

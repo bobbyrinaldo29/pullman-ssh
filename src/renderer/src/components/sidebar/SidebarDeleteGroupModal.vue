@@ -87,14 +87,14 @@ function handleConfirm(): void {
         <div class="flex items-center justify-end space-x-2 pt-2 border-t border-[#2B3244]">
           <button
             type="button"
-            class="px-3 py-1.5 rounded-md border border-[#2D3547] hover:bg-[#252B3A] text-slate-300 transition-colors"
+            class="px-3.5 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-slate-300 text-xs font-medium transition-colors"
             @click="handleClose"
           >
             Cancel
           </button>
           <button
             type="button"
-            class="px-3.5 py-1.5 rounded-md bg-rose-600 hover:bg-rose-500 text-white font-medium shadow-md transition-colors flex items-center space-x-1.5"
+            class="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-medium text-xs shadow-md transition-colors flex items-center space-x-1.5"
             @click="handleConfirm"
           >
             <Trash2 class="w-3.5 h-3.5" />

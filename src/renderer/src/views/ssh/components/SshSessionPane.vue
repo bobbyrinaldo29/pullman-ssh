@@ -287,7 +287,7 @@ onUnmounted(() => {
       <div class="flex items-center space-x-1.5">
         <button
           type="button"
-          class="px-2 py-1 text-[11px] rounded bg-[#252C3D] hover:bg-[#313A50] text-slate-300 hover:text-white flex items-center space-x-1 transition-colors"
+          class="px-2.5 py-1 text-[11px] rounded-lg bg-[#252C3D] hover:bg-[#313A50] text-slate-300 hover:text-white flex items-center space-x-1 transition-colors border border-slate-700/50"
           title="Clear Terminal Output"
           @click.stop="handleClear"
         >
@@ -298,7 +298,7 @@ onUnmounted(() => {
         <button
           v-if="tab.status === 'connected'"
           type="button"
-          class="px-2 py-1 text-[11px] rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1 transition-colors"
+          class="px-2.5 py-1 text-[11px] rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 flex items-center space-x-1 transition-colors font-medium"
           @click.stop="emit('disconnect')"
         >
           <Power class="w-3 h-3" />
@@ -308,7 +308,7 @@ onUnmounted(() => {
         <button
           v-else
           type="button"
-          class="px-2.5 py-1 text-[11px] rounded bg-cyan-600 hover:bg-cyan-500 text-white font-medium flex items-center space-x-1 transition-colors shadow-sm"
+          class="px-2.5 py-1 text-[11px] rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium flex items-center space-x-1 transition-colors shadow-sm"
           :disabled="tab.status === 'connecting'"
           @click.stop="emit('reconnect')"
         >
@@ -336,7 +336,7 @@ onUnmounted(() => {
       <!-- Sudo Mode Toggle -->
       <button
         type="button"
-        class="px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 transition-colors border"
+        class="px-2.5 py-0.5 rounded-md text-[11px] flex items-center space-x-1 transition-colors border"
         :class="asSudo ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-[#202636] text-slate-400 border-slate-700/50 hover:text-slate-200'"
         title="Execute commands with root privileges (sudo)"
         @click.stop="asSudo = !asSudo"
@@ -355,7 +355,7 @@ onUnmounted(() => {
       <!-- SSH Password Snippet -->
       <button
         type="button"
-        class="px-2 py-0.5 rounded border transition-colors whitespace-nowrap flex items-center space-x-1 text-[11px]"
+        class="px-2.5 py-0.5 rounded-md border transition-colors whitespace-nowrap flex items-center space-x-1 text-[11px]"
         :class="[
           passwordSent
             ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
@@ -375,7 +375,7 @@ onUnmounted(() => {
         v-for="s in quickSnippets"
         :key="s.cmd"
         type="button"
-        class="px-2 py-0.5 rounded bg-[#202636] hover:bg-cyan-600/30 text-slate-300 hover:text-cyan-300 border border-slate-700/50 transition-colors whitespace-nowrap"
+        class="px-2.5 py-0.5 rounded-md bg-[#202636] hover:bg-cyan-600/30 text-slate-300 hover:text-cyan-300 border border-slate-700/50 transition-colors whitespace-nowrap"
         :disabled="tab.status !== 'connected'"
         @click.stop="runQuickSnippet(s.cmd)"
       >

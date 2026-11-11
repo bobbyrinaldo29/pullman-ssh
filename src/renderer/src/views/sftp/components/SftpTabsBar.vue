@@ -118,7 +118,7 @@ function isProductionTab(t: SftpTab): boolean {
       <button
         v-if="activeTab.isConnected"
         type="button"
-        class="px-2.5 py-1 rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 text-xs font-medium border border-red-500/30 transition-colors flex items-center space-x-1.5"
+        class="px-3 py-1 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 text-xs font-medium border border-rose-500/30 transition-colors flex items-center space-x-1.5"
         @click="emit('disconnect-tab', activeTab)"
       >
         <span>Disconnect</span>
@@ -127,7 +127,7 @@ function isProductionTab(t: SftpTab): boolean {
         v-else-if="activeTab.host"
         type="button"
         :disabled="activeTab.isConnecting"
-        class="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors flex items-center space-x-1.5 disabled:opacity-50"
+        class="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors flex items-center space-x-1.5 disabled:opacity-50"
         @click="emit('connect-tab', activeTab)"
       >
         <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': activeTab.isConnecting }" />
@@ -137,7 +137,7 @@ function isProductionTab(t: SftpTab): boolean {
       <!-- Toggle Log Panel Button -->
       <button
         type="button"
-        class="p-1.5 rounded transition-colors"
+        class="p-1.5 rounded-lg transition-colors"
         :class="showLogs ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-[#252B3A]'"
         title="Toggle FileZilla Log Console"
         @click="emit('toggle-logs')"
@@ -149,7 +149,7 @@ function isProductionTab(t: SftpTab): boolean {
       <button
         v-if="showLogs && activeTab.logs.length > 0"
         type="button"
-        class="p-1.5 text-slate-400 hover:text-white hover:bg-[#252B3A] rounded transition-colors"
+        class="p-1.5 text-slate-400 hover:text-white hover:bg-[#252B3A] rounded-lg transition-colors"
         title="Clear current tab logs"
         @click="emit('clear-logs', activeTab)"
       >

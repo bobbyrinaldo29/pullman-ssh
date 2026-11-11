@@ -427,14 +427,14 @@ function handleApply(): void {
           <div class="flex items-center space-x-2">
             <button
               type="button"
-              class="px-3 py-1.5 rounded-md border border-[#2D3547] hover:bg-[#252B3A] text-slate-300 transition-colors"
+              class="px-3.5 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-slate-300 text-xs font-medium transition-colors"
               @click="emit('close')"
             >
               Cancel
             </button>
             <button
               type="button"
-              class="px-4 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1.5"
+              class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1.5"
               :disabled="enabledCount === 0"
               @click="handleApply"
             >

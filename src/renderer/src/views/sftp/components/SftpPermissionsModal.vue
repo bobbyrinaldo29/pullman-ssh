@@ -176,14 +176,14 @@ const emit = defineEmits<{
         <div class="flex items-center justify-end space-x-2 pt-2 border-t border-[#2B3244]">
           <button
             type="button"
-            class="px-3.5 py-1.5 rounded-md bg-[#252B3A] hover:bg-[#2F374A] text-slate-300 text-xs transition-colors"
+            class="px-3.5 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-slate-300 text-xs font-medium transition-colors"
             @click="emit('close')"
           >
             Cancel
           </button>
           <button
             type="button"
-            class="px-4 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition-colors"
+            class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition-colors shadow-sm"
             @click="emit('save')"
           >
             OK

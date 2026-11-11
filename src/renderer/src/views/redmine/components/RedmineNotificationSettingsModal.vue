@@ -545,14 +545,14 @@ function handleReset(): void {
         <div class="flex items-center space-x-2">
           <button
             type="button"
-            class="px-3.5 py-1.5 rounded-md text-xs text-slate-300 hover:text-white bg-[#232c3d] hover:bg-[#2c3649] transition-colors cursor-pointer"
+            class="px-3.5 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-slate-300 text-xs font-medium transition-colors cursor-pointer"
             @click="emit('close')"
           >
             Batal
           </button>
           <button
             type="button"
-            class="px-4 py-1.5 rounded-md text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors flex items-center space-x-1.5 shadow-sm cursor-pointer"
+            class="px-4 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors flex items-center space-x-1.5 shadow-sm cursor-pointer"
             @click="handleSave"
           >
             <Check class="w-3.5 h-3.5" />

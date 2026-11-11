@@ -784,7 +784,7 @@ const testButtonLabel = computed(() => {
           <button
             type="button"
             :disabled="isTesting"
-            class="px-4 py-1.5 rounded-md border border-[#2D3547] hover:bg-[#252B3A] text-slate-300 hover:text-white transition-colors disabled:opacity-50 flex items-center space-x-1.5"
+            class="px-4 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-slate-300 hover:text-white transition-colors disabled:opacity-50 flex items-center space-x-1.5"
             @click="handleTestConnection"
           >
             <RefreshCw v-if="isTesting" class="w-3.5 h-3.5 animate-spin text-sky-400" />
@@ -794,7 +794,7 @@ const testButtonLabel = computed(() => {
           <!-- Save & Connect Button -->
           <button
             type="button"
-            class="px-4 py-1.5 rounded-md bg-[#0284C7] hover:bg-[#0369A1] text-white font-medium shadow-md shadow-sky-600/20 transition-colors flex items-center space-x-1.5"
+            class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium shadow-md transition-colors flex items-center space-x-1.5"
             @click="handleSaveAndConnect"
           >
             <span>{{ isEditing ? 'Save Changes' : 'Save & Connect' }}</span>
