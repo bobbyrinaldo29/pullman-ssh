@@ -19,7 +19,8 @@ import {
   AlertTriangle,
   FileText,
   SlidersHorizontal,
-  Bell
+  Bell,
+  Zap
 } from 'lucide-vue-next'
 import ToggleSwitch from '../../../components/ToggleSwitch.vue'
 import { RedmineNotificationSettings, RedmineProject } from '../types'
@@ -75,12 +76,12 @@ watch(
 )
 
 const intervalPresets = [
-  { label: '15 detik', value: 15 },
-  { label: '30 detik', value: 30 },
-  { label: '1 menit', value: 60 },
-  { label: '3 menit', value: 180 },
-  { label: '5 menit', value: 300 },
-  { label: '10 menit', value: 600 }
+  { label: 'Realtime (0d)', value: 0, isRealtime: true },
+  { label: '5 detik', value: 5, isRealtime: false },
+  { label: '15 detik', value: 15, isRealtime: false },
+  { label: '30 detik', value: 30, isRealtime: false },
+  { label: '1 menit', value: 60, isRealtime: false },
+  { label: '5 menit', value: 300, isRealtime: false }
 ]
 
 const scopeOptions: Array<{
@@ -162,13 +163,20 @@ const eventToggleItems = computed(() => [
   }
 ])
 
+function buildNormalizedDraft(): RedmineNotificationSettings {
+  const next = cloneSettings(draft.value)
+  const num = Number(next.intervalSeconds)
+  next.intervalSeconds = Number.isFinite(num) && num >= 0 ? Math.min(3600, Math.floor(num)) : 30
+  return next
+}
+
 function handleSave(): void {
-  emit('save', cloneSettings(draft.value))
+  emit('save', buildNormalizedDraft())
   emit('close')
 }
 
 function handleTest(): void {
-  emit('test-notification', cloneSettings(draft.value))
+  emit('test-notification', buildNormalizedDraft())
   checkFeedback.value = 'Notifikasi simulasi dikirim!'
   setTimeout(() => {
     checkFeedback.value = null
@@ -176,7 +184,7 @@ function handleTest(): void {
 }
 
 function handleCheckNow(): void {
-  emit('save', cloneSettings(draft.value))
+  emit('save', buildNormalizedDraft())
   emit('check-now')
 }
 
@@ -306,7 +314,14 @@ function handleReset(): void {
               <Clock class="w-3.5 h-3.5 text-sky-400" />
               <span>Interval Pengecekan Otomatis</span>
             </div>
-            <span class="text-[11px] text-slate-400 font-mono">
+            <span
+              v-if="Number(draft.intervalSeconds) === 0"
+              class="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-[11px] font-semibold"
+            >
+              <Zap class="w-3 h-3 fill-emerald-400 text-emerald-400" />
+              <span>Realtime (0 detik)</span>
+            </span>
+            <span v-else class="text-[11px] text-slate-400 font-mono">
               Setiap {{ draft.intervalSeconds }} detik
             </span>
           </div>
@@ -316,28 +331,42 @@ function handleReset(): void {
               v-for="preset in intervalPresets"
               :key="preset.value"
               type="button"
-              class="px-2 py-1.5 rounded-md border text-[11px] font-medium transition-all cursor-pointer"
+              class="px-2 py-1.5 rounded-md border text-[11px] font-medium transition-all cursor-pointer flex items-center justify-center space-x-1"
               :class="
                 draft.intervalSeconds === preset.value
-                  ? 'bg-sky-500/20 border-sky-400/60 text-sky-200 font-semibold shadow-sm'
+                  ? preset.isRealtime
+                    ? 'bg-emerald-500/20 border-emerald-400/70 text-emerald-200 font-semibold shadow-sm'
+                    : 'bg-sky-500/20 border-sky-400/60 text-sky-200 font-semibold shadow-sm'
                   : 'bg-[#141822] border-[#283244] text-slate-400 hover:text-slate-200 hover:border-[#394761]'
               "
               @click="draft.intervalSeconds = preset.value"
             >
-              {{ preset.label }}
+              <Zap
+                v-if="preset.isRealtime"
+                class="w-3 h-3 shrink-0"
+                :class="draft.intervalSeconds === preset.value ? 'text-emerald-300 fill-emerald-300' : 'text-amber-400'"
+              />
+              <span>{{ preset.label }}</span>
             </button>
           </div>
 
-          <div class="flex items-center space-x-2 text-[11px] text-slate-400">
+          <div class="flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
             <span>Atau kustom (detik):</span>
             <input
               v-model.number="draft.intervalSeconds"
               type="number"
-              min="10"
+              min="0"
               max="3600"
               class="w-20 px-2 py-1 bg-[#141822] border border-[#2d374a] focus:border-sky-500 rounded text-xs text-white font-mono focus:outline-none"
             />
-            <span class="text-[10px] text-slate-500">(Minimal 10 detik)</span>
+            <span class="text-[10px] text-slate-400">
+              <template v-if="Number(draft.intervalSeconds) === 0">
+                Mode Realtime aktif: cek berurutan otomatis (~0.8d jeda aman anti rate-limit).
+              </template>
+              <template v-else>
+                (Isi <strong>0</strong> untuk mode Realtime, maksimal 3600 detik)
+              </template>
+            </span>
           </div>
         </div>
 

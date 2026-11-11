@@ -149,11 +149,14 @@ const isCheckingUpdates = ref(false)
 const lastCheckedAt = ref<string | null>(null)
 const lastCheckError = ref<string | null>(null)
 
+const REALTIME_MIN_COOLDOWN_MS = 800
 const snapshotMap = new Map<number, IssueSnapshot>()
 const knownUsersMap = new Map<number, string>()
 let isBaselineReady = false
 let baselineEstablishedAt = 0
-let pollTimer: ReturnType<typeof setInterval> | null = null
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+let pollGeneration = 0
+let lastFocusCheckMs = 0
 let hasInitialized = false
 
 const isDemoMode = computed(() => config.value.apiKey === DEMO_API_KEY)
@@ -276,22 +279,45 @@ export function useRedmine() {
   }
 
   function stopNotificationPolling(): void {
+    pollGeneration++
     if (pollTimer) {
-      clearInterval(pollTimer)
+      clearTimeout(pollTimer)
       pollTimer = null
     }
   }
 
-  function startNotificationPolling(): void {
+  function getNextPollDelayMs(hadError: boolean, statusCode?: number): number {
+    if (statusCode === 429) return 10_000
+    if (hadError) return 5_000
+    const sec = Number(notificationSettings.value.intervalSeconds)
+    if (!Number.isFinite(sec) || sec <= 0) return REALTIME_MIN_COOLDOWN_MS
+    return Math.min(3600, Math.floor(sec)) * 1000
+  }
+
+  function scheduleNextPoll(gen: number, delayMs: number): void {
+    if (gen !== pollGeneration) return
+    if (pollTimer) {
+      clearTimeout(pollTimer)
+      pollTimer = null
+    }
+    pollTimer = setTimeout(async () => {
+      if (gen !== pollGeneration) return
+      if (!isConnected.value || isDemoMode.value || !notificationSettings.value.enabled) return
+      const res = await checkForUpdates()
+      if (gen !== pollGeneration) return
+      const nextDelay = getNextPollDelayMs(Boolean(res.error), res.statusCode)
+      scheduleNextPoll(gen, nextDelay)
+    }, delayMs)
+  }
+
+  function startNotificationPolling(immediate = false): void {
     stopNotificationPolling()
     if (!isConnected.value || isDemoMode.value || !notificationSettings.value.enabled) {
       return
     }
-
-    const intervalMs = Math.max(10, notificationSettings.value.intervalSeconds || 30) * 1000
-    pollTimer = setInterval(() => {
-      checkForUpdates().catch(() => {})
-    }, intervalMs)
+    const currentGen = ++pollGeneration
+    const delayMs = immediate ? 0 : getNextPollDelayMs(false)
+    scheduleNextPoll(currentGen, delayMs)
   }
 
   function dispatchChangeNotification(
@@ -338,20 +364,21 @@ export function useRedmine() {
   }
 
   function buildMonitoringEndpoint(): string {
-    const { scope, projectId } = notificationSettings.value
+    const { scope, projectId, intervalSeconds } = notificationSettings.value
+    const limit = Number(intervalSeconds) <= 5 ? 25 : 50
     if (scope === 'assigned_to_me') {
-      return '/issues.json?assigned_to_id=me&status_id=*&sort=updated_on:desc&limit=50'
+      return `/issues.json?assigned_to_id=me&status_id=*&sort=updated_on:desc&limit=${limit}`
     }
     if (scope === 'project' && projectId !== 'all') {
-      return `/projects/${projectId}/issues.json?status_id=*&sort=updated_on:desc&limit=50`
+      return `/projects/${projectId}/issues.json?status_id=*&sort=updated_on:desc&limit=${limit}`
     }
-    return '/issues.json?status_id=*&sort=updated_on:desc&limit=50'
+    return `/issues.json?status_id=*&sort=updated_on:desc&limit=${limit}`
   }
 
   async function checkForUpdates(options?: {
     manual?: boolean
     silent?: boolean
-  }): Promise<{ changesCount: number; error?: string }> {
+  }): Promise<{ changesCount: number; error?: string; statusCode?: number }> {
     if (!isConnected.value || isDemoMode.value) {
       return { changesCount: 0 }
     }
@@ -370,7 +397,7 @@ export function useRedmine() {
       if (!res.ok || !Array.isArray(res.data?.issues)) {
         const msg = res.error || `HTTP ${res.status}: Failed to check Redmine updates`
         lastCheckError.value = msg
-        return { changesCount: 0, error: msg }
+        return { changesCount: 0, error: msg, statusCode: res.status }
       }
 
       lastCheckedAt.value = new Date().toISOString()
@@ -493,9 +520,15 @@ export function useRedmine() {
       notificationSettings.value.scope !== nextSettings.scope ||
       notificationSettings.value.projectId !== nextSettings.projectId
 
+    const rawInterval = Number(nextSettings.intervalSeconds)
+    const normalizedInterval =
+      Number.isFinite(rawInterval) && rawInterval >= 0
+        ? Math.min(3600, Math.floor(rawInterval))
+        : 30
+
     notificationSettings.value = {
       ...nextSettings,
-      intervalSeconds: Math.max(10, Number(nextSettings.intervalSeconds) || 30),
+      intervalSeconds: normalizedInterval,
       events: { ...nextSettings.events }
     }
 
@@ -506,7 +539,7 @@ export function useRedmine() {
     if (scopeChanged && isConnected.value && !isDemoMode.value) {
       resetMonitoringBaseline().catch(() => {})
     }
-    startNotificationPolling()
+    startNotificationPolling(normalizedInterval <= 5)
   }
 
   function resetNotificationSettings(): void {
@@ -1195,9 +1228,23 @@ export function useRedmine() {
     })
   })
 
+  function triggerFocusCheck(): void {
+    if (!isMonitoringActive.value || isCheckingUpdates.value) return
+    const now = Date.now()
+    if (now - lastFocusCheckMs < 1500) return
+    lastFocusCheckMs = now
+    checkForUpdates().catch(() => {})
+  }
+
   function initRedmine(): void {
     if (hasInitialized) return
     hasInitialized = true
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', triggerFocusCheck)
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) triggerFocusCheck()
+      })
+    }
     if (config.value.url && config.value.apiKey && !currentUser.value && !isDemoMode.value) {
       login(config.value.url, config.value.apiKey).catch(() => {})
     }
