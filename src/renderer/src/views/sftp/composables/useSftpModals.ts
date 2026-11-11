@@ -318,6 +318,7 @@ export function useSftpModals(options: SftpModalsOptions) {
   const isNewFolderSudo = ref(false)
 
   function openNewFolderModal(target: 'local' | 'remote', asSudo = false): void {
+    closeContextMenu()
     newFolderTarget.value = target
     newFolderName.value = ''
     isNewFolderSudo.value = asSudo
