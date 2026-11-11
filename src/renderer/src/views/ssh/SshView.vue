@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { Terminal, X } from 'lucide-vue-next'
 import { HostItem } from '../../types/connection'
 import { getConnectionColor } from '../../utils/connectionColors'
@@ -35,7 +35,7 @@ async function openSessionForHost(host: HostItem): Promise<void> {
   }
 
   const initialDir = host.remotePath?.trim() || '~'
-  const newTab: SshTab = {
+  const newTab = reactive<SshTab>({
     id: generateId(),
     host,
     title: host.name,
@@ -50,14 +50,15 @@ async function openSessionForHost(host: HostItem): Promise<void> {
     ],
     commandHistory: [],
     currentDir: initialDir
-  }
+  })
 
   tabs.value.push(newTab)
   activeTabId.value = newTab.id
   connectSession(newTab)
 }
 
-async function connectSession(tab: SshTab): Promise<void> {
+async function connectSession(tabInput: SshTab): Promise<void> {
+  const tab = tabs.value.find((t) => t.id === tabInput.id) || tabInput
   tab.status = 'connecting'
   const startTime = Date.now()
 
@@ -73,18 +74,19 @@ async function connectSession(tab: SshTab): Promise<void> {
         skipCwd: true
       })
 
+      const liveTab = tabs.value.find((t) => t.id === tab.id) || tab
       if (res.success) {
-        tab.status = 'connected'
-        tab.latency = Date.now() - startTime
-        tab.connectedAt = new Date().toLocaleTimeString()
+        liveTab.status = 'connected'
+        liveTab.latency = Date.now() - startTime
+        liveTab.connectedAt = new Date().toLocaleTimeString()
 
-        const configuredPath = tab.host.remotePath?.trim()
-        tab.currentDir = configuredPath || res.cwd || '~'
+        const configuredPath = liveTab.host.remotePath?.trim()
+        liveTab.currentDir = configuredPath || res.cwd || '~'
 
-        tab.logs.push({
+        liveTab.logs.push({
           id: generateId(),
           type: 'system',
-          text: `SSH connection established (${tab.latency}ms). Authenticated as ${tab.host.user}.`,
+          text: `SSH connection established (${liveTab.latency}ms). Authenticated as ${liveTab.host.user}.`,
           timestamp: new Date().toLocaleTimeString()
         })
 
@@ -92,14 +94,15 @@ async function connectSession(tab: SshTab): Promise<void> {
         const probeCmd = configuredPath
           ? `uname -srm && cd '${configuredPath.replace(/'/g, "'\\''")}' 2>/dev/null && pwd || pwd`
           : 'uname -srm && pwd'
-        executeRemoteSsh(probeCmd, tab)
+        executeRemoteSsh(probeCmd, liveTab)
           .then((probe) => {
+            const probeTab = tabs.value.find((t) => t.id === liveTab.id) || liveTab
             if (probe.stdout) {
               const lines = probe.stdout.trim().split('\n')
               const sysInfo = lines[0] || ''
-              const pwd = lines[lines.length - 1]?.trim() || tab.currentDir
-              tab.currentDir = pwd
-              tab.logs.push({
+              const pwd = lines[lines.length - 1]?.trim() || probeTab.currentDir
+              probeTab.currentDir = pwd
+              probeTab.logs.push({
                 id: generateId(),
                 type: 'system',
                 text: `Remote System: ${sysInfo} | Working Directory: ${pwd}`,
@@ -111,9 +114,9 @@ async function connectSession(tab: SshTab): Promise<void> {
             // non-fatal
           })
       } else {
-        tab.status = 'error'
-        tab.errorMessage = res.message || 'SSH connection failed'
-        tab.logs.push({
+        liveTab.status = 'error'
+        liveTab.errorMessage = res.message || 'SSH connection failed'
+        liveTab.logs.push({
           id: generateId(),
           type: 'error',
           text: `Connection failed: ${res.message}`,
@@ -121,8 +124,9 @@ async function connectSession(tab: SshTab): Promise<void> {
         })
       }
     } else {
-      tab.status = 'error'
-      tab.logs.push({
+      const liveTab = tabs.value.find((t) => t.id === tab.id) || tab
+      liveTab.status = 'error'
+      liveTab.logs.push({
         id: generateId(),
         type: 'error',
         text: 'Native SSH API is unavailable. Please restart Pullman.',
@@ -130,10 +134,11 @@ async function connectSession(tab: SshTab): Promise<void> {
       })
     }
   } catch (err: unknown) {
-    tab.status = 'error'
+    const liveTab = tabs.value.find((t) => t.id === tab.id) || tab
+    liveTab.status = 'error'
     const msg = err instanceof Error ? err.message : String(err)
-    tab.errorMessage = msg
-    tab.logs.push({
+    liveTab.errorMessage = msg
+    liveTab.logs.push({
       id: generateId(),
       type: 'error',
       text: `Error: ${msg}`,
@@ -177,7 +182,8 @@ async function executeRemoteSsh(
   throw new Error('SSH API is unavailable. Please restart Pullman application.')
 }
 
-async function disconnectSession(tab: SshTab): Promise<void> {
+async function disconnectSession(tabInput: SshTab): Promise<void> {
+  const tab = tabs.value.find((t) => t.id === tabInput.id) || tabInput
   if (window.api?.sftpDisconnect) {
     await window.api.sftpDisconnect(tab.id).catch(() => {})
   }
@@ -212,7 +218,8 @@ function cleanAnsi(text: string): string {
   return text.replace(/\u001b\[[0-9;]*[a-zA-Z]/g, '')
 }
 
-async function handleRunCommand(tab: SshTab, rawCmd: string, asSudo?: boolean): Promise<void> {
+async function handleRunCommand(tabInput: SshTab, rawCmd: string, asSudo?: boolean): Promise<void> {
+  const tab = tabs.value.find((t) => t.id === tabInput.id) || tabInput
   if (tab.status !== 'connected' || tab.isExecuting) return
   const cmd = rawCmd.trim()
   if (!cmd) return
@@ -365,6 +372,7 @@ defineExpose({
     <!-- Active Terminal Session Pane -->
     <div v-if="activeTab" class="flex-1 flex flex-col overflow-hidden">
       <SshSessionPane
+        :key="activeTab.id"
         :tab="activeTab"
         @reconnect="connectSession(activeTab)"
         @disconnect="disconnectSession(activeTab)"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { Plus, X, Code2, Search } from 'lucide-vue-next'
 import { HostItem } from '../../types/connection'
 import { getConnectionColor } from '../../utils/connectionColors'
@@ -37,12 +37,12 @@ function openSessionForHost(host: HostItem): void {
     return
   }
 
-  const newTab: EditorConnectionTab = {
+  const newTab = reactive<EditorConnectionTab>({
     id: 'editor_session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
     host,
     title: host.name || host.ip,
     status: 'connecting'
-  }
+  })
 
   connectionTabs.value.push(newTab)
   activeConnectionTabId.value = newTab.id

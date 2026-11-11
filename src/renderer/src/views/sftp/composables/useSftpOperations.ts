@@ -39,7 +39,7 @@ export function useSftpOperations() {
     const sessionId = 'sftp_session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
 
     if (host) {
-      return {
+      return reactive<SftpTab>({
         id: tabId,
         sessionId,
         hostId: host.id,
@@ -58,10 +58,10 @@ export function useSftpOperations() {
         selectedRemoteFile: null,
         logs: [],
         transfers: []
-      }
+      })
     }
 
-    return {
+    return reactive<SftpTab>({
       id: tabId,
       sessionId,
       hostId: null,
@@ -80,7 +80,7 @@ export function useSftpOperations() {
       selectedRemoteFile: null,
       logs: [],
       transfers: []
-    }
+    })
   }
 
   function addTabLog(tab: SftpTab, type: LogEntry['type'], text: string): void {
@@ -162,7 +162,8 @@ export function useSftpOperations() {
   }
 
   // Connection logic
-  async function connectTab(tab: SftpTab): Promise<void> {
+  async function connectTab(tabInput: SftpTab): Promise<void> {
+    const tab = tabs.value.find((t) => t.id === tabInput.id) || tabInput
     if (!tab.host) return
 
     tab.isConnecting = true

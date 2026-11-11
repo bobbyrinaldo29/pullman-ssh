@@ -517,8 +517,8 @@ function handleOpenAddFolder(): void {
   showNewGroupModal.value = true
 }
 
-async function handleCreateGroup(): Promise<void> {
-  const name = newGroupNameInput.value.trim()
+async function handleCreateGroup(nameInput?: string): Promise<void> {
+  const name = (typeof nameInput === 'string' ? nameInput : newGroupNameInput.value).trim()
   if (!name) return
 
   try {
