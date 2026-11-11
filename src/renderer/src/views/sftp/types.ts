@@ -53,6 +53,7 @@ export interface SftpTab {
   isConnecting: boolean
   statusText: string
   remotePath: string
+  defaultRemotePath?: string
   remoteItems: SftpFileItem[]
   remoteLoading: boolean
   remoteSearch: string

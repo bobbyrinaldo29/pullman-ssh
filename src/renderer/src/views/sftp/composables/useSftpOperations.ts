@@ -42,6 +42,7 @@ export function useSftpOperations() {
     const sessionId = 'sftp_session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
 
     if (host) {
+      const savedPath = (host.remotePath || (host as any).remote_path || '').trim()
       return reactive<SftpTab>({
         id: tabId,
         sessionId,
@@ -54,7 +55,8 @@ export function useSftpOperations() {
         isConnected: false,
         isConnecting: false,
         statusText: 'Disconnected',
-        remotePath: host.remotePath || '/',
+        remotePath: savedPath || '/',
+        defaultRemotePath: savedPath,
         remoteItems: [],
         remoteLoading: false,
         remoteSearch: '',
@@ -130,13 +132,15 @@ export function useSftpOperations() {
   }
 
   function bindHostToTab(tab: SftpTab, host: HostItem): void {
+    const savedPath = (host.remotePath || (host as any).remote_path || '').trim()
     tab.hostId = host.id
     tab.title = host.name || host.ip
     tab.host = host.ip
     tab.port = Number(host.port) || 22
     tab.user = host.user || 'root'
     tab.password = (host as any).password || ''
-    tab.remotePath = host.remotePath || '/'
+    tab.defaultRemotePath = savedPath
+    tab.remotePath = savedPath || '/'
     tab.statusText = 'Disconnected'
   }
 
@@ -190,12 +194,32 @@ export function useSftpOperations() {
           if (tab.hostId) {
             registerSession(tab.hostId, 'sftp_' + tab.id)
           }
+
+          // Prioritize host's saved remotePath if configured and valid
+          const rawConfigured = (
+            tab.defaultRemotePath ||
+            (tab.remotePath && tab.remotePath !== '/' ? tab.remotePath : '')
+          ).trim()
+
+          let targetPath = res.cwd || '/'
+          if (rawConfigured) {
+            if (rawConfigured === '~') {
+              targetPath = res.cwd || '/'
+            } else if (rawConfigured.startsWith('~/')) {
+              const base = res.cwd && res.cwd !== '/' ? res.cwd.replace(/\/+$/, '') : ''
+              targetPath = `${base}/${rawConfigured.slice(2)}`
+            } else {
+              targetPath = rawConfigured.startsWith('/') ? rawConfigured : `/${rawConfigured}`
+            }
+          }
+
+          tab.remotePath = targetPath
+
           addTabLog(
             tab,
             'response',
-            `Connection established. Current remote directory: ${res.cwd || tab.remotePath}`
+            `Connection established. Current remote directory: ${tab.remotePath}`
           )
-          if (res.cwd) tab.remotePath = res.cwd
           await loadRemoteListForTab(tab, tab.remotePath)
         } else {
           tab.isConnected = false
