@@ -1,3 +1,5 @@
+import { HostItem } from '../../types/connection'
+
 export interface EditorFileNode {
   name: string
   path: string
@@ -65,4 +67,11 @@ export interface GitStatusResult {
   branch: string
   root: string
   files: GitChangeItem[]
+}
+
+export interface EditorConnectionTab {
+  id: string
+  host: HostItem
+  title: string
+  status: 'connecting' | 'connected' | 'disconnected' | 'error'
 }

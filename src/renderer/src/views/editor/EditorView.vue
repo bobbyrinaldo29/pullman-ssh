@@ -1,444 +1,298 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { X } from 'lucide-vue-next'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { Plus, X, Code2, Search } from 'lucide-vue-next'
 import { HostItem } from '../../types/connection'
-import { EditorCursorPos, GitBlameInfo } from './types'
-import { useEditorSsh } from './composables/useEditorSsh'
+import { getConnectionColor } from '../../utils/connectionColors'
+import { EditorConnectionTab } from './types'
+import ProdBadge from '../../components/ProdBadge.vue'
+import EditorSessionWorkspace from './components/EditorSessionWorkspace.vue'
 
-import EditorActivityBar from './components/EditorActivityBar.vue'
-import EditorFileTree from './components/EditorFileTree.vue'
-import EditorSearchPane from './components/EditorSearchPane.vue'
-import EditorSourceControlPane from './components/EditorSourceControlPane.vue'
-import EditorTabs from './components/EditorTabs.vue'
-import EditorCodeArea from './components/EditorCodeArea.vue'
-import EditorGitGraphView from './components/EditorGitGraphView.vue'
-import EditorAntigravityPane from './components/EditorAntigravityPane.vue'
-import EditorAiGenInline from './components/EditorAiGenInline.vue'
-import EditorStatusBar from './components/EditorStatusBar.vue'
-
-defineProps<{
+const props = defineProps<{
   hosts: HostItem[]
 }>()
 
-const activeView = ref<'explorer' | 'search' | 'git' | 'antigravity'>('explorer')
-const isSidebarOpen = ref(true)
-const sidebarWidth = ref(250)
-const cursorPos = ref<EditorCursorPos>({ line: 1, col: 1 })
-const syntaxDiagnostics = ref<string[]>([])
-const primaryCodeAreaRef = ref<InstanceType<typeof EditorCodeArea> | null>(null)
-const isAiGenOpen = ref(false)
+const connectionTabs = ref<EditorConnectionTab[]>([])
+const activeConnectionTabId = ref<string>('')
+const sessionWorkspaceRefs = ref<Record<string, any>>({})
 
-// Git Blame State
-const currentBlame = ref<GitBlameInfo | null>(null)
-const blameCache = new Map<string, GitBlameInfo | null>()
-let blameTimeout: ReturnType<typeof setTimeout> | null = null
+const showHostPicker = ref(false)
+const hostFilterText = ref('')
 
-// Split Editor State (Side-by-side like VS Code)
-const isSplit = ref(false)
-const splitActiveTabId = ref<string>('')
-const isResizingSidebar = ref(false)
-
-function startSidebarResize(e: MouseEvent): void {
-  e.preventDefault()
-  isResizingSidebar.value = true
-  const startX = e.clientX
-  const startWidth = sidebarWidth.value
-
-  const onMouseMove = (moveEvent: MouseEvent) => {
-    const deltaX = moveEvent.clientX - startX
-    const newWidth = Math.max(160, Math.min(700, startWidth + deltaX))
-    sidebarWidth.value = newWidth
-  }
-
-  const onMouseUp = () => {
-    isResizingSidebar.value = false
-    window.removeEventListener('mousemove', onMouseMove)
-    window.removeEventListener('mouseup', onMouseUp)
-  }
-
-  window.addEventListener('mousemove', onMouseMove)
-  window.addEventListener('mouseup', onMouseUp)
-}
-
-const {
-  sessionId,
-  isConnected,
-  isConnecting,
-  connectionError,
-  currentHost,
-  rootPath,
-  gitInfo,
-  fetchGitInfo,
-  fileTree,
-  isTreeLoading,
-  openTabs,
-  activeTabId,
-  activeTab,
-  connectToHost,
-  disconnect,
-  loadRootDirectory,
-  toggleFolder,
-  openFile,
-  saveActiveTab,
-  closeTab,
-  setRootFolder,
-  navigateUp
-} = useEditorSsh()
-
-const splitActiveTab = computed(() => {
-  return openTabs.value.find((t) => t.id === splitActiveTabId.value) || activeTab.value
+const filteredHosts = computed(() => {
+  if (!hostFilterText.value.trim()) return props.hosts
+  const q = hostFilterText.value.toLowerCase().trim()
+  return props.hosts.filter(
+    (h) =>
+      h.name.toLowerCase().includes(q) ||
+      h.ip.toLowerCase().includes(q) ||
+      (h.group && h.group.toLowerCase().includes(q))
+  )
 })
 
-function updateGitBlame(): void {
-  if (blameTimeout) {
-    clearTimeout(blameTimeout)
-    blameTimeout = null
-  }
-
-  const curTab = activeTab.value
-  const targetLine = cursorPos.value.line
-
-  if (!curTab || !curTab.path || !isConnected.value || targetLine <= 0) {
-    currentBlame.value = null
+function openSessionForHost(host: HostItem): void {
+  const existing = connectionTabs.value.find((t) => t.host.id === host.id)
+  if (existing) {
+    activeConnectionTabId.value = existing.id
+    showHostPicker.value = false
     return
   }
 
-  const cacheKey = `${curTab.path}:${targetLine}`
-  if (blameCache.has(cacheKey)) {
-    currentBlame.value = blameCache.get(cacheKey) || null
-    return
+  const newTab: EditorConnectionTab = {
+    id: 'editor_session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+    host,
+    title: host.name || host.ip,
+    status: 'connecting'
   }
 
-  blameTimeout = setTimeout(async () => {
-    try {
-      const res = await window.api.sftpGetGitBlame(curTab.path, targetLine, sessionId.value)
-      blameCache.set(cacheKey, res)
-      if (activeTab.value?.path === curTab.path && cursorPos.value.line === targetLine) {
-        currentBlame.value = res
-        if (res && !gitInfo.value?.isGit && curTab.path) {
-          const dir = curTab.path.substring(0, curTab.path.lastIndexOf('/')) || '/'
-          fetchGitInfo(dir)
-        }
+  connectionTabs.value.push(newTab)
+  activeConnectionTabId.value = newTab.id
+  showHostPicker.value = false
+  hostFilterText.value = ''
+}
+
+function closeConnectionTab(tabId: string): void {
+  const workspace = sessionWorkspaceRefs.value[tabId]
+  if (workspace?.hasUnsavedChanges && workspace.hasUnsavedChanges()) {
+    const tab = connectionTabs.value.find((t) => t.id === tabId)
+    const hostName = tab?.title || 'this session'
+    if (!confirm(`You have unsaved changes in "${hostName}". Are you sure you want to close this connection?`)) {
+      return
+    }
+  }
+
+  if (workspace?.disconnect) {
+    workspace.disconnect()
+  }
+
+  const idx = connectionTabs.value.findIndex((t) => t.id === tabId)
+  if (idx !== -1) {
+    connectionTabs.value.splice(idx, 1)
+    delete sessionWorkspaceRefs.value[tabId]
+
+    if (activeConnectionTabId.value === tabId) {
+      if (connectionTabs.value.length > 0) {
+        const nextIdx = Math.max(0, idx - 1)
+        activeConnectionTabId.value = connectionTabs.value[nextIdx].id
+      } else {
+        activeConnectionTabId.value = ''
       }
-    } catch {
-      currentBlame.value = null
-    }
-  }, 120)
-}
-
-watch(
-  [() => activeTab.value?.path, () => cursorPos.value.line],
-  ([newPath]) => {
-    updateGitBlame()
-    if (newPath) {
-      const dir = newPath.substring(0, newPath.lastIndexOf('/')) || '/'
-      fetchGitInfo(dir)
-    }
-  },
-  { immediate: true }
-)
-
-function handleToggleView(view: 'explorer' | 'search' | 'git' | 'antigravity'): void {
-  if (activeView.value === view) {
-    isSidebarOpen.value = !isSidebarOpen.value
-  } else {
-    activeView.value = view
-    isSidebarOpen.value = true
-  }
-}
-
-function handleInsertCode(code: string): void {
-  if (primaryCodeAreaRef.value?.insertSnippet) {
-    primaryCodeAreaRef.value.insertSnippet(code)
-  } else if (activeTab.value && activeTab.value.viewType !== 'git-graph') {
-    activeTab.value.content = activeTab.value.content
-      ? `${activeTab.value.content}\n\n${code}`
-      : code
-    activeTab.value.isDirty = true
-  }
-}
-
-async function handleOpenFileAt(file: { name: string; path: string; line: number }): Promise<void> {
-  await openFile({
-    name: file.name,
-    path: file.path,
-    isDirectory: false
-  })
-  cursorPos.value = { line: file.line, col: 1 }
-  nextTick(() => {
-    primaryCodeAreaRef.value?.goToLine(file.line)
-  })
-}
-
-function handleToggleSplit(): void {
-  isSplit.value = !isSplit.value
-  if (isSplit.value && !splitActiveTabId.value && activeTab.value) {
-    splitActiveTabId.value = activeTab.value.id
-  }
-}
-
-const gitCandidatePath = computed(() => {
-  for (const t of openTabs.value) {
-    if (t.path && t.path !== 'git-graph' && t.path.startsWith('/')) {
-      return t.path
     }
   }
-  return rootPath.value && rootPath.value !== '/' ? rootPath.value : ''
-})
+}
+
+function updateTabStatus(tabId: string, status: EditorConnectionTab['status']): void {
+  const tab = connectionTabs.value.find((t) => t.id === tabId)
+  if (tab) {
+    tab.status = status
+  }
+}
+
+function connectToHost(host: HostItem): void {
+  openSessionForHost(host)
+}
 
 function openGitGraphTab(): void {
-  const existing = openTabs.value.find((t) => t.id === 'git-graph-tab')
-  if (existing) {
-    activeTabId.value = existing.id
-    return
+  const activeWs = sessionWorkspaceRefs.value[activeConnectionTabId.value]
+  if (activeWs?.openGitGraphTab) {
+    activeWs.openGitGraphTab()
   }
-  openTabs.value.push({
-    id: 'git-graph-tab',
-    name: 'Git Graph',
-    path: 'git-graph',
-    content: '',
-    originalContent: '',
-    isDirty: false,
-    isSaving: false,
-    language: 'Git Graph',
-    readOnly: true,
-    viewType: 'git-graph'
-  })
-  activeTabId.value = 'git-graph-tab'
 }
 
-function handleKeyDown(e: KeyboardEvent): void {
-  if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
-    e.preventDefault()
-    isAiGenOpen.value = !isAiGenOpen.value
-  } else if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === 's' || e.key === 'S')) {
-    e.preventDefault()
-    saveActiveTab(true)
-  } else if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
-    e.preventDefault()
-    handleToggleSplit()
-  } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'g' || e.key === 'G')) {
-    e.preventDefault()
-    handleToggleView('git')
-  } else if (e.altKey && (e.key === 'l' || e.key === 'L' || e.code === 'KeyL' || e.key === '¬')) {
-    if (document.activeElement?.tagName !== 'TEXTAREA') {
-      e.preventDefault()
-      primaryCodeAreaRef.value?.handleWrapLog()
-    }
+function handleGlobalClick(e: MouseEvent): void {
+  const target = e.target as HTMLElement
+  if (!target.closest('.host-picker-container')) {
+    showHostPicker.value = false
   }
 }
 
 onMounted(() => {
-  window.addEventListener('keydown', handleKeyDown)
+  window.addEventListener('click', handleGlobalClick)
 })
 
 onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeyDown)
+  window.removeEventListener('click', handleGlobalClick)
 })
 
 defineExpose({
-  connectToHost
+  openSessionForHost,
+  connectToHost,
+  openGitGraphTab
 })
 </script>
 
 <template>
-  <div class="flex-1 flex flex-col bg-[#1E222B] text-slate-300 overflow-hidden select-none">
-    <!-- Main Workspace Area -->
-    <div class="flex-1 flex overflow-hidden min-h-0">
-      <!-- 1. VS Code Left Activity Bar -->
-      <EditorActivityBar
-        :active-view="activeView"
-        :is-sidebar-open="isSidebarOpen"
-        :is-connected="isConnected"
-        :host-title="currentHost?.name || currentHost?.ip"
-        @toggle-view="handleToggleView"
-      />
-
-      <!-- 2. VS Code Collapsible Explorer / Search Pane -->
-      <div
-        v-show="isSidebarOpen"
-        class="h-full flex shrink-0 overflow-hidden"
-        :style="{ width: `${sidebarWidth}px` }"
-      >
-        <!-- Explorer View -->
-        <EditorFileTree
-          v-show="activeView === 'explorer'"
-          class="w-full"
-          :is-connected="isConnected"
-          :is-connecting="isConnecting"
-          :connection-error="connectionError"
-          :current-host="currentHost"
-          :root-path="rootPath"
-          :file-tree="fileTree"
-          :is-tree-loading="isTreeLoading"
-          :active-file-path="activeTab?.path"
-          :git-info="gitInfo"
-          @disconnect="disconnect"
-          @open-file="openFile"
-          @toggle-folder="toggleFolder"
-          @refresh-tree="loadRootDirectory"
-          @set-root="setRootFolder"
-          @navigate-up="navigateUp"
-          @reset-root="setRootFolder('/')"
-        />
-
-        <!-- Search In Root Folder View -->
-        <EditorSearchPane
-          v-show="activeView === 'search'"
-          class="w-full"
-          :is-connected="isConnected"
-          :session-id="sessionId"
-          :root-path="rootPath"
-          @open-file-at="handleOpenFileAt"
-        />
-
-        <!-- Source Control (Git) View -->
-        <EditorSourceControlPane
-          v-show="activeView === 'git'"
-          class="w-full"
-          :is-connected="isConnected"
-          :session-id="sessionId"
-          :root-path="rootPath"
-          :active-file-path="activeTab?.path"
-          @open-file="openFile"
-          @refresh-git="fetchGitInfo(activeTab?.path || rootPath)"
-          @open-git-graph="openGitGraphTab"
-        />
-
-        <!-- AI Agent Antigravity View -->
-        <EditorAntigravityPane
-          v-show="activeView === 'antigravity'"
-          class="w-full"
-          :is-connected="isConnected"
-          :active-tab="activeTab"
-          @insert-code="handleInsertCode"
-        />
-      </div>
-
-      <!-- Sidebar Resizer Splitter Bar -->
-      <div
-        v-if="isSidebarOpen"
-        class="w-1 cursor-col-resize hover:bg-blue-500/80 active:bg-blue-600 transition-colors z-20 shrink-0 select-none"
-        :class="isResizingSidebar ? 'bg-blue-500' : 'bg-[#24272E]'"
-        title="Drag to resize sidebar (Double click to reset)"
-        @mousedown="startSidebarResize"
-        @dblclick="sidebarWidth = 250"
-      ></div>
-
-      <!-- Resizing transparent drag overlay -->
-      <div
-        v-if="isResizingSidebar"
-        class="fixed inset-0 z-50 cursor-col-resize select-none"
-      ></div>
-
-      <!-- 3. Editor Canvas (Single or Side-by-Side Split) -->
-      <div class="flex-1 flex overflow-hidden min-w-0 bg-[#1E222B]">
-        <!-- Primary Left Editor Pane -->
-        <div
-          class="flex flex-col min-w-0 overflow-hidden relative"
-          :class="isSplit ? 'w-1/2 border-r border-[#24272E]' : 'flex-1'"
+  <div class="flex-1 flex flex-col h-full bg-[#171A21] overflow-hidden select-none">
+    <!-- Top Connection Tabs Bar -->
+    <div class="h-10 bg-[#181A1F] border-b border-[#24272E] flex items-center justify-between px-2 text-xs shrink-0 relative z-30">
+      <!-- Tabs strip -->
+      <div class="flex items-center space-x-1 overflow-x-auto flex-1 no-scrollbar py-1">
+        <button
+          v-for="t in connectionTabs"
+          :key="t.id"
+          type="button"
+          class="group h-8 px-3 rounded-t flex items-center space-x-2 border-b-2 transition-colors max-w-[220px] shrink-0"
+          :class="
+            activeConnectionTabId === t.id
+              ? 'bg-[#1E222B] text-white font-medium'
+              : 'text-[#8E99AF] hover:text-white hover:bg-[#252C3D] border-transparent'
+          "
+          :style="activeConnectionTabId === t.id ? { borderBottomColor: getConnectionColor(t.host.color) } : {}"
+          @click="activeConnectionTabId = t.id"
         >
-          <!-- Top File Tabs Bar -->
-          <EditorTabs
-            :tabs="openTabs"
-            :active-tab="activeTab"
-            :current-host-name="currentHost?.name"
-            :is-split="isSplit"
-            @select-tab="(id) => (activeTabId = id)"
-            @close-tab="closeTab"
-            @toggle-split="handleToggleSplit"
-            @save-as-sudo="saveActiveTab(true)"
-            @open-git-graph="openGitGraphTab"
-            @toggle-ai-gen="isAiGenOpen = !isAiGenOpen"
-          />
+          <!-- Connection Color Dot -->
+          <span
+            class="w-2 h-2 rounded-full shrink-0"
+            :style="{ backgroundColor: getConnectionColor(t.host.color) }"
+            :class="{
+              'animate-pulse': t.status === 'connecting'
+            }"
+          ></span>
 
-          <!-- Antigravity Inline AI Gen Floating Widget -->
-          <EditorAiGenInline
-            :is-open="isAiGenOpen"
-            :active-tab="activeTab"
-            @close="isAiGenOpen = false"
-            @apply-code="handleInsertCode"
-          />
+          <!-- Host Title -->
+          <span class="truncate text-xs">{{ t.title }}</span>
 
-          <!-- Git Graph View (when activeTab is Git Graph) -->
-          <EditorGitGraphView
-            v-if="activeTab?.viewType === 'git-graph'"
-            class="flex-1 min-h-0"
-            :is-connected="isConnected"
-            :session-id="sessionId"
-            :root-path="rootPath"
-            :active-file-path="gitCandidatePath"
-            @close="closeTab(activeTab.id)"
-            @open-file="openFile"
-          />
+          <!-- Production Badge -->
+          <ProdBadge v-if="t.host.isProduction" size="sm" />
 
-          <!-- Code Editor Area -->
-          <EditorCodeArea
-            v-else
-            ref="primaryCodeAreaRef"
-            :active-tab="activeTab"
-            :cursor-pos="cursorPos"
-            :blame="currentBlame"
-            @cursor-change="(pos) => (cursorPos = pos)"
-            @diagnostics-change="(errors) => (syntaxDiagnostics = errors)"
-            @save="saveActiveTab(false)"
-            @save-as-sudo="saveActiveTab(true)"
-            @toggle-ai-gen="isAiGenOpen = !isAiGenOpen"
-          />
-        </div>
+          <!-- Close Tab Button -->
+          <span
+            class="p-0.5 rounded hover:bg-slate-700/60 text-slate-400 hover:text-white transition-colors"
+            title="Close connection"
+            @click.stop="closeConnectionTab(t.id)"
+          >
+            <X class="w-3 h-3" />
+          </span>
+        </button>
 
-        <!-- Secondary Right Editor Pane (Split View) -->
-        <div
-          v-if="isSplit"
-          class="w-1/2 flex flex-col min-w-0 overflow-hidden bg-[#1E222B]"
-        >
-          <!-- Split Header & Tab Picker -->
-          <div class="h-9 flex items-center justify-between px-3 bg-[#181A1F] border-b border-[#24272E] select-none text-xs shrink-0">
-            <div class="flex items-center space-x-2 truncate">
-              <span class="text-slate-400 font-medium">Split:</span>
-              <select
-                v-if="openTabs.length > 0"
-                v-model="splitActiveTabId"
-                class="bg-[#252A36] text-slate-200 border border-[#32394C] rounded px-2 py-0.5 text-xs focus:outline-none focus:border-blue-500 cursor-pointer"
-              >
-                <option v-for="t in openTabs" :key="t.id" :value="t.id">
-                  {{ t.name }}
-                </option>
-              </select>
-              <span v-else class="text-slate-500">No open file</span>
+        <!-- New Connection (+) Button with Dropdown -->
+        <div class="relative host-picker-container shrink-0">
+          <button
+            type="button"
+            class="p-1.5 text-slate-400 hover:text-white hover:bg-[#252B3A] rounded transition-colors"
+            title="Open Connection in Text Editor"
+            @click.stop="showHostPicker = !showHostPicker"
+          >
+            <Plus class="w-3.5 h-3.5" />
+          </button>
+
+          <!-- Host Picker Dropdown -->
+          <div
+            v-if="showHostPicker"
+            class="absolute left-0 top-full mt-1.5 w-64 bg-[#1C202B] border border-[#2D3446] rounded-xl shadow-2xl py-2 z-50 text-xs"
+            @click.stop
+          >
+            <!-- Search Input -->
+            <div class="px-2.5 pb-2 border-b border-[#282F40]">
+              <div class="flex items-center space-x-2 bg-[#12151D] px-2 py-1.5 rounded-lg border border-[#282F40]">
+                <Search class="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <input
+                  v-model="hostFilterText"
+                  type="text"
+                  placeholder="Filter hosts..."
+                  class="bg-transparent text-white placeholder-slate-500 focus:outline-none w-full text-xs"
+                  autofocus
+                />
+              </div>
             </div>
 
-            <!-- Close Split Button -->
-            <button
-              type="button"
-              class="p-1 rounded text-slate-400 hover:text-white hover:bg-[#252A36] transition-colors"
-              title="Close Split Editor (⌘\)"
-              @click="isSplit = false"
-            >
-              <X class="w-3.5 h-3.5" />
-            </button>
+            <!-- Hosts List -->
+            <div class="max-h-60 overflow-y-auto py-1">
+              <button
+                v-for="h in filteredHosts"
+                :key="h.id"
+                type="button"
+                class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-[#252C3D] text-left transition-colors text-slate-200"
+                @click="openSessionForHost(h)"
+              >
+                <span
+                  class="w-2 h-2 rounded-full shrink-0"
+                  :style="{ backgroundColor: getConnectionColor(h.color) }"
+                ></span>
+                <span class="truncate flex-1 font-medium">{{ h.name }}</span>
+                <span class="text-[10px] text-slate-500 font-mono">{{ h.ip }}</span>
+                <ProdBadge v-if="h.isProduction" size="sm" />
+              </button>
+              <div v-if="filteredHosts.length === 0" class="px-3 py-3 text-center text-slate-500 text-xs">
+                No matching hosts found
+              </div>
+            </div>
           </div>
-
-          <!-- Split Code Editor Area -->
-          <EditorCodeArea
-            :active-tab="splitActiveTab"
-            @save="saveActiveTab(false)"
-            @save-as-sudo="saveActiveTab(true)"
-          />
         </div>
       </div>
     </div>
 
-    <!-- 4. VS Code Blue Status Bar (Bottom) -->
-    <EditorStatusBar
-      :is-connected="isConnected"
-      :host-title="currentHost?.name || currentHost?.ip"
-      :cursor-pos="cursorPos"
-      :language="activeTab?.language"
-      :problems-count="syntaxDiagnostics.length"
-      :git-info="gitInfo"
-      :git-blame="currentBlame"
-      @click-remote="isSidebarOpen = true; activeView = 'explorer'"
-    />
+    <!-- Active Multi-Connection Workspaces (Kept alive with v-show) -->
+    <div v-if="connectionTabs.length > 0" class="flex-1 flex flex-col overflow-hidden relative">
+      <EditorSessionWorkspace
+        v-for="t in connectionTabs"
+        :key="t.id"
+        v-show="activeConnectionTabId === t.id"
+        :ref="(el) => { if (el) sessionWorkspaceRefs[t.id] = el }"
+        :host="t.host"
+        :is-active="activeConnectionTabId === t.id"
+        @update-status="(status) => updateTabStatus(t.id, status)"
+      />
+    </div>
+
+    <!-- Empty State: Clean and minimal (No cluttered pills) -->
+    <div v-else class="flex-1 flex flex-col items-center justify-center text-center p-8 select-none bg-[#171A21]">
+      <div class="w-14 h-14 rounded-2xl bg-[#1C202B] border border-[#282F3E] flex items-center justify-center text-blue-400 mb-4 shadow-md">
+        <Code2 class="w-7 h-7" />
+      </div>
+      <h2 class="text-sm font-semibold text-white mb-1.5">No Remote Host Open</h2>
+      <p class="text-xs text-[#8E99AF] max-w-[280px] leading-relaxed mb-4">
+        Select any connection in the left sidebar to open its remote files in the code editor.
+      </p>
+      <div class="relative host-picker-container">
+        <button
+          type="button"
+          class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg shadow-sm transition-colors flex items-center space-x-1.5"
+          @click.stop="showHostPicker = !showHostPicker"
+        >
+          <Plus class="w-3.5 h-3.5" />
+          <span>Connect to Host</span>
+        </button>
+
+        <!-- Dropdown on Empty State button -->
+        <div
+          v-if="showHostPicker"
+          class="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-64 bg-[#1C202B] border border-[#2D3446] rounded-xl shadow-2xl py-2 z-50 text-xs text-left"
+          @click.stop
+        >
+          <div class="px-2.5 pb-2 border-b border-[#282F40]">
+            <div class="flex items-center space-x-2 bg-[#12151D] px-2 py-1.5 rounded-lg border border-[#282F40]">
+              <Search class="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <input
+                v-model="hostFilterText"
+                type="text"
+                placeholder="Filter hosts..."
+                class="bg-transparent text-white placeholder-slate-500 focus:outline-none w-full text-xs"
+                autofocus
+              />
+            </div>
+          </div>
+          <div class="max-h-60 overflow-y-auto py-1">
+            <button
+              v-for="h in filteredHosts"
+              :key="h.id"
+              type="button"
+              class="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-[#252C3D] text-left transition-colors text-slate-200"
+              @click="openSessionForHost(h)"
+            >
+              <span
+                class="w-2 h-2 rounded-full shrink-0"
+                :style="{ backgroundColor: getConnectionColor(h.color) }"
+              ></span>
+              <span class="truncate flex-1 font-medium">{{ h.name }}</span>
+              <span class="text-[10px] text-slate-500 font-mono">{{ h.ip }}</span>
+              <ProdBadge v-if="h.isProduction" size="sm" />
+            </button>
+            <div v-if="filteredHosts.length === 0" class="px-3 py-3 text-center text-slate-500 text-xs">
+              No matching hosts found
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

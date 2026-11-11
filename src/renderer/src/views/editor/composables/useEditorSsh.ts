@@ -3,7 +3,7 @@ import { HostItem } from '../../../types/connection'
 import { EditorFileNode, EditorTab, EditorGitInfo } from '../types'
 
 export function useEditorSsh() {
-  const sessionId = ref('editor_ssh_' + Date.now())
+  const sessionId = ref('editor_ssh_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7))
   const isConnected = ref(false)
   const isConnecting = ref(false)
   const connectionError = ref<string | null>(null)

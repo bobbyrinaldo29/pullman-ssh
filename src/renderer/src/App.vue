@@ -354,10 +354,11 @@ function handleSelectHost(host: HostItem): void {
   selectedHostId.value = host.id
   if (currentView.value === 'ssh') {
     sshViewRef.value?.openSessionForHost(host)
+  } else if (currentView.value === 'editor') {
+    editorViewRef.value?.openSessionForHost(host)
   } else if (
     currentView.value !== 'sftp' &&
     currentView.value !== 'query' &&
-    currentView.value !== 'editor' &&
     currentView.value !== 'redmine'
   ) {
     currentView.value = 'hosts'
@@ -371,8 +372,20 @@ function handleHostDblClick(host: HostItem): void {
   } else if (currentView.value === 'sftp') {
     sftpViewRef.value?.openNewTabForHost(host)
   } else if (currentView.value === 'editor') {
-    editorViewRef.value?.connectToHost(host)
+    editorViewRef.value?.openSessionForHost(host)
   }
+}
+
+function handleOpenEditor(): void {
+  currentView.value = 'editor'
+  nextTick(() => {
+    if (selectedHostId.value) {
+      const host = hostsList.value.find((h) => h.id === selectedHostId.value)
+      if (host) editorViewRef.value?.openSessionForHost(host)
+    } else if (hostsList.value.length > 0) {
+      editorViewRef.value?.openSessionForHost(hostsList.value[0])
+    }
+  })
 }
 
 function handleNewQuery(): void {
@@ -421,7 +434,7 @@ function handlePluginCenter(): void {
       @open-hosts="currentView = 'hosts'"
       @open-ssh="currentView = 'ssh'"
       @open-sftp="currentView = 'sftp'"
-      @open-editor="currentView = 'editor'"
+      @open-editor="handleOpenEditor"
       @open-redmine="currentView = 'redmine'"
       @new-connection="handleNewConnection"
       @new-query="handleNewQuery"
