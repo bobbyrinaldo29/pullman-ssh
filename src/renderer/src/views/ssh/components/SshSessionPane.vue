@@ -7,7 +7,9 @@ import {
   Shield,
   Sparkles,
   Server,
-  ShieldAlert
+  ShieldAlert,
+  Key,
+  Check
 } from 'lucide-vue-next'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -167,6 +169,28 @@ watch(
   }
 )
 
+const passwordSent = ref(false)
+let passwordTimer: ReturnType<typeof setTimeout> | null = null
+
+function sendSshPassword(): void {
+  const pwd = props.tab.host.password
+  if (!pwd) return
+  if (window.api?.sshShellWrite) {
+    window.api.sshShellWrite(props.tab.id, pwd + '\n')
+  }
+  try {
+    navigator.clipboard?.writeText(pwd)
+  } catch {
+    // ignore
+  }
+  passwordSent.value = true
+  if (passwordTimer) clearTimeout(passwordTimer)
+  passwordTimer = setTimeout(() => {
+    passwordSent.value = false
+  }, 1500)
+  term?.focus()
+}
+
 function runQuickSnippet(cmd: string): void {
   const fullCmd = asSudo.value ? `sudo ${cmd}` : cmd
   if (window.api?.sshShellWrite) {
@@ -317,6 +341,26 @@ onUnmounted(() => {
         <Sparkles class="w-3 h-3 text-amber-400" />
         <span>Snippets:</span>
       </span>
+
+      <!-- SSH Password Snippet -->
+      <button
+        type="button"
+        class="px-2 py-0.5 rounded border transition-colors whitespace-nowrap flex items-center space-x-1 text-[11px]"
+        :class="[
+          passwordSent
+            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+            : 'bg-[#202636] hover:bg-cyan-600/30 text-slate-300 hover:text-cyan-300 border-slate-700/50',
+          { 'opacity-50 cursor-not-allowed': !tab.host.password }
+        ]"
+        :title="tab.host.password ? 'Send SSH password to terminal and copy to clipboard' : 'No password configured for this connection'"
+        :disabled="tab.status !== 'connected' || !tab.host.password"
+        @click.stop="sendSshPassword"
+      >
+        <Check v-if="passwordSent" class="w-3 h-3 text-emerald-400" />
+        <Key v-else class="w-3 h-3 text-amber-400" />
+        <span>{{ passwordSent ? 'Password Sent!' : 'SSH Password' }}</span>
+      </button>
+
       <button
         v-for="s in quickSnippets"
         :key="s.cmd"
