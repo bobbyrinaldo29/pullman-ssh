@@ -116,9 +116,20 @@ export class SshShellService {
 
           let navigated = false
           const cdCmd = this.formatCdCommand(initialPath)
-          const tryNavigate = (): void => {
+          let fallbackTimer: NodeJS.Timeout | null = null
+
+          const isPrompt = (rawText: string): boolean => {
+            const clean = rawText.replace(/\u001b\[[0-9;]*[a-zA-Z]/g, '').trimEnd()
+            return /[$#%>]$/.test(clean) || /[$#%>]\s+$/.test(clean)
+          }
+
+          const sendCdCommand = (): void => {
             if (navigated || !cdCmd) return
             navigated = true
+            if (fallbackTimer) {
+              clearTimeout(fallbackTimer)
+              fallbackTimer = null
+            }
             setTimeout(() => {
               try {
                 if (stream && stream.writable) {
@@ -127,28 +138,38 @@ export class SshShellService {
               } catch (e) {
                 console.error(`[SSH Shell navigate error ${sessionId}]:`, e)
               }
-            }, 120)
+            }, 80)
           }
 
           stream.on('data', (data: Buffer | string) => {
-            tryNavigate()
-            onData?.(data.toString())
+            const str = data.toString()
+            onData?.(str)
+            if (!navigated && cdCmd && isPrompt(str)) {
+              sendCdCommand()
+            }
           })
 
           if (stream.stderr) {
             stream.stderr.on('data', (data: Buffer | string) => {
-              tryNavigate()
-              onData?.(data.toString())
+              const str = data.toString()
+              onData?.(str)
+              if (!navigated && cdCmd && isPrompt(str)) {
+                sendCdCommand()
+              }
             })
           }
 
           if (cdCmd) {
-            setTimeout(() => {
-              tryNavigate()
-            }, 600)
+            fallbackTimer = setTimeout(() => {
+              sendCdCommand()
+            }, 2500)
           }
 
           stream.on('close', () => {
+            if (fallbackTimer) {
+              clearTimeout(fallbackTimer)
+              fallbackTimer = null
+            }
             this.shellStreams.delete(sessionId)
             onClose?.()
           })

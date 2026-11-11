@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import {
   RotateCcw,
   Trash2,
@@ -148,7 +148,7 @@ async function startShellSession(): Promise<void> {
     })
   }
 
-  const initialPath = props.tab.host.remotePath?.trim() || ''
+  const initialPath = initialRemotePath.value
   const res = await window.api.sshShellStart(props.tab.id, cols, rows, initialPath)
   if (!res.success) {
     term.write(`\r\n\x1b[31m[Error opening native shell: ${res.message}]\x1b[0m\r\n`)
@@ -156,6 +156,16 @@ async function startShellSession(): Promise<void> {
     term.focus()
   }
 }
+
+const initialRemotePath = computed(() => {
+  return (
+    props.tab.host.remotePath ||
+    (props.tab.host as any).remote_path ||
+    (props.tab.host as any).path ||
+    (props.tab.currentDir !== '~' ? props.tab.currentDir : '') ||
+    ''
+  ).trim()
+})
 
 watch(
   () => props.isActive,

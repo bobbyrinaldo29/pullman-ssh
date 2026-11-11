@@ -9,11 +9,15 @@ import {
   AlertCircle
 } from 'lucide-vue-next'
 import { SftpTab } from '../types'
+import { HostItem } from '../../../types/connection'
+import { getConnectionColor } from '../../../utils/connectionColors'
+import ProdBadge from '../../../components/ProdBadge.vue'
 
-defineProps<{
+const props = defineProps<{
   tabs: SftpTab[]
   activeTab: SftpTab
   showLogs: boolean
+  hosts?: HostItem[]
 }>()
 
 const emit = defineEmits<{
@@ -25,51 +29,65 @@ const emit = defineEmits<{
   (e: 'toggle-logs'): void
   (e: 'clear-logs', tab: SftpTab): void
 }>()
+
+function getHost(hostId: number | null): HostItem | undefined {
+  if (!hostId || !props.hosts) return undefined
+  return props.hosts.find((h) => h.id === hostId)
+}
+
+function getTabColor(t: SftpTab): string {
+  const host = getHost(t.hostId)
+  return getConnectionColor(host?.color)
+}
+
+function isProductionTab(t: SftpTab): boolean {
+  const host = getHost(t.hostId)
+  return !!host?.isProduction
+}
 </script>
 
 <template>
-  <div class="h-10 bg-[#161922] border-b border-[#242A38] px-2 flex items-center justify-between shrink-0 overflow-x-auto gap-2">
-    <!-- Left: Connection Tabs -->
-    <div class="flex items-center space-x-1 overflow-x-auto py-1">
-      <div
+  <div class="h-10 bg-[#1C202B] border-b border-[#282F3E] flex items-center justify-between px-2 text-xs shrink-0 select-none">
+    <!-- Left: Tabs strip (same style as SSH) -->
+    <div class="flex items-center space-x-1 overflow-x-auto flex-1 no-scrollbar py-1">
+      <button
         v-for="t in tabs"
         :key="t.id"
-        class="group flex items-center space-x-2 px-3 py-1.5 rounded-lg text-xs cursor-pointer border transition-all shrink-0 select-none"
+        type="button"
+        class="group h-8 px-3 rounded-t flex items-center space-x-2 border-b-2 transition-colors max-w-[200px] shrink-0 text-xs"
         :class="
           t.id === activeTab.id
-            ? 'bg-[#222838] border-blue-500/40 text-white shadow-sm'
-            : 'bg-[#1A1E29] border-[#2A3142] text-slate-400 hover:text-slate-200 hover:bg-[#1E2330]'
+            ? 'bg-[#12151D] text-white font-medium'
+            : 'text-[#8E99AF] hover:text-white hover:bg-[#252C3D] border-transparent'
         "
+        :style="t.id === activeTab.id ? { borderBottomColor: getTabColor(t) } : {}"
         @click="emit('select-tab', t.id)"
       >
         <span
           class="w-2 h-2 rounded-full shrink-0"
-          :class="
-            t.isConnected
-              ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]'
-              : t.isConnecting
-                ? 'bg-amber-400 animate-pulse'
-                : 'bg-slate-500'
-          "
+          :style="{ backgroundColor: getTabColor(t) }"
+          :class="{
+            'animate-pulse': t.isConnecting
+          }"
         ></span>
-        <span class="font-medium max-w-[130px] truncate" :title="t.title">{{ t.title }}</span>
+        <span class="truncate max-w-[130px]">{{ t.title }}</span>
+        <ProdBadge v-if="isProductionTab(t)" size="sm" />
 
         <!-- Close Tab Button -->
-        <button
+        <span
           v-if="tabs.length > 1"
-          type="button"
-          class="text-slate-500 hover:text-white rounded p-0.5 opacity-60 group-hover:opacity-100 hover:bg-slate-700/50 transition-colors"
+          class="p-0.5 rounded hover:bg-slate-700/60 text-slate-400 hover:text-white transition-colors"
           title="Close tab"
           @click.stop="emit('close-tab', t.id)"
         >
           <X class="w-3 h-3" />
-        </button>
-      </div>
+        </span>
+      </button>
 
       <!-- Add New Blank Tab -->
       <button
         type="button"
-        class="p-1.5 text-slate-400 hover:text-white hover:bg-[#252B3A] rounded-lg transition-colors border border-dashed border-[#2D3547] shrink-0"
+        class="h-7 w-7 flex items-center justify-center text-[#8E99AF] hover:text-white hover:bg-[#252C3D] rounded transition-colors shrink-0 ml-0.5"
         title="Open New SFTP Tab"
         @click="emit('new-tab')"
       >
@@ -78,7 +96,7 @@ const emit = defineEmits<{
     </div>
 
     <!-- Right: Quick actions for Active Tab -->
-    <div class="flex items-center space-x-2 shrink-0">
+    <div class="flex items-center space-x-2 shrink-0 ml-2">
       <!-- Active Server Status Tag -->
       <div
         v-if="activeTab.host"

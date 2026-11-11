@@ -158,6 +158,7 @@ onUnmounted(() => {
       :tabs="tabs"
       :active-tab="activeTab"
       :show-logs="showLogs"
+      :hosts="hosts"
       @select-tab="selectTab"
       @close-tab="closeTab"
       @new-tab="tabs.push(createNewTab()); activeTabId = tabs[tabs.length - 1].id"
