@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { Plus, X, Code2, Search } from 'lucide-vue-next'
 import { HostItem } from '../../types/connection'
 import { getConnectionColor } from '../../utils/connectionColors'
@@ -14,9 +14,10 @@ const props = defineProps<{
 
 const { registerSession, unregisterSession } = useActiveConnections()
 
+type EditorWorkspaceInstance = InstanceType<typeof EditorSessionWorkspace>
 const connectionTabs = ref<EditorConnectionTab[]>([])
 const activeConnectionTabId = ref<string>('')
-const sessionWorkspaceRefs = ref<Record<string, any>>({})
+const sessionWorkspaceRefs = ref<Record<string, EditorWorkspaceInstance | null>>({})
 
 const showHostPicker = ref(false)
 const hostFilterText = ref('')
@@ -35,6 +36,8 @@ const filteredHosts = computed(() => {
 function openSessionForHost(host: HostItem): void {
   const existing = connectionTabs.value.find((t) => t.host.id === host.id)
   if (existing) {
+    existing.host = host
+    existing.title = host.name || host.ip
     activeConnectionTabId.value = existing.id
     showHostPicker.value = false
     return
@@ -120,6 +123,21 @@ function handleGlobalClick(e: MouseEvent): void {
 onMounted(() => {
   window.addEventListener('click', handleGlobalClick)
 })
+
+watch(
+  () => props.hosts,
+  (hosts) => {
+    const byId = new Map(hosts.map((h) => [h.id, h]))
+    for (const tab of connectionTabs.value) {
+      const latest = byId.get(tab.host.id)
+      if (latest) {
+        tab.host = latest
+        tab.title = latest.name || latest.ip
+      }
+    }
+  },
+  { deep: true }
+)
 
 onUnmounted(() => {
   window.removeEventListener('click', handleGlobalClick)
@@ -239,7 +257,7 @@ defineExpose({
         v-for="t in connectionTabs"
         :key="t.id"
         v-show="activeConnectionTabId === t.id"
-        :ref="(el) => { if (el) sessionWorkspaceRefs[t.id] = el }"
+        :ref="(el) => { if (el) sessionWorkspaceRefs[t.id] = el as unknown as EditorWorkspaceInstance }"
         :host="t.host"
         :is-active="activeConnectionTabId === t.id"
         @update-status="(status) => updateTabStatus(t.id, status)"

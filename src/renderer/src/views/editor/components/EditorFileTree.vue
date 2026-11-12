@@ -30,6 +30,7 @@ const props = defineProps<{
   connectionError?: string | null
   currentHost: HostItem | null
   rootPath: string
+  defaultRootPath?: string
   fileTree: EditorFileNode[]
   isTreeLoading: boolean
   activeFilePath?: string
@@ -54,6 +55,9 @@ const emit = defineEmits<{
 const canGoUp = computed(() => {
   return props.rootPath !== '/' && props.rootPath.length > 1
 })
+
+const effectiveDefaultRoot = computed(() => props.defaultRootPath || '/')
+const isAtDefaultRoot = computed(() => (props.rootPath || '/') === effectiveDefaultRoot.value)
 
 // Path input state
 const isEditingPath = ref(false)
@@ -157,7 +161,7 @@ function handleConfirmDelete(node: EditorFileNode): void {
 }
 
 function collapseAll(): void {
-  function collapse(nodes: EditorFileNode[]) {
+  function collapse(nodes: EditorFileNode[]): void {
     for (const node of nodes) {
       if (node.isDirectory) {
         node.isExpanded = false
@@ -320,7 +324,7 @@ onUnmounted(() => {
         <div class="flex items-center gap-0.5 shrink-0">
           <button
             type="button"
-            class="p-1 rounded text-slate-400 hover:text-white hover:bg-[#2C3446] transition-colors"
+            class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-[#2C3446] transition-colors"
             :class="{ 'opacity-30 pointer-events-none': !canGoUp }"
             title="Go to Parent Directory (..)"
             @click="emit('navigate-up')"
@@ -328,10 +332,10 @@ onUnmounted(() => {
             <CornerLeftUp class="w-3.5 h-3.5" />
           </button>
           <button
-            v-if="canGoUp"
+            v-if="!isAtDefaultRoot"
             type="button"
-            class="p-1 rounded text-slate-400 hover:text-white hover:bg-[#2C3446] transition-colors"
-            title="Reset Root to /"
+            class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-[#2C3446] transition-colors"
+            :title="`Reset Root to ${effectiveDefaultRoot}`"
             @click="emit('reset-root')"
           >
             <Home class="w-3.5 h-3.5" />

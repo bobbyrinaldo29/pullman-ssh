@@ -1,14 +1,107 @@
-import { ref, computed } from 'vue'
+import { ref, computed, type ComputedRef, type Ref } from 'vue'
 import { HostItem } from '../../../types/connection'
 import { EditorFileNode, EditorTab, EditorGitInfo } from '../types'
 
-export function useEditorSsh() {
+interface SftpRemoteEntry {
+  name: string
+  path: string
+  isDirectory: boolean
+  size?: number
+  modifyTime?: number
+}
+
+export interface UseEditorSshReturn {
+  sessionId: Ref<string>
+  isConnected: Ref<boolean>
+  isConnecting: Ref<boolean>
+  connectionError: Ref<string | null>
+  currentHost: Ref<HostItem | null>
+  rootPath: Ref<string>
+  defaultRootPath: Ref<string>
+  fileTree: Ref<EditorFileNode[]>
+  isTreeLoading: Ref<boolean>
+  openTabs: Ref<EditorTab[]>
+  activeTabId: Ref<string>
+  activeTab: ComputedRef<EditorTab | null>
+  gitInfo: Ref<EditorGitInfo>
+  fetchGitInfo: (dirPath?: string) => Promise<void>
+  setRootFolder: (newPath: string) => Promise<void>
+  resetToDefaultRoot: () => Promise<void>
+  syncHost: (updatedHost: HostItem) => Promise<void>
+  navigateUp: () => Promise<void>
+  connectToHost: (host: HostItem, targetPath?: string) => Promise<boolean>
+  disconnect: () => Promise<void>
+  loadRootDirectory: () => Promise<void>
+  toggleFolder: (node: EditorFileNode) => Promise<void>
+  openFile: (fileNode: EditorFileNode) => Promise<void>
+  saveActiveTab: (asSudo?: boolean) => Promise<boolean>
+  closeTab: (tabId: string) => void
+  createRemoteFile: (targetDir: string, name: string) => Promise<boolean>
+  createRemoteFolder: (targetDir: string, name: string) => Promise<boolean>
+  deleteRemoteNode: (node: EditorFileNode, asSudo?: boolean) => Promise<boolean>
+}
+
+function getConfiguredRemotePath(host: HostItem): string {
+  const withSnakeCase = host as HostItem & { remote_path?: string }
+  return host.remotePath || withSnakeCase.remote_path || ''
+}
+
+function mapRemoteNodes(items: SftpRemoteEntry[]): EditorFileNode[] {
+  return items
+    .filter((i) => i.name !== '.' && i.name !== '..')
+    .map((item) => ({
+      name: item.name,
+      path: item.path,
+      isDirectory: item.isDirectory,
+      size: item.size,
+      modifyTime: item.modifyTime,
+      children: item.isDirectory ? [] : undefined,
+      isExpanded: false,
+      isLoading: false
+    }))
+    .sort((a, b) => {
+      if (a.isDirectory && !b.isDirectory) return -1
+      if (!a.isDirectory && b.isDirectory) return 1
+      return a.name.localeCompare(b.name)
+    })
+}
+
+/** Normalizes a configured remote path against the SSH session working directory. */
+export function resolveRemoteRootPath(configuredPath?: string, fallbackCwd = '/'): string {
+  const cwd = (fallbackCwd || '/').trim().replace(/\\/g, '/').replace(/\/+/g, '/')
+  const normalizedCwd = cwd === '/' ? '/' : cwd.replace(/\/+$/, '') || '/'
+
+  const raw = (configuredPath || '').trim().replace(/\\/g, '/')
+  if (!raw) {
+    return normalizedCwd.startsWith('/') ? normalizedCwd : `/${normalizedCwd}`
+  }
+
+  let resolved = raw
+  if (resolved === '~') {
+    resolved = normalizedCwd
+  } else if (resolved.startsWith('~/')) {
+    const suffix = resolved.slice(2).replace(/^\/+/, '')
+    resolved = normalizedCwd === '/' ? `/${suffix}` : `${normalizedCwd}/${suffix}`
+  } else if (!resolved.startsWith('/')) {
+    resolved = normalizedCwd === '/' ? `/${resolved}` : `${normalizedCwd}/${resolved}`
+  }
+
+  resolved = resolved.replace(/\/+/g, '/')
+  if (resolved.length > 1) {
+    resolved = resolved.replace(/\/+$/, '')
+  }
+  return resolved || '/'
+}
+
+export function useEditorSsh(): UseEditorSshReturn {
   const sessionId = ref('editor_ssh_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7))
   const isConnected = ref(false)
   const isConnecting = ref(false)
   const connectionError = ref<string | null>(null)
   const currentHost = ref<HostItem | null>(null)
   const rootPath = ref('/')
+  const defaultRootPath = ref('/')
+  const sessionCwd = ref('/')
   const gitInfo = ref<EditorGitInfo>({ isGit: false, branch: '', isDirty: false })
 
   const fileTree = ref<EditorFileNode[]>([])
@@ -55,14 +148,19 @@ export function useEditorSsh() {
           host: host.ip,
           port: Number(host.port) || 22,
           user: host.user || 'root',
-          password: (host as any).password || '',
+          password: host.password || '',
           timeoutMs: 12000
         })
 
         if (res.success) {
           isConnected.value = true
           currentHost.value = host
-          rootPath.value = targetPath || host.remotePath || res.cwd || '/'
+          sessionCwd.value = resolveRemoteRootPath(res.cwd, '/')
+          const configuredPath = getConfiguredRemotePath(host)
+          defaultRootPath.value = resolveRemoteRootPath(configuredPath, sessionCwd.value)
+          rootPath.value = targetPath
+            ? resolveRemoteRootPath(targetPath, sessionCwd.value)
+            : defaultRootPath.value
           await loadRootDirectory()
           return true
         } else {
@@ -85,6 +183,9 @@ export function useEditorSsh() {
     }
     isConnected.value = false
     currentHost.value = null
+    rootPath.value = '/'
+    defaultRootPath.value = '/'
+    sessionCwd.value = '/'
     fileTree.value = []
     openTabs.value = []
     activeTabId.value = ''
@@ -107,11 +208,25 @@ export function useEditorSsh() {
 
   async function setRootFolder(newPath: string): Promise<void> {
     if (!isConnected.value) return
-    let clean = (newPath || '/').trim()
-    if (!clean.startsWith('/')) clean = `/${clean}`
-    clean = clean.replace(/\/+/g, '/')
-    rootPath.value = clean
+    rootPath.value = resolveRemoteRootPath(newPath, sessionCwd.value)
     await loadRootDirectory()
+  }
+
+  async function resetToDefaultRoot(): Promise<void> {
+    if (!isConnected.value) return
+    await setRootFolder(defaultRootPath.value)
+  }
+
+  async function syncHost(updatedHost: HostItem): Promise<void> {
+    const prevDefault = defaultRootPath.value
+    currentHost.value = updatedHost
+    const nextDefault = resolveRemoteRootPath(getConfiguredRemotePath(updatedHost), sessionCwd.value)
+    defaultRootPath.value = nextDefault
+
+    if (isConnected.value && nextDefault !== prevDefault && rootPath.value === prevDefault) {
+      rootPath.value = nextDefault
+      await loadRootDirectory()
+    }
   }
 
   async function navigateUp(): Promise<void> {
@@ -128,7 +243,7 @@ export function useEditorSsh() {
 
     // Preserve expanded folders state across reloads
     const expandedPaths = new Set<string>()
-    function collectExpanded(nodes: EditorFileNode[]) {
+    function collectExpanded(nodes: EditorFileNode[]): void {
       for (const n of nodes) {
         if (n.isDirectory && n.isExpanded) {
           expandedPaths.add(n.path)
@@ -142,10 +257,10 @@ export function useEditorSsh() {
 
     try {
       if (window.api?.sftpListRemote) {
-        let clean = (rootPath.value || '/').trim()
-        if (!clean.startsWith('/')) clean = `/${clean}`
+        let clean = resolveRemoteRootPath(rootPath.value, sessionCwd.value)
+        rootPath.value = clean
 
-        let items: any[] = []
+        let items: SftpRemoteEntry[] = []
         try {
           items = await window.api.sftpListRemote(clean, sessionId.value)
         } catch (err) {
@@ -155,23 +270,7 @@ export function useEditorSsh() {
           items = await window.api.sftpListRemote('/', sessionId.value)
         }
 
-        const newTree: EditorFileNode[] = (items || [])
-          .filter((i) => i.name !== '.' && i.name !== '..')
-          .map((item) => ({
-            name: item.name,
-            path: item.path,
-            isDirectory: item.isDirectory,
-            size: item.size,
-            modifyTime: item.modifyTime,
-            children: item.isDirectory ? [] : undefined,
-            isExpanded: false,
-            isLoading: false
-          }))
-          .sort((a, b) => {
-            if (a.isDirectory && !b.isDirectory) return -1
-            if (!a.isDirectory && b.isDirectory) return 1
-            return a.name.localeCompare(b.name)
-          })
+        const newTree = mapRemoteNodes(items || [])
 
         async function restoreSubtree(nodes: EditorFileNode[]): Promise<void> {
           for (const node of nodes) {
@@ -181,23 +280,7 @@ export function useEditorSsh() {
                 let subClean = (node.path || '/').trim().replace(/\/+/g, '/')
                 if (!subClean.startsWith('/')) subClean = `/${subClean}`
                 const children = await window.api.sftpListRemote(subClean, sessionId.value)
-                node.children = (children || [])
-                  .filter((i: any) => i.name !== '.' && i.name !== '..')
-                  .map((item: any) => ({
-                    name: item.name,
-                    path: item.path,
-                    isDirectory: item.isDirectory,
-                    size: item.size,
-                    modifyTime: item.modifyTime,
-                    children: item.isDirectory ? [] : undefined,
-                    isExpanded: false,
-                    isLoading: false
-                  }))
-                  .sort((a: any, b: any) => {
-                    if (a.isDirectory && !b.isDirectory) return -1
-                    if (!a.isDirectory && b.isDirectory) return 1
-                    return a.name.localeCompare(b.name)
-                  })
+                node.children = mapRemoteNodes(children || [])
                 if (node.children && node.children.length > 0) {
                   await restoreSubtree(node.children)
                 }
@@ -468,6 +551,7 @@ export function useEditorSsh() {
     connectionError,
     currentHost,
     rootPath,
+    defaultRootPath,
     fileTree,
     isTreeLoading,
     openTabs,
@@ -476,6 +560,8 @@ export function useEditorSsh() {
     gitInfo,
     fetchGitInfo,
     setRootFolder,
+    resetToDefaultRoot,
+    syncHost,
     navigateUp,
     connectToHost,
     disconnect,

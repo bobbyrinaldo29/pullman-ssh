@@ -50,10 +50,10 @@ function startSidebarResize(e: MouseEvent): void {
   isResizingSidebar.value = true
   const startX = e.clientX
   const startWidth = sidebarWidth.value
-  const onMouseMove = (me: MouseEvent) => {
+  const onMouseMove = (me: MouseEvent): void => {
     sidebarWidth.value = Math.max(160, Math.min(700, startWidth + me.clientX - startX))
   }
-  const onMouseUp = () => {
+  const onMouseUp = (): void => {
     isResizingSidebar.value = false
     window.removeEventListener('mousemove', onMouseMove)
     window.removeEventListener('mouseup', onMouseUp)
@@ -64,11 +64,15 @@ function startSidebarResize(e: MouseEvent): void {
 
 const {
   sessionId, isConnected, isConnecting, connectionError, currentHost,
-  rootPath, gitInfo, fetchGitInfo, fileTree, isTreeLoading,
+  rootPath, defaultRootPath, gitInfo, fetchGitInfo, fileTree, isTreeLoading,
   openTabs, activeTabId, activeTab, connectToHost, disconnect,
   loadRootDirectory, toggleFolder, openFile, saveActiveTab, closeTab,
-  setRootFolder, navigateUp, createRemoteFile, createRemoteFolder, deleteRemoteNode
+  setRootFolder, resetToDefaultRoot, syncHost, navigateUp, createRemoteFile, createRemoteFolder, deleteRemoteNode
 } = useEditorSsh()
+
+watch(() => props.host, (updated) => {
+  if (updated) void syncHost(updated)
+}, { deep: true })
 
 const splitActiveTab = computed(() => {
   return openTabs.value.find((t) => t.id === splitActiveTabId.value) || activeTab.value
@@ -287,6 +291,7 @@ defineExpose({
           :connection-error="connectionError"
           :current-host="currentHost"
           :root-path="rootPath"
+          :default-root-path="defaultRootPath"
           :file-tree="fileTree"
           :is-tree-loading="isTreeLoading"
           :active-file-path="activeTab?.path"
@@ -298,7 +303,7 @@ defineExpose({
           @refresh-tree="loadRootDirectory"
           @set-root="setRootFolder"
           @navigate-up="navigateUp"
-          @reset-root="setRootFolder('/')"
+          @reset-root="resetToDefaultRoot"
           @create-file="createRemoteFile"
           @create-folder="createRemoteFolder"
           @delete-node="deleteRemoteNode"

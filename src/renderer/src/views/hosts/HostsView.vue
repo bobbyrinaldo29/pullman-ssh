@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import {
   Server,
   Filter,
@@ -11,6 +11,8 @@ import {
   Database,
   Terminal,
   FolderSync,
+  Code2,
+  Folder,
   CheckSquare
 } from 'lucide-vue-next'
 import { HostItem } from '../../types/connection'
@@ -35,6 +37,7 @@ const emit = defineEmits<{
   (e: 'reload'): void
   (e: 'open-terminal', host: HostItem): void
   (e: 'open-sftp', hostId: number): void
+  (e: 'open-editor', host: HostItem): void
   (e: 'edit-host', host: HostItem): void
   (e: 'delete-host', hostId: number): void
   (e: 'bulk-update', payload: { hostIds: number[]; updates: Record<string, unknown> }): void
@@ -45,6 +48,21 @@ const emit = defineEmits<{
 const { activeConnectedHostIds } = useActiveConnections()
 const selectedHostIds = ref<Set<number>>(new Set())
 const showBulkEditModal = ref(false)
+
+watch(
+  () => props.filteredHosts,
+  (hosts) => {
+    const visibleIds = new Set(hosts.map((h) => h.id))
+    for (const id of Array.from(selectedHostIds.value)) {
+      if (!visibleIds.has(id)) {
+        selectedHostIds.value.delete(id)
+      }
+    }
+    if (selectedHostIds.value.size === 0) {
+      showBulkEditModal.value = false
+    }
+  }
+)
 
 const isAllSelected = computed(() => {
   if (props.filteredHosts.length === 0) return false
@@ -90,7 +108,7 @@ function handleBulkDelete(): void {
 </script>
 
 <template>
-  <div class="flex-1 flex flex-col overflow-hidden bg-[#171A21]">
+  <div class="flex-1 min-h-0 flex flex-col overflow-hidden bg-[#171A21]">
     <!-- Group Filter & Search Action Bar -->
     <div
       class="h-10 bg-[#1C202B] border-b border-[#282F3E] px-4 flex items-center justify-between text-xs gap-2 overflow-x-auto shrink-0 select-none"
@@ -157,50 +175,54 @@ function handleBulkDelete(): void {
       </div>
     </div>
 
-    <!-- Bulk Action Toolbar (When 1 or more connections are selected) -->
-    <div
-      v-if="selectedHostIds.size > 0"
-      class="h-9 bg-[#18233C] border-b border-blue-500/30 px-4 flex items-center justify-between text-xs shrink-0 select-none transition-all duration-150"
-    >
-      <div class="flex items-center space-x-2.5">
-        <CheckSquare class="w-4 h-4 text-blue-400" />
-        <span class="text-blue-200 font-medium">
-          {{ selectedHostIds.size }} connection{{ selectedHostIds.size > 1 ? 's' : '' }} selected
-        </span>
-      </div>
+    <!-- Bulk Action Toolbar (Shown strictly when 1 or more checkboxes are checked) -->
+    <div v-if="selectedHostIds.size > 0" class="px-4 pt-3 shrink-0 select-none">
+      <div
+        class="h-10 bg-[#18233C] border border-blue-500/40 rounded-lg px-3.5 flex items-center justify-between text-xs shadow-sm"
+      >
+        <div class="flex items-center space-x-2.5">
+          <CheckSquare class="w-4 h-4 text-blue-400 shrink-0" />
+          <span class="text-blue-100 font-medium">
+            {{ selectedHostIds.size }} connection{{ selectedHostIds.size > 1 ? 's' : '' }} selected
+          </span>
+        </div>
 
-      <div class="flex items-center space-x-2">
-        <button
-          type="button"
-          class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg flex items-center space-x-1.5 transition-colors shadow-sm"
-          @click="showBulkEditModal = true"
-        >
-          <Pencil class="w-3.5 h-3.5" />
-          <span>Bulk Edit</span>
-        </button>
+        <div class="flex items-center space-x-2">
+          <button
+            type="button"
+            class="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition-colors shadow-sm flex items-center space-x-1.5 cursor-pointer"
+            @click="showBulkEditModal = true"
+          >
+            <Pencil class="w-3.5 h-3.5" />
+            <span>Bulk Edit</span>
+          </button>
 
-        <button
-          type="button"
-          class="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 text-xs font-medium rounded-lg flex items-center space-x-1.5 transition-colors"
-          @click="handleBulkDelete"
-        >
-          <Trash2 class="w-3.5 h-3.5" />
-          <span>Delete Selected</span>
-        </button>
+          <button
+            type="button"
+            class="px-3 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 text-xs font-medium transition-colors flex items-center space-x-1.5 cursor-pointer"
+            @click="handleBulkDelete"
+          >
+            <Trash2 class="w-3.5 h-3.5" />
+            <span>Delete Selected</span>
+          </button>
 
-        <button
-          type="button"
-          class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors"
-          title="Deselect All"
-          @click="selectedHostIds.clear()"
-        >
-          <X class="w-3.5 h-3.5" />
-        </button>
+          <button
+            type="button"
+            class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors cursor-pointer"
+            title="Deselect All"
+            @click="selectedHostIds.clear()"
+          >
+            <X class="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </div>
 
     <!-- Main Content Area: Hosts Table Preview -->
-    <div class="flex-1 overflow-auto p-4">
+    <div
+      class="flex-1 overflow-auto px-4 pb-4"
+      :class="selectedHostIds.size > 0 ? 'pt-2.5' : 'pt-4'"
+    >
       <div class="border border-[#282F3E] rounded-lg overflow-x-auto bg-[#1C202B]">
         <table class="w-full min-w-[820px] text-left text-xs border-collapse">
           <thead>
@@ -238,12 +260,11 @@ function handleBulkDelete(): void {
             <tr
               v-for="(h, index) in filteredHosts"
               :key="h.id"
-              class="transition-colors cursor-pointer"
+              class="transition-colors"
               :class="selectedHostIds.has(h.id) ? 'bg-blue-900/20 hover:bg-blue-900/30' : 'hover:bg-[#222736]'"
-              @click="toggleSelectHost(h.id)"
             >
-              <!-- Row Checkbox -->
-              <td class="py-3 px-3 text-center whitespace-nowrap" @click.stop>
+              <!-- Row Checkbox (only clicking checkbox toggles selection) -->
+              <td class="py-3 px-3 text-center whitespace-nowrap">
                 <input
                   type="checkbox"
                   :checked="selectedHostIds.has(h.id)"
@@ -254,12 +275,20 @@ function handleBulkDelete(): void {
 
               <td class="py-3 px-2 text-center text-[#64748B] whitespace-nowrap">{{ index + 1 }}</td>
               <td class="py-3 px-4 text-white font-medium whitespace-nowrap">
-                <div class="flex items-center space-x-2">
+                <div class="flex items-center space-x-2 min-w-0">
                   <span
                     class="w-2 h-2 rounded-full shrink-0"
                     :class="activeConnectedHostIds.has(h.id) ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]' : 'bg-slate-600'"
                   ></span>
-                  <span class="truncate max-w-[200px]" :title="h.name">{{ h.name }}</span>
+                  <span class="truncate max-w-[190px]" :title="h.name">{{ h.name }}</span>
+                  <span
+                    v-if="h.group"
+                    class="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 text-[10px] font-normal shrink-0 max-w-[110px] truncate"
+                    :title="`Group: ${h.group}`"
+                  >
+                    <Folder class="w-2.5 h-2.5 shrink-0" />
+                    <span class="truncate">{{ h.group }}</span>
+                  </span>
                   <ProdBadge v-if="h.isProduction" size="sm" />
                 </div>
               </td>
@@ -297,7 +326,7 @@ function handleBulkDelete(): void {
                 </button>
                 <button
                   type="button"
-                  class="px-1.5 py-1 hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-400 rounded text-[11px] transition-colors"
+                  class="px-1.5 py-1 hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-400 rounded-lg text-[11px] transition-colors cursor-pointer"
                   title="SFTP File Manager"
                   @click.stop="emit('open-sftp', h.id)"
                 >
@@ -305,7 +334,15 @@ function handleBulkDelete(): void {
                 </button>
                 <button
                   type="button"
-                  class="px-1.5 py-1 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 rounded text-[11px] transition-colors"
+                  class="px-1.5 py-1 hover:bg-indigo-500/20 text-slate-400 hover:text-indigo-400 rounded-lg text-[11px] transition-colors cursor-pointer"
+                  title="Open in Text Editor"
+                  @click.stop="emit('open-editor', h)"
+                >
+                  <Code2 class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  class="px-1.5 py-1 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 rounded-lg text-[11px] transition-colors cursor-pointer"
                   title="Edit Connection"
                   @click.stop="emit('edit-host', h)"
                 >
