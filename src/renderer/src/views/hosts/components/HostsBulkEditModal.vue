@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { X, Layers, Check, ShieldAlert, Folder, User, Hash, HardDrive, Database, Palette } from 'lucide-vue-next'
 import { PRESET_COLORS } from '../../../utils/connectionColors'
 
@@ -29,6 +29,7 @@ const enableDatabase = ref(false)
 const targetGroup = ref('')
 const customGroupInput = ref('')
 const isCustomGroup = ref(false)
+const customGroupInputRef = ref<HTMLInputElement | null>(null)
 const targetUser = ref('root')
 const targetPort = ref(22)
 const targetRemotePath = ref('')
@@ -81,10 +82,17 @@ const enabledCount = computed(() => {
   return count
 })
 
+const isInvalidCustomGroup = computed(
+  () => enableGroup.value && isCustomGroup.value && !customGroupInput.value.trim()
+)
+
 function handleGroupSelectChange(e: Event): void {
   const val = (e.target as HTMLSelectElement).value
   if (val === '__NEW__') {
     isCustomGroup.value = true
+    nextTick(() => {
+      customGroupInputRef.value?.focus()
+    })
   } else {
     isCustomGroup.value = false
     targetGroup.value = val
@@ -92,7 +100,7 @@ function handleGroupSelectChange(e: Event): void {
 }
 
 function handleApply(): void {
-  if (enabledCount.value === 0) return
+  if (enabledCount.value === 0 || isInvalidCustomGroup.value) return
 
   const updates: Record<string, unknown> = {}
 
@@ -178,21 +186,24 @@ function handleApply(): void {
             </div>
             <div v-if="enableGroup" class="space-y-2 pl-5.5">
               <select
-                class="w-full bg-[#12151D] border border-[#2D3547] rounded-md px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                :value="isCustomGroup ? '__NEW__' : targetGroup"
+                class="w-full bg-[#12151D] border border-[#2D3547] rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
                 @change="handleGroupSelectChange"
               >
                 <option value="">(None / Ungrouped)</option>
-                <option v-for="g in availableGroups" :key="g" :value="g" :selected="!isCustomGroup && targetGroup === g">
+                <option v-for="g in availableGroups" :key="g" :value="g">
                   {{ g }}
                 </option>
-                <option value="__NEW__" :selected="isCustomGroup">+ New Group Name...</option>
+                <option value="__NEW__">+ New Group Name...</option>
               </select>
               <input
                 v-if="isCustomGroup"
+                ref="customGroupInputRef"
                 v-model="customGroupInput"
                 type="text"
                 placeholder="Enter new group name..."
-                class="w-full bg-[#12151D] border border-blue-500 rounded-md px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none"
+                class="w-full bg-[#12151D] border rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none transition-colors"
+                :class="isInvalidCustomGroup ? 'border-rose-500/70' : 'border-blue-500'"
               />
             </div>
           </div>
@@ -220,7 +231,7 @@ function handleApply(): void {
                   v-model="targetUser"
                   type="text"
                   placeholder="e.g. root, ubuntu"
-                  class="w-full bg-[#12151D] border border-[#2D3547] rounded-md px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                  class="w-full bg-[#12151D] border border-[#2D3547] rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
             </div>
@@ -246,7 +257,7 @@ function handleApply(): void {
                   v-model.number="targetPort"
                   type="number"
                   placeholder="22"
-                  class="w-full bg-[#12151D] border border-[#2D3547] rounded-md px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                  class="w-full bg-[#12151D] border border-[#2D3547] rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
                 />
               </div>
             </div>
@@ -273,7 +284,7 @@ function handleApply(): void {
                 v-model="targetRemotePath"
                 type="text"
                 placeholder="e.g. /var/www/html or /home/ubuntu"
-                class="w-full bg-[#12151D] border border-[#2D3547] rounded-md px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
+                class="w-full bg-[#12151D] border border-[#2D3547] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
               />
             </div>
           </div>
@@ -364,7 +375,7 @@ function handleApply(): void {
                   v-model="targetDbHost"
                   type="text"
                   placeholder="127.0.0.1 or localhost"
-                  class="w-full bg-[#12151D] border border-[#2D3547] rounded-md px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                  class="w-full bg-[#12151D] border border-[#2D3547] rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
                 />
               </div>
             </div>
@@ -386,7 +397,7 @@ function handleApply(): void {
                   v-model.number="targetDbPort"
                   type="number"
                   placeholder="3306"
-                  class="w-full bg-[#12151D] border border-[#2D3547] rounded-md px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                  class="w-full bg-[#12151D] border border-[#2D3547] rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
                 />
               </div>
             </div>
@@ -408,7 +419,7 @@ function handleApply(): void {
                   v-model="targetDatabase"
                   type="text"
                   placeholder="e.g. app_production"
-                  class="w-full bg-[#12151D] border border-[#2D3547] rounded-md px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                  class="w-full bg-[#12151D] border border-[#2D3547] rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
                 />
               </div>
             </div>
@@ -435,7 +446,7 @@ function handleApply(): void {
             <button
               type="button"
               class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1.5"
-              :disabled="enabledCount === 0"
+              :disabled="enabledCount === 0 || isInvalidCustomGroup"
               @click="handleApply"
             >
               <Check class="w-3.5 h-3.5" />
