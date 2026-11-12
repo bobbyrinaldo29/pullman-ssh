@@ -174,11 +174,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div
-    v-if="isOpen"
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 select-none font-sans"
-    @click.self="emit('close')"
-  >
+  <Teleport to="body">
+    <div
+      v-if="isOpen"
+      class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 select-none font-sans"
+      @click.self="emit('close')"
+    >
     <div
       class="w-full max-w-xl bg-[#1E222B] border border-[#2F374A] rounded-lg shadow-2xl flex flex-col overflow-hidden text-xs select-none animate-in fade-in zoom-in-95 duration-100"
       @click.stop
@@ -343,6 +344,7 @@ onUnmounted(() => {
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>
