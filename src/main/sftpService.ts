@@ -809,20 +809,29 @@ export class SftpService {
   ): Promise<{ diff: string; original: string; modified: string }> {
     const session = this.getSession(sessionId)
     if (!session || !session.isConnected) return { diff: '', original: '', modified: '' }
-    const escDir = (remotePath || '').replace(/\/+/g, '/').replace(/'/g, "'\\''")
-    const escFile = (filePath || '').replace(/'/g, "'\\''")
+    const escDir = (remotePath || '').replace(/^diff:/, '').replace(/\/+/g, '/').replace(/'/g, "'\\''")
+    const escCwd = (session.cwd || '').replace(/'/g, "'\\''")
+    const escFile = (filePath || '').replace(/^diff:/, '').replace(/\/+/g, '/').replace(/'/g, "'\\''")
     const isCommit = hash && !['HEAD', 'working', 'staged', 'current'].includes(hash) && /^[a-f0-9]{4,40}$/i.test(hash)
     const escHash = isCommit ? hash.replace(/[^a-f0-9]/gi, '') : ''
 
-    const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; FILE='${escFile}'; if [ -f "$FILE" ]; then cd "$(dirname "$FILE")" 2>/dev/null; else cd '${escDir}' 2>/dev/null; fi
-R=$(git -c 'safe.directory=*' rev-parse --show-toplevel 2>/dev/null)
+    const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; FILE='${escFile}'; R=""
+for P in '${escDir}' '${escCwd}' "$(dirname "$FILE")"; do
+  [ -z "$P" ] && continue; T="$P"; [ -f "$T" ] && T=$(dirname "$T"); [ ! -d "$T" ] && continue
+  cd "$T" 2>/dev/null || continue; R=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null); [ -n "$R" ] && break
+done
 if [ -n "$R" ]; then
-  REL="\${FILE#$R/}"; [ "$REL" = "$FILE" ] && REL=$(basename "$FILE")
+  cd "$R" 2>/dev/null; REL="$FILE"
+  case "$FILE" in "$R"/*) REL="\${FILE#$R/}" ;; esac
+  REL="\${REL#/}"
   ${isCommit
-    ? `D=$(git -c 'safe.directory=*' show '${escHash}' -- "$REL" 2>/dev/null || git -c 'safe.directory=*' show '${escHash}' -- "$FILE" 2>/dev/null); O=$(git -c 'safe.directory=*' show '${escHash}~1':"$REL" 2>/dev/null); M=$(git -c 'safe.directory=*' show '${escHash}':"$REL" 2>/dev/null)`
-    : `D=$(git -c 'safe.directory=*' diff HEAD -- "$REL" 2>/dev/null || git -c 'safe.directory=*' diff -- "$REL" 2>/dev/null || git -c 'safe.directory=*' diff HEAD -- "$FILE" 2>/dev/null)
-  [ -z "$D" ] && [ -f "$FILE" ] && D=$(git -c 'safe.directory=*' diff --no-index /dev/null "$FILE" 2>/dev/null)
-  O=$(git -c 'safe.directory=*' show HEAD:"$REL" 2>/dev/null); M=$([ -f "$FILE" ] && cat "$FILE" 2>/dev/null || cat "$R/$REL" 2>/dev/null || echo "")`}
+    ? `D=$(git -c safe.directory=* diff '${escHash}~1' '${escHash}' -- "$REL" 2>/dev/null || git -c safe.directory=* show --format="" '${escHash}' -- "$REL" 2>/dev/null)
+  O=$(git -c safe.directory=* show '${escHash}~1:'"$REL" 2>/dev/null || echo "")
+  M=$(git -c safe.directory=* show '${escHash}:'"$REL" 2>/dev/null || echo "")`
+    : `D=$(git -c safe.directory=* diff HEAD -- "$REL" 2>/dev/null || git -c safe.directory=* diff -- "$REL" 2>/dev/null)
+  [ -z "$D" ] && [ -f "$REL" ] && D=$(git -c safe.directory=* diff --no-index /dev/null "$REL" 2>/dev/null)
+  O=$(git -c safe.directory=* show HEAD:"$REL" 2>/dev/null || echo "")
+  M=$([ -f "$REL" ] && cat "$REL" 2>/dev/null || cat "$R/$REL" 2>/dev/null || cat "$FILE" 2>/dev/null || echo "")`}
   printf "%s\\n___PULLMAN_DIFF_SEP___\\n%s\\n___PULLMAN_DIFF_SEP___\\n%s" "$D" "$O" "$M"
 fi`
 

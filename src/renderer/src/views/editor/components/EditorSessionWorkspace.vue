@@ -210,7 +210,8 @@ async function openDiffTab(filePath: string, hash?: string): Promise<void> {
 
   let diffContent = '', diffOriginal = '', diffModified = ''
   if (window.api?.sftpGitFileDiff) {
-    const res = await window.api.sftpGitFileDiff(rootPath.value || '/', hash || 'HEAD', filePath, sessionId.value)
+    const target = activeGitGraphPath.value || rootPath.value || '/'
+    const res = await window.api.sftpGitFileDiff(target, hash || 'HEAD', filePath, sessionId.value)
     if (typeof res === 'string') {
       diffContent = res
     } else if (res) {
