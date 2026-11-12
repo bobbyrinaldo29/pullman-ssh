@@ -64,44 +64,27 @@ async function updateActiveSymbols(line: number, col: number): Promise<void> {
   }
 }
 
-// Cache models per tab to preserve undo/redo history and cursor states
+// Cache models & view states (scroll, cursor, selections) per tab
 const modelMap = new Map<string, monaco.editor.ITextModel>()
+const viewStateMap = new Map<string, monaco.editor.ICodeEditorViewState>()
+let currentTabId: string | null = null
+let isSwitchingTab = false
 
 // Git Blame Content Widget DOM Node
 const blameWidgetNode = document.createElement('div')
 blameWidgetNode.className = 'monaco-git-blame-inline'
 blameWidgetNode.style.display = 'none'
 
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
+const escapeHtml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 function updateBlameContentWidget(): void {
   if (!editor) return
-
   const blame = props.blame
-  if (!blame || !blame.author) {
-    blameWidgetNode.style.display = 'none'
-    blameWidgetNode.innerHTML = ''
-    editor.layoutContentWidget(gitBlameContentWidget)
-    return
-  }
-
   const pos = editor.getPosition()
   const model = editor.getModel()
-  if (!pos || !model) {
+  if (!blame?.author || !pos || !model || !model.getLineContent(pos.lineNumber).trim()) {
     blameWidgetNode.style.display = 'none'
-    editor.layoutContentWidget(gitBlameContentWidget)
-    return
-  }
-
-  const lineContent = model.getLineContent(pos.lineNumber)
-  if (!lineContent.trim()) {
-    blameWidgetNode.style.display = 'none'
+    blameWidgetNode.innerHTML = ''
     editor.layoutContentWidget(gitBlameContentWidget)
     return
   }
@@ -159,58 +142,58 @@ function getOrCreateModel(tab: EditorTab): monaco.editor.ITextModel {
   return model
 }
 
+const defaultEditorOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
+  theme: 'pullman-dark',
+  automaticLayout: true,
+  fontSize: 13,
+  fontFamily: "'Fira Code', Menlo, Monaco, 'Courier New', monospace",
+  lineHeight: 22,
+  tabSize: 2,
+  minimap: { enabled: true, maxColumn: 80, scale: 1 },
+  scrollBeyondLastLine: false,
+  renderLineHighlight: 'all',
+  cursorBlinking: 'smooth',
+  cursorSmoothCaretAnimation: 'on',
+  smoothScrolling: true,
+  bracketPairColorization: { enabled: true },
+  guides: { indentation: true, bracketPairs: true },
+  padding: { top: 10, bottom: 10 },
+  roundedSelection: true,
+  fixedOverflowWidgets: true,
+  formatOnPaste: true
+}
+
 function initMonaco(): void {
   if (!containerRef.value || editor) return
 
   try {
-    editor = monaco.editor.create(containerRef.value, {
-      theme: 'pullman-dark',
-      automaticLayout: true,
-      fontSize: 13,
-      fontFamily: "'Fira Code', Menlo, Monaco, 'Courier New', monospace",
-      lineHeight: 22,
-      tabSize: 2,
-      minimap: { enabled: true, maxColumn: 80, scale: 1 },
-      scrollBeyondLastLine: false,
-      renderLineHighlight: 'all',
-      cursorBlinking: 'smooth',
-      cursorSmoothCaretAnimation: 'on',
-      smoothScrolling: true,
-      bracketPairColorization: { enabled: true },
-      guides: { indentation: true, bracketPairs: true },
-      padding: { top: 10, bottom: 10 },
-      roundedSelection: true,
-      fixedOverflowWidgets: true,
-      formatOnPaste: true
-    })
+    editor = monaco.editor.create(containerRef.value, defaultEditorOptions)
   } catch (err) {
     console.warn('Failed to create Monaco editor with pullman-dark theme, falling back to vs-dark:', err)
-    editor = monaco.editor.create(containerRef.value, {
-      theme: 'vs-dark',
-      automaticLayout: true,
-      fontSize: 13,
-      fontFamily: "'Fira Code', Menlo, Monaco, 'Courier New', monospace",
-      lineHeight: 22,
-      tabSize: 2,
-      minimap: { enabled: true, maxColumn: 80, scale: 1 },
-      scrollBeyondLastLine: false,
-      renderLineHighlight: 'all'
-    })
+    editor = monaco.editor.create(containerRef.value, { ...defaultEditorOptions, theme: 'vs-dark' })
   }
 
   // Add Git Blame content widget
   editor.addContentWidget(gitBlameContentWidget)
 
-  // Track cursor position
+  // Track cursor position & cache view state
   editor.onDidChangeCursorPosition((e) => {
     emit('cursor-change', { line: e.position.lineNumber, col: e.position.column })
     updateBlameContentWidget()
     updateActiveSymbols(e.position.lineNumber, e.position.column)
+    if (!isSwitchingTab && currentTabId && editor) {
+      const state = editor.saveViewState()
+      if (state) viewStateMap.set(currentTabId, state)
+    }
   })
 
-  // Track scroll position to keep blame widget aligned
+  // Track scroll position to keep blame widget aligned & cache view state
   editor.onDidScrollChange(() => {
     updateBlameContentWidget()
+    if (!isSwitchingTab && currentTabId && editor) {
+      const state = editor.saveViewState()
+      if (state) viewStateMap.set(currentTabId, state)
+    }
   })
 
   // Keyboard Shortcuts: Save, Save as Sudo, AI Gen, Wrap Log
@@ -239,14 +222,14 @@ function initMonaco(): void {
   if (props.activeTab) {
     const model = getOrCreateModel(props.activeTab)
     editor.setModel(model)
+    currentTabId = props.activeTab.id
+    const savedState = viewStateMap.get(props.activeTab.id)
+    if (savedState) editor.restoreViewState(savedState)
     updateBlameContentWidget()
     updateOutlineSymbols()
   }
 
-  // Trigger immediate layout
-  nextTick(() => {
-    editor?.layout()
-  })
+  nextTick(() => editor?.layout())
 
   // Setup ResizeObserver for layout
   resizeObserver = new ResizeObserver(() => {
@@ -259,13 +242,35 @@ function initMonaco(): void {
 function switchTabModel(): void {
   if (!editor) return
 
-  if (props.activeTab) {
-    const model = getOrCreateModel(props.activeTab)
+  const oldTabId = currentTabId
+  const newTab = props.activeTab
+
+  // 1. Save previous tab view state before switching
+  if (oldTabId && oldTabId !== newTab?.id) {
+    const state = editor.saveViewState()
+    if (state) viewStateMap.set(oldTabId, state)
+  }
+
+  if (newTab) {
+    isSwitchingTab = true
+    currentTabId = newTab.id
+    const model = getOrCreateModel(newTab)
     if (editor.getModel() !== model) {
       editor.setModel(model)
     }
+
+    // 2. Restore saved view state (scroll position & cursor) or reset to top
+    const savedState = viewStateMap.get(newTab.id)
+    if (savedState) {
+      editor.restoreViewState(savedState)
+    } else {
+      editor.setScrollTop(0)
+      editor.setScrollLeft(0)
+      editor.setPosition({ lineNumber: 1, column: 1 })
+    }
+
     // Update language if changed
-    const lang = getMonacoLanguage(props.activeTab.name || props.activeTab.path || props.activeTab.language)
+    const lang = getMonacoLanguage(newTab.name || newTab.path || newTab.language)
     if (model.getLanguageId() !== lang) {
       monaco.editor.setModelLanguage(model, lang)
     }
@@ -274,10 +279,16 @@ function switchTabModel(): void {
     updateOutlineSymbols()
     nextTick(() => {
       editor?.layout()
+      if (savedState) {
+        editor?.restoreViewState(savedState)
+      }
+      isSwitchingTab = false
     })
     const pos = editor.getPosition()
     if (pos) updateActiveSymbols(pos.lineNumber, pos.column)
   } else {
+    currentTabId = null
+    isSwitchingTab = false
     activeSymbols.value = []
     outlineSymbols.value = []
     editor.setModel(null)
@@ -420,6 +431,8 @@ onUnmounted(() => {
     if (!m.isDisposed()) m.dispose()
   }
   modelMap.clear()
+  viewStateMap.clear()
+  currentTabId = null
   editor?.dispose()
   editor = null
 })

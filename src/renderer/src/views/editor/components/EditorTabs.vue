@@ -104,11 +104,12 @@ function getIconColor(tab: EditorTab): string {
         <button
           v-if="activeTab && activeTab.viewType !== 'git-graph'"
           type="button"
-          class="p-1 rounded text-amber-400 hover:text-amber-300 hover:bg-[#252A36] transition-colors"
+          class="p-1 rounded text-amber-400 hover:text-amber-300 hover:bg-[#252A36] transition-colors flex items-center space-x-1"
           title="Save as Sudo / Root (⌘⌥S / Ctrl+Alt+S)"
           @click="emit('save-as-sudo')"
         >
           <ShieldAlert class="w-4 h-4" />
+          <span class="text-[11px]">Save as Sudo</span>
         </button>
         <button
           type="button"
