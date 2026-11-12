@@ -1,13 +1,9 @@
-# Created by venv; see https://docs.python.org/3/library/venv.html
-bin/*
-include/*
-lib/*
-venv/*
-src/__pycache__/*
-src/ui/__pycache__/*
-pyvenv.cfg
-.master.key
-dist/*
-build/*
-pullManager.db
-src/pullManager.db
+node_modules
+dist
+out
+.DS_Store
+.eslintcache
+*.log*
+*.db
+*.key
+.liteclient/
