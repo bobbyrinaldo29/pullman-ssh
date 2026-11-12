@@ -93,6 +93,10 @@ function initTerminal(): void {
 
   // Handle user typing inside terminal -> send to native SSH PTY
   term.onData((data) => {
+    // If Enter (\r or \n) or Ctrl+C (\x03) is pressed while sudo mode was active, reset toggle
+    if (asSudo.value && (data.includes('\r') || data.includes('\n') || data.includes('\x03'))) {
+      asSudo.value = false
+    }
     if (window.api?.sshShellWrite) {
       window.api.sshShellWrite(props.tab.id, data)
     }
@@ -201,15 +205,35 @@ function sendSshPassword(): void {
   term?.focus()
 }
 
+function toggleSudoMode(): void {
+  asSudo.value = !asSudo.value
+
+  if (props.tab.status === 'connected' && window.api?.sshShellWrite) {
+    if (asSudo.value) {
+      // Move cursor to start of line in readline (\x01 = Ctrl+A), prepend "sudo ", then return to end (\x05 = Ctrl+E)
+      window.api.sshShellWrite(props.tab.id, '\x01sudo \x05')
+    } else {
+      // Remove "sudo " prefix: move to start (\x01), delete 5 characters (\x1b[3~ = Delete), return to end (\x05)
+      window.api.sshShellWrite(props.tab.id, '\x01\x1b[3~\x1b[3~\x1b[3~\x1b[3~\x1b[3~\x05')
+    }
+  }
+
+  term?.focus()
+}
+
 function runQuickSnippet(cmd: string): void {
   const fullCmd = asSudo.value ? `sudo ${cmd}` : cmd
   if (window.api?.sshShellWrite) {
     window.api.sshShellWrite(props.tab.id, fullCmd + '\n')
   }
+  if (asSudo.value) {
+    asSudo.value = false
+  }
   term?.focus()
 }
 
 function handleClear(): void {
+  asSudo.value = false
   term?.clear()
   term?.focus()
 }
@@ -339,7 +363,7 @@ onUnmounted(() => {
         class="px-2.5 py-0.5 rounded-md text-[11px] flex items-center space-x-1 transition-colors border"
         :class="asSudo ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-[#202636] text-slate-400 border-slate-700/50 hover:text-slate-200'"
         title="Execute commands with root privileges (sudo)"
-        @click.stop="asSudo = !asSudo"
+        @click.stop="toggleSudoMode"
       >
         <Shield class="w-3 h-3" :class="asSudo ? 'text-amber-400' : 'text-slate-400'" />
         <span class="font-mono text-[10px]">sudo mode</span>
