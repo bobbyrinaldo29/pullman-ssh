@@ -232,3 +232,36 @@
   word-break: break-word;
 }
 
+/* ==========================================================
+   Soft & Modern Diff Editor Highlighting (GitHub Dark Style)
+   ========================================================== */
+
+.monaco-diff-editor .line-insert {
+  background-color: rgba(46, 160, 67, 0.15) !important;
+}
+
+.monaco-diff-editor .line-delete {
+  background-color: rgba(248, 81, 73, 0.15) !important;
+}
+
+.monaco-diff-editor .char-insert {
+  background-color: rgba(46, 160, 67, 0.28) !important;
+  border-radius: 2px !important;
+  box-shadow: inset 0 0 0 1px rgba(46, 160, 67, 0.35) !important;
+}
+
+.monaco-diff-editor .char-delete {
+  background-color: rgba(248, 81, 73, 0.28) !important;
+  border-radius: 2px !important;
+  box-shadow: inset 0 0 0 1px rgba(248, 81, 73, 0.35) !important;
+}
+
+.monaco-diff-editor .gutter-insert {
+  background-color: rgba(46, 160, 67, 0.25) !important;
+}
+
+.monaco-diff-editor .gutter-delete {
+  background-color: rgba(248, 81, 73, 0.25) !important;
+}
+
+

@@ -31,6 +31,7 @@ let originalModel: monaco.editor.ITextModel | null = null
 let modifiedModel: monaco.editor.ITextModel | null = null
 
 const isInline = ref(false)
+const changesCount = ref(0)
 
 const cleanFilename = computed(() => {
   return (props.filename || '').replace(/\s*\(Diff\)/i, '').trim()
@@ -87,12 +88,26 @@ function initDiffEditor(): void {
     minimap: { enabled: false },
     scrollBeyondLastLine: false,
     diffWordWrap: 'on',
+    wordWrap: 'on',
     renderIndicators: true,
     smoothScrolling: true,
+    ignoreTrimWhitespace: false,
+    enableSplitViewResizing: true,
     hideUnchangedRegions: {
       enabled: true,
       revealLineCount: 20,
       minimumLineCount: 3
+    }
+  })
+
+  diffEditor.onDidUpdateDiff(() => {
+    const changes = diffEditor?.getLineChanges() || []
+    changesCount.value = changes.length
+    if (changes.length > 0) {
+      const first = changes[0]
+      const targetLine = first.modifiedStartLineNumber || first.originalStartLineNumber || 1
+      diffEditor?.getModifiedEditor().revealLineInCenter(targetLine)
+      diffEditor?.getOriginalEditor().revealLineInCenter(targetLine)
     }
   })
 
@@ -148,6 +163,18 @@ onUnmounted(() => {
         <FileCode class="w-3.5 h-3.5 text-blue-400 shrink-0" />
         <span class="text-slate-300 font-medium truncate text-[11px]">{{ filename || 'Diff Viewer' }}</span>
         <span class="text-[10px] text-slate-500 font-mono">({{ detectedLanguage }})</span>
+        <span
+          v-if="changesCount > 0"
+          class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-blue-500/20 text-blue-300 border border-blue-500/30 shrink-0"
+        >
+          {{ changesCount }} {{ changesCount === 1 ? 'change' : 'changes' }}
+        </span>
+        <span
+          v-else
+          class="text-[10px] text-slate-500 font-mono shrink-0"
+        >
+          (No changes)
+        </span>
       </div>
 
       <!-- Controls: Toggle Inline/Split, Navigate Changes -->

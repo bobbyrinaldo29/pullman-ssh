@@ -1,4 +1,20 @@
 import * as monaco from 'monaco-editor'
+import editorWorker from 'monaco-editor/editor/editor.worker?worker'
+import jsonWorker from 'monaco-editor/language/json/json.worker?worker'
+import cssWorker from 'monaco-editor/language/css/css.worker?worker'
+import htmlWorker from 'monaco-editor/language/html/html.worker?worker'
+import tsWorker from 'monaco-editor/language/typescript/ts.worker?worker'
+
+// Configure Monaco Environment workers for language services and diff computation
+self.MonacoEnvironment = {
+  getWorker(_: any, label: string) {
+    if (label === 'json') return new jsonWorker()
+    if (label === 'css' || label === 'scss' || label === 'less') return new cssWorker()
+    if (label === 'html' || label === 'handlebars' || label === 'razor') return new htmlWorker()
+    if (label === 'typescript' || label === 'javascript') return new tsWorker()
+    return new editorWorker()
+  }
+}
 
 // Define Pullman dark theme matching the app UI
 monaco.editor.defineTheme('pullman-dark', {
@@ -24,7 +40,20 @@ monaco.editor.defineTheme('pullman-dark', {
     'editor.lineHighlightBackground': '#252B3A',
     'editorCursor.foreground': '#528bff',
     'editor.selectionBackground': '#3E4451',
-    'editor.inactiveSelectionBackground': '#2c313c'
+    'editor.inactiveSelectionBackground': '#2c313c',
+
+    // Soft & Pleasant GitHub-style Diff Editor Colors
+    'diffEditor.insertedTextBackground': '#2ea04338',
+    'diffEditor.removedTextBackground': '#f8514938',
+    'diffEditor.insertedLineBackground': '#2ea0431a',
+    'diffEditor.removedLineBackground': '#f851491a',
+    'diffEditor.insertedTextBorder': '#00000000',
+    'diffEditor.removedTextBorder': '#00000000',
+    'diffEditorGutter.insertedLineBackground': '#2ea04330',
+    'diffEditorGutter.removedLineBackground': '#f8514930',
+    'diffEditorOverview.insertedForeground': '#2ea04399',
+    'diffEditorOverview.removedForeground': '#f8514999',
+    'diffEditor.diagonalFill': '#252B3A80'
   }
 })
 

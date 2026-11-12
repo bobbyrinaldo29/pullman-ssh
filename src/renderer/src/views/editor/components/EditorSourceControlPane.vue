@@ -15,7 +15,9 @@ import {
   Sparkles,
   ArrowDownToLine,
   ArrowUpRight,
-  MoreHorizontal
+  MoreHorizontal,
+  FolderGit2,
+  Folder
 } from 'lucide-vue-next'
 import { GitChangeItem } from '../types'
 import { useEditorGit } from '../composables/useEditorGit'
@@ -61,6 +63,7 @@ const {
   commitMessage,
   gitStatus,
   repoName,
+  currentActivePath,
   stagedFiles,
   unstagedFiles,
   fetchStatus,
@@ -140,6 +143,24 @@ defineExpose({
       </button>
     </div>
 
+    <!-- Active Path Bar -->
+    <div
+      class="px-3 py-1.5 bg-[#14161B] border-b border-[#24272E] flex items-center justify-between text-[11px] text-slate-400 shrink-0 gap-2"
+      :title="`Active Path: ${currentActivePath}`"
+    >
+      <div class="flex items-center min-w-0 space-x-1.5 truncate">
+        <FolderGit2 v-if="gitStatus.isGit" class="w-3.5 h-3.5 text-blue-400 shrink-0" />
+        <Folder v-else class="w-3.5 h-3.5 text-slate-500 shrink-0" />
+        <span class="truncate font-mono text-[11px] text-slate-300 select-all">{{ currentActivePath }}</span>
+      </div>
+      <span
+        v-if="gitStatus.branch"
+        class="shrink-0 px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/20"
+      >
+        {{ gitStatus.branch }}
+      </span>
+    </div>
+
     <!-- 3-Dots Popup Menu matching VS Code -->
     <EditorSourceControlMenu
       :is-open="isMoreMenuOpen"
@@ -170,14 +191,26 @@ defineExpose({
       </div>
       <p class="text-xs font-medium text-slate-300">No Git Repository</p>
       <p class="text-[11px] text-slate-500 mt-1 max-w-[200px]">Folder is not a git repository or git is not installed.</p>
+      <p class="text-[10px] font-mono text-slate-400 mt-2 px-2.5 py-1 bg-[#14161B] rounded border border-[#2D3547] max-w-[240px] truncate" :title="currentActivePath">
+        {{ currentActivePath }}
+      </p>
       <button
         type="button"
-        class="mt-4 px-3 py-1 bg-[#252A36] hover:bg-[#2F3647] border border-[#374154] rounded text-xs text-slate-200 transition-colors flex items-center space-x-1.5"
-        @click="fetchStatus"
+        class="mt-4 px-3.5 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-slate-300 hover:text-white text-xs font-medium transition-colors flex items-center space-x-1.5"
+        @click="fetchStatus()"
       >
-        <RotateCw class="w-3 h-3" />
+        <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isLoading }" />
         <span>Check Again</span>
       </button>
+    </div>
+
+    <!-- Loading State -->
+    <div
+      v-else-if="isLoading && !gitStatus.isGit"
+      class="flex-1 flex flex-col items-center justify-center p-6 text-center text-slate-400"
+    >
+      <RotateCw class="w-5 h-5 animate-spin text-blue-400 mb-2" />
+      <span class="text-xs">Checking Git repository...</span>
     </div>
 
     <!-- Git Content Body -->
@@ -227,7 +260,7 @@ defineExpose({
             type="button"
             class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors"
             title="Refresh Status"
-            @click="fetchStatus"
+            @click="() => fetchStatus()"
           >
             <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isLoading }" />
           </button>
