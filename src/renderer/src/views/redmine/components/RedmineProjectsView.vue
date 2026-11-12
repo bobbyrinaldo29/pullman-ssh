@@ -16,6 +16,11 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'select-project', id: number): void
 }>()
+
+function handleProjectClick(id: number): void {
+  if (window.getSelection()?.toString().trim()) return
+  emit('select-project', id)
+}
 </script>
 
 <template>
@@ -66,11 +71,11 @@ const emit = defineEmits<{
           :key="p.id"
           class="p-4 rounded-lg bg-[#1a202c] border border-[#273244] hover:border-blue-500/50 hover:bg-[#1f2736] transition-all cursor-pointer flex flex-col justify-between space-y-3 group shadow-sm"
           :class="{ 'border-rose-500 bg-[#21293a]': props.selectedProjectId === p.id }"
-          @click="emit('select-project', p.id)"
+          @click="handleProjectClick(p.id)"
         >
           <div class="space-y-1.5">
             <div class="flex items-start justify-between gap-2">
-              <h3 class="font-bold text-sm text-white group-hover:text-blue-300 transition-colors line-clamp-1">
+              <h3 class="font-bold text-sm text-white group-hover:text-blue-300 transition-colors line-clamp-1 select-text cursor-text">
                 {{ p.name }}
               </h3>
               <span

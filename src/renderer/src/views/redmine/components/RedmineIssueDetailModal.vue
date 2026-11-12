@@ -55,15 +55,15 @@ function formatDate(dateStr?: string): string {
     <div class="w-full max-w-3xl max-h-[85vh] bg-[#1a202c] border border-[#2d3748] rounded-lg shadow-2xl flex flex-col overflow-hidden text-slate-200">
       <!-- Modal Header (Redmine Styled) -->
       <div class="bg-[#46657e] px-4 py-3 flex items-center justify-between text-white border-b border-[#3b556b] shrink-0">
-        <div class="flex items-center space-x-2 truncate">
-          <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-[#b32d2e] text-white">
+        <div class="flex items-center space-x-2 truncate min-w-0">
+          <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-[#b32d2e] text-white select-text shrink-0">
             {{ props.issue.tracker.name }} #{{ props.issue.id }}
           </span>
-          <h2 class="text-sm font-bold text-white truncate">{{ props.issue.subject }}</h2>
+          <h2 class="text-sm font-bold text-white truncate select-text cursor-text">{{ props.issue.subject }}</h2>
         </div>
         <button
           type="button"
-          class="text-slate-300 hover:text-white transition-colors cursor-pointer"
+          class="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0"
           @click="emit('close')"
         >
           <X class="w-4 h-4" />

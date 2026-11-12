@@ -512,7 +512,7 @@ function handlePluginCenter(): void {
     />
 
     <!-- Main Workspace Area -->
-    <div class="flex-1 flex overflow-hidden">
+    <div class="flex-1 min-h-0 min-w-0 flex overflow-hidden">
       <!-- Left Navigation Explorer (Matches tools from screenshot with current sleek theme) -->
       <SidebarNavigator
         v-model:collapsed="isSidebarCollapsed"
@@ -542,7 +542,7 @@ function handlePluginCenter(): void {
       />
 
       <!-- Center Main Workspace Canvas -->
-      <main class="flex-1 flex flex-col bg-[#171A21] overflow-hidden">
+      <main class="flex-1 min-h-0 min-w-0 flex flex-col bg-[#171A21] overflow-hidden">
         <!-- SSH Terminal View -->
         <SshView
           v-if="visitedViews.has('ssh')"

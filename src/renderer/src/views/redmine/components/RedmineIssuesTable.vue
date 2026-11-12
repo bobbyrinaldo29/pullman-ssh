@@ -1,20 +1,31 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import {
   ChevronDown,
   ChevronRight,
   Filter,
   Plus,
   Search,
-  FolderKanban
+  FolderKanban,
+  Copy,
+  Check
 } from 'lucide-vue-next'
-import {
+import type {
   RedmineIssue,
   RedmineTracker,
   RedminePriority,
   RedmineQuery,
   RedmineFilterOptions
 } from '../types'
+import {
+  copyToClipboard,
+  formatIssueCopyTitle,
+  getTrackerClass,
+  getStatusClass,
+  getPriorityClass,
+  formatShortRelative
+} from '../utils/issueDisplay'
+import RedmineQueriesSidebar from './RedmineQueriesSidebar.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -40,31 +51,58 @@ const emit = defineEmits<{
   (e: 'apply-filters'): void
   (e: 'clear-filters'): void
   (e: 'update:selected-project-id', id: number | 'all'): void
+  (e: 'update:filters', filters: RedmineFilterOptions): void
 }>()
 
 const showFilters = ref(true)
+const copiedIssueId = ref<number | null>(null)
+let copyTimer: ReturnType<typeof setTimeout> | null = null
+
+function updateFilter<K extends keyof RedmineFilterOptions>(key: K, value: RedmineFilterOptions[K]): void {
+  emit('update:filters', { ...props.filters, [key]: value })
+}
 
 function selectQuery(id: number | 'all'): void {
-  props.filters.queryId = id
+  updateFilter('queryId', id)
   emit('apply-filters')
 }
 
+function handleRowClick(issue: RedmineIssue): void {
+  const selection = window.getSelection()?.toString().trim()
+  if (selection) return
+  emit('select-issue', issue)
+}
+
+async function handleCopySubject(issue: RedmineIssue): Promise<void> {
+  const ok = await copyToClipboard(formatIssueCopyTitle(issue))
+  if (!ok) return
+  copiedIssueId.value = issue.id
+  if (copyTimer) clearTimeout(copyTimer)
+  copyTimer = setTimeout(() => {
+    copiedIssueId.value = null
+  }, 1500)
+}
+
+onUnmounted(() => {
+  if (copyTimer) clearTimeout(copyTimer)
+})
+
 const visibleQueries = computed(() => {
   return props.queries.filter((q) => {
-    if (props.selectedProjectId && props.selectedProjectId !== 'all' && q.project_id && q.project_id !== props.selectedProjectId) {
+    if (
+      props.selectedProjectId &&
+      props.selectedProjectId !== 'all' &&
+      q.project_id &&
+      q.project_id !== props.selectedProjectId
+    ) {
       return false
     }
     return true
   })
 })
 
-const myQueries = computed(() => {
-  return visibleQueries.value.filter((q) => !q.is_public)
-})
-
-const publicQueries = computed(() => {
-  return visibleQueries.value.filter((q) => q.is_public)
-})
+const myQueries = computed(() => visibleQueries.value.filter((q) => !q.is_public))
+const publicQueries = computed(() => visibleQueries.value.filter((q) => q.is_public))
 
 interface ColumnDef {
   key: string
@@ -97,14 +135,18 @@ function loadColumnWidths(): void {
         col.width = s.width
       }
     }
-  } catch {}
+  } catch {
+    // ignore invalid persisted column widths
+  }
 }
 
 function saveColumnWidths(): void {
   try {
     const saved = columns.value.map((c) => ({ key: c.key, width: c.width }))
     localStorage.setItem('redmine_issues_column_widths', JSON.stringify(saved))
-  } catch {}
+  } catch {
+    // ignore storage errors
+  }
 }
 
 loadColumnWidths()
@@ -140,105 +182,12 @@ function startResize(index: number, e: MouseEvent): void {
   window.addEventListener('mousemove', onMouseMove)
   window.addEventListener('mouseup', onMouseUp)
 }
-
-function getTrackerClass(name: string): string {
-  const n = (name || '').toLowerCase()
-  if (n.includes('bug') || n.includes('defect') || n.includes('error')) {
-    return 'bg-rose-500/20 text-rose-300 border-rose-500/40 shadow-xs'
-  }
-  if (n.includes('feature') || n.includes('fitur')) {
-    return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-xs'
-  }
-  if (n.includes('enhancement') || n.includes('enhance') || n.includes('peningkatan')) {
-    return 'bg-purple-500/20 text-purple-300 border-purple-500/40 shadow-xs'
-  }
-  if (n.includes('task') || n.includes('tugas')) {
-    return 'bg-sky-500/20 text-sky-300 border-sky-500/40 shadow-xs'
-  }
-  if (n.includes('support') || n.includes('bantuan')) {
-    return 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
-  }
-  return 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
-}
-
-function getStatusClass(name: string): string {
-  const n = (name || '').toLowerCase().replace(/[-_]/g, ' ')
-  // 1. Deployed / Live / Rilis
-  if (n.includes('deployed') || n.includes('live') || n.includes('rilis')) {
-    return 'bg-teal-500/20 text-teal-300 border-teal-500/40 font-medium'
-  }
-  // 2. Test-Passed / Passed / Verified
-  if (n.includes('passed') || n.includes('pass') || n.includes('verified') || n.includes('approved')) {
-    return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-medium'
-  }
-  // 3. Testing / Test / QA
-  if (n.includes('testing') || n.includes('qa') || n.includes('uji')) {
-    return 'bg-violet-500/20 text-violet-300 border-violet-500/40 font-medium'
-  }
-  // 4. Ready to test / Ready
-  if (n.includes('ready') || n.includes('siap')) {
-    return 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 font-medium'
-  }
-  // 5. In Progress / Working / Sedang Dikerjakan
-  if (n.includes('progress') || n.includes('working') || n.includes('sedang')) {
-    return 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-medium'
-  }
-  // 6. New / Baru / Open
-  if (n.includes('new') || n.includes('baru') || n.includes('open')) {
-    return 'bg-blue-500/20 text-blue-300 border-blue-500/40 font-medium'
-  }
-  // 7. Feedback / Need Info
-  if (n.includes('feedback') || n.includes('info') || n.includes('clarif')) {
-    return 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/40 font-medium'
-  }
-  // 8. Resolved
-  if (n.includes('resolved') || n.includes('solved')) {
-    return 'bg-green-500/20 text-green-300 border-green-500/40 font-medium'
-  }
-  // 9. Closed / Selesai
-  if (n.includes('closed') || n.includes('done') || n.includes('finish')) {
-    return 'bg-slate-700/50 text-slate-300 border-slate-600/50'
-  }
-  // 10. Rejected / Cancelled / Tolak
-  if (n.includes('reject') || n.includes('cancel') || n.includes('batal') || n.includes('tolak')) {
-    return 'bg-rose-500/20 text-rose-300 border-rose-500/40 font-medium'
-  }
-  // 11. Reopen
-  if (n.includes('reopen')) {
-    return 'bg-orange-500/20 text-orange-300 border-orange-500/40 font-medium'
-  }
-  return 'bg-slate-600/25 text-slate-300 border-slate-500/30'
-}
-
-function getPriorityClass(name: string): string {
-  const n = name.toLowerCase()
-  if (n.includes('low')) return 'text-slate-400'
-  if (n.includes('normal')) return 'text-slate-200'
-  if (n.includes('high')) return 'text-amber-400 font-semibold'
-  if (n.includes('urgent')) return 'text-orange-400 font-bold'
-  if (n.includes('immediate')) return 'text-rose-400 font-bold'
-  return 'text-slate-300'
-}
-
-function formatRelative(dateStr: string): string {
-  try {
-    const diff = Date.now() - new Date(dateStr).getTime()
-    const hours = Math.floor(diff / 3600000)
-    if (hours < 1) return 'Just now'
-    if (hours < 24) return `${hours}h ago`
-    const days = Math.floor(hours / 24)
-    if (days < 30) return `${days}d ago`
-    return new Date(dateStr).toLocaleDateString()
-  } catch {
-    return dateStr
-  }
-}
 </script>
 
 <template>
-  <div class="flex-1 flex flex-row bg-[#141822] text-slate-200 overflow-hidden font-sans select-none">
+  <div class="flex-1 min-h-0 min-w-0 flex flex-row bg-[#141822] text-slate-200 overflow-hidden font-sans select-none">
     <!-- Main Center Issues Content -->
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+    <div class="flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden">
       <!-- Filters Accordion Section -->
       <div class="bg-[#1b212e] border-b border-[#293347] text-xs shrink-0">
         <div
@@ -269,15 +218,16 @@ function formatRelative(dateStr: string): string {
           </div>
         </div>
 
-        <!-- Collapsible Filters Form (4 standard fields) -->
-        <div v-if="showFilters" class="px-4 py-3 border-t border-[#242d3e] grid grid-cols-1 md:grid-cols-4 gap-3 text-xs bg-[#171c27]">
-          <!-- Status Filter -->
+        <div
+          v-if="showFilters"
+          class="px-4 py-3 border-t border-[#242d3e] grid grid-cols-1 md:grid-cols-4 gap-3 text-xs bg-[#171c27]"
+        >
           <div class="space-y-1">
             <label class="text-[10px] uppercase font-bold text-slate-400">Status</label>
             <select
-              v-model="props.filters.status"
+              :value="props.filters.status"
               class="w-full px-2 py-1 bg-[#141822] border border-[#2b354a] rounded text-xs text-white focus:outline-none focus:border-blue-500 font-sans"
-              @change="emit('apply-filters')"
+              @change="(e) => { updateFilter('status', (e.target as HTMLSelectElement).value as RedmineFilterOptions['status']); emit('apply-filters') }"
             >
               <option value="open">Open</option>
               <option value="all">All</option>
@@ -285,41 +235,39 @@ function formatRelative(dateStr: string): string {
             </select>
           </div>
 
-          <!-- Tracker Filter -->
           <div class="space-y-1">
             <label class="text-[10px] uppercase font-bold text-slate-400">Tracker</label>
             <select
-              v-model="props.filters.trackerId"
+              :value="props.filters.trackerId"
               class="w-full px-2 py-1 bg-[#141822] border border-[#2b354a] rounded text-xs text-white focus:outline-none focus:border-blue-500 font-sans"
-              @change="emit('apply-filters')"
+              @change="(e) => { const v = (e.target as HTMLSelectElement).value; updateFilter('trackerId', v === 'all' ? 'all' : Number(v)); emit('apply-filters') }"
             >
               <option value="all">-- All Trackers --</option>
               <option v-for="t in props.trackers" :key="t.id" :value="t.id">{{ t.name }}</option>
             </select>
           </div>
 
-          <!-- Priority Filter -->
           <div class="space-y-1">
             <label class="text-[10px] uppercase font-bold text-slate-400">Priority</label>
             <select
-              v-model="props.filters.priorityId"
+              :value="props.filters.priorityId"
               class="w-full px-2 py-1 bg-[#141822] border border-[#2b354a] rounded text-xs text-white focus:outline-none focus:border-blue-500 font-sans"
-              @change="emit('apply-filters')"
+              @change="(e) => { const v = (e.target as HTMLSelectElement).value; updateFilter('priorityId', v === 'all' ? 'all' : Number(v)); emit('apply-filters') }"
             >
               <option value="all">-- All Priorities --</option>
               <option v-for="p in props.priorities" :key="p.id" :value="p.id">{{ p.name }}</option>
             </select>
           </div>
 
-          <!-- Keyword Search -->
           <div class="space-y-1">
             <label class="text-[10px] uppercase font-bold text-slate-400">Search Subject</label>
             <div class="relative">
               <input
-                v-model="props.filters.search"
+                :value="props.filters.search"
                 type="text"
                 placeholder="Keyword..."
                 class="w-full pl-2 pr-6 py-1 bg-[#141822] border border-[#2b354a] rounded text-xs text-white focus:outline-none focus:border-blue-500 placeholder-slate-600 font-sans"
+                @input="(e) => updateFilter('search', (e.target as HTMLInputElement).value)"
                 @keydown.enter="emit('apply-filters')"
               />
               <Search class="w-3 h-3 text-slate-500 absolute right-2 top-2 pointer-events-none" />
@@ -331,14 +279,14 @@ function formatRelative(dateStr: string): string {
       <!-- Table Header Actions Bar -->
       <div class="px-4 py-2 bg-[#171c26] border-b border-[#252e3f] flex items-center justify-between text-xs shrink-0">
         <div class="flex items-center space-x-2">
-          <h2 class="text-sm font-bold text-white">Issues</h2>
+          <h2 class="text-sm font-bold text-white select-text">Issues</h2>
           <span class="text-slate-400 text-xs">({{ props.issues.length }})</span>
           <span
             v-if="props.filters.queryId !== 'all'"
             class="px-2 py-0.5 rounded-full text-[10px] bg-[#90b4d6]/20 text-[#90b4d6] border border-[#90b4d6]/30 flex items-center space-x-1"
           >
             <span>Query:</span>
-            <strong>{{ props.queries?.find((q) => q.id === props.filters.queryId)?.name }}</strong>
+            <strong class="select-text">{{ props.queries?.find((q) => q.id === props.filters.queryId)?.name }}</strong>
             <button
               type="button"
               class="ml-1 hover:text-white font-bold cursor-pointer"
@@ -351,7 +299,7 @@ function formatRelative(dateStr: string): string {
         </div>
         <button
           type="button"
-          class="px-2.5 py-1 rounded bg-[#b32d2e] hover:bg-[#c93637] text-white text-xs font-semibold flex items-center space-x-1 shadow-sm transition-colors cursor-pointer"
+          class="px-2.5 py-1 rounded-lg bg-[#b32d2e] hover:bg-[#c93637] text-white text-xs font-semibold flex items-center space-x-1 shadow-sm transition-colors cursor-pointer"
           @click="emit('new-issue')"
         >
           <Plus class="w-3.5 h-3.5" />
@@ -364,7 +312,7 @@ function formatRelative(dateStr: string): string {
         v-if="props.error"
         class="px-4 py-2 bg-rose-500/10 border-b border-rose-500/20 text-rose-300 text-xs flex items-center justify-between shrink-0"
       >
-        <span>⚠️ {{ props.error }}</span>
+        <span class="select-text">⚠️ {{ props.error }}</span>
         <button
           type="button"
           class="text-[11px] underline text-rose-400 hover:text-rose-200 cursor-pointer"
@@ -375,17 +323,10 @@ function formatRelative(dateStr: string): string {
       </div>
 
       <!-- Issues Data Table -->
-      <div class="flex-1 overflow-auto">
-        <table
-          class="w-full text-left text-xs border-collapse"
-          style="table-layout: fixed; min-width: 100%;"
-        >
+      <div class="flex-1 min-h-0 overflow-auto">
+        <table class="w-full text-left text-xs border-collapse" style="table-layout: fixed; min-width: 100%;">
           <colgroup>
-            <col
-              v-for="col in columns"
-              :key="col.key"
-              :style="{ width: `${col.width}px` }"
-            />
+            <col v-for="col in columns" :key="col.key" :style="{ width: `${col.width}px` }" />
           </colgroup>
           <thead class="bg-[#1b222f] text-slate-400 uppercase text-[10px] font-bold border-b border-[#2b364a] sticky top-0 z-10 select-none">
             <tr>
@@ -397,7 +338,6 @@ function formatRelative(dateStr: string): string {
                 :style="{ width: `${col.width}px` }"
               >
                 <div class="truncate pr-1">{{ col.label }}</div>
-                <!-- Column Resize Handle -->
                 <div
                   class="absolute top-0 right-0 bottom-0 w-2.5 cursor-col-resize hover:bg-sky-500/50 active:bg-sky-400 z-20 flex items-center justify-center transition-colors group/resizer"
                   title="Drag to resize column"
@@ -409,60 +349,37 @@ function formatRelative(dateStr: string): string {
             </tr>
           </thead>
           <tbody class="divide-y divide-[#202737]">
-            <!-- Skeleton Loading Rows -->
             <template v-if="props.isLoading">
               <tr v-for="n in 8" :key="`skel-${n}`" class="animate-pulse">
-                <td class="py-2.5 px-3 text-center">
-                  <div class="h-3 w-8 bg-slate-700/50 rounded mx-auto"></div>
-                </td>
-                <td class="py-2.5 px-3">
-                  <div class="h-3 w-32 bg-slate-700/50 rounded"></div>
-                </td>
-                <td class="py-2.5 px-3">
-                  <div class="h-4 w-16 bg-slate-700/40 rounded"></div>
-                </td>
-                <td class="py-2.5 px-3">
-                  <div class="h-4 w-18 bg-slate-700/40 rounded"></div>
-                </td>
-                <td class="py-2.5 px-3">
-                  <div class="h-3 w-12 bg-slate-700/50 rounded"></div>
-                </td>
-                <td class="py-2.5 px-3">
-                  <div class="h-3.5 bg-slate-700/60 rounded" :style="{ width: `${45 + (n * 13) % 45}%` }"></div>
-                </td>
-                <td class="py-2.5 px-3">
-                  <div class="h-3 w-20 bg-slate-700/40 rounded"></div>
-                </td>
-                <td class="py-2.5 px-3">
-                  <div class="h-3 w-14 bg-slate-700/40 rounded"></div>
-                </td>
-                <td class="py-2.5 px-3 text-right">
-                  <div class="h-2 w-14 bg-slate-700/50 rounded-full ml-auto"></div>
-                </td>
+                <td class="py-2.5 px-3 text-center"><div class="h-3 w-8 bg-slate-700/50 rounded mx-auto"></div></td>
+                <td class="py-2.5 px-3"><div class="h-3 w-32 bg-slate-700/50 rounded"></div></td>
+                <td class="py-2.5 px-3"><div class="h-4 w-16 bg-slate-700/40 rounded"></div></td>
+                <td class="py-2.5 px-3"><div class="h-4 w-18 bg-slate-700/40 rounded"></div></td>
+                <td class="py-2.5 px-3"><div class="h-3 w-12 bg-slate-700/50 rounded"></div></td>
+                <td class="py-2.5 px-3"><div class="h-3.5 bg-slate-700/60 rounded" :style="{ width: `${45 + (n * 13) % 45}%` }"></div></td>
+                <td class="py-2.5 px-3"><div class="h-3 w-20 bg-slate-700/40 rounded"></div></td>
+                <td class="py-2.5 px-3"><div class="h-3 w-14 bg-slate-700/40 rounded"></div></td>
+                <td class="py-2.5 px-3 text-right"><div class="h-2 w-14 bg-slate-700/50 rounded-full ml-auto"></div></td>
               </tr>
             </template>
 
-            <!-- Loaded Issues Rows -->
             <template v-else-if="props.issues.length > 0">
               <tr
                 v-for="issue in props.issues"
                 :key="issue.id"
                 class="hover:bg-[#1f2636] transition-colors cursor-pointer group"
-                @click="emit('select-issue', issue)"
+                @click="handleRowClick(issue)"
               >
-                <!-- # -->
-                <td class="py-2 px-3 text-center font-mono text-sky-400 font-semibold group-hover:underline truncate">
+                <td class="py-2 px-3 text-center font-mono text-sky-400 font-semibold group-hover:underline truncate select-text">
                   {{ issue.id }}
                 </td>
 
-                <!-- Project -->
                 <td class="py-2 px-3 overflow-hidden text-slate-300">
-                  <div class="truncate" :title="issue.project.name">
+                  <div class="truncate select-text" :title="issue.project.name">
                     {{ issue.project.name }}
                   </div>
                 </td>
 
-                <!-- Tracker with distinct badge -->
                 <td class="py-2 px-3 overflow-hidden">
                   <span
                     class="px-2 py-0.5 rounded text-[10px] font-semibold border uppercase tracking-wider inline-block truncate max-w-full"
@@ -472,7 +389,6 @@ function formatRelative(dateStr: string): string {
                   </span>
                 </td>
 
-                <!-- Status with distinct color badge (Requirement 1) -->
                 <td class="py-2 px-3 overflow-hidden">
                   <span
                     class="px-2 py-0.5 rounded text-[10px] font-semibold border inline-block truncate max-w-full"
@@ -482,31 +398,41 @@ function formatRelative(dateStr: string): string {
                   </span>
                 </td>
 
-                <!-- Priority -->
                 <td class="py-2 px-3 truncate" :class="getPriorityClass(issue.priority.name)">
                   {{ issue.priority.name }}
                 </td>
 
-                <!-- Subject -->
                 <td class="py-2 px-3 overflow-hidden">
-                  <div class="truncate text-white font-medium group-hover:text-blue-300 transition-colors" :title="issue.subject">
-                    {{ issue.subject }}
+                  <div class="flex items-center justify-between gap-1.5 min-w-0">
+                    <span
+                      class="truncate text-white font-medium group-hover:text-blue-300 transition-colors select-text cursor-text"
+                      :title="issue.subject"
+                    >
+                      {{ issue.subject }}
+                    </span>
+                    <button
+                      type="button"
+                      class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/60 transition-all shrink-0 cursor-pointer"
+                      :class="copiedIssueId === issue.id ? 'opacity-100 text-emerald-400' : 'opacity-0 group-hover:opacity-100'"
+                      :title="`Copy: ${formatIssueCopyTitle(issue)}`"
+                      @click.stop="handleCopySubject(issue)"
+                    >
+                      <Check v-if="copiedIssueId === issue.id" class="w-3 h-3 text-emerald-400" />
+                      <Copy v-else class="w-3 h-3" />
+                    </button>
                   </div>
                 </td>
 
-                <!-- Assignee -->
                 <td class="py-2 px-3 overflow-hidden text-slate-300">
-                  <div class="truncate" :title="issue.assigned_to?.name || '-'">
+                  <div class="truncate select-text" :title="issue.assigned_to?.name || '-'">
                     {{ issue.assigned_to?.name || '-' }}
                   </div>
                 </td>
 
-                <!-- Updated -->
                 <td class="py-2 px-3 text-slate-400 text-[11px] whitespace-nowrap truncate">
-                  {{ formatRelative(issue.updated_on) }}
+                  {{ formatShortRelative(issue.updated_on) }}
                 </td>
 
-                <!-- % Done -->
                 <td class="py-2 px-3 text-right">
                   <div class="flex items-center justify-end space-x-1.5">
                     <div class="w-14 h-2 bg-[#252e40] rounded-full overflow-hidden border border-[#333e54] shrink-0">
@@ -522,7 +448,6 @@ function formatRelative(dateStr: string): string {
               </tr>
             </template>
 
-            <!-- Empty State -->
             <tr v-else>
               <td colspan="9" class="py-12 text-center text-slate-500">
                 <div class="w-12 h-12 mx-auto rounded-full bg-[#1e2533] border border-[#2a3449] flex items-center justify-center text-slate-400 mb-2">
@@ -545,84 +470,14 @@ function formatRelative(dateStr: string): string {
       </div>
     </div>
 
-    <!-- Redmine Right Sidebar: My custom queries & Custom queries -->
-    <div class="w-56 shrink-0 bg-[#171b26] border-l border-[#242b3a] p-3.5 overflow-y-auto select-none space-y-4">
-      <!-- Skeleton Loading for Sidebar -->
-      <div v-if="props.isLoading && props.queries.length === 0" class="space-y-3 animate-pulse">
-        <div>
-          <div class="h-3 w-28 bg-slate-700/60 rounded mb-2.5"></div>
-          <div class="space-y-2 pt-0.5">
-            <div v-for="i in 6" :key="i" class="h-2.5 bg-slate-700/40 rounded" :style="{ width: `${55 + (i * 13) % 40}%` }"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Loaded Queries Content -->
-      <template v-else>
-        <!-- My custom queries (Private queries created by current user) -->
-        <div v-if="myQueries.length > 0">
-          <h3 class="text-xs font-bold text-slate-400 mb-2 tracking-tight">My custom queries</h3>
-          <div class="space-y-0.5">
-            <button
-              v-for="q in myQueries"
-              :key="q.id"
-              type="button"
-              class="w-full text-left text-xs truncate transition-all cursor-pointer leading-tight block py-1 font-sans"
-              :class="props.filters.queryId === q.id
-                ? 'bg-[#90b4d6] text-white px-2 py-0.5 rounded font-medium shadow-xs'
-                : 'text-sky-400 hover:text-sky-300 hover:underline px-0.5'"
-              :title="q.name"
-              @click="selectQuery(props.filters.queryId === q.id ? 'all' : q.id)"
-            >
-              {{ q.name }}
-            </button>
-          </div>
-        </div>
-
-        <!-- Custom queries (Public queries shared across project / team) -->
-        <div v-if="publicQueries.length > 0">
-          <h3 class="text-xs font-bold text-slate-400 mb-2 tracking-tight">Custom queries</h3>
-          <div class="space-y-0.5">
-            <button
-              v-for="q in publicQueries"
-              :key="q.id"
-              type="button"
-              class="w-full text-left text-xs truncate transition-all cursor-pointer leading-tight block py-1 font-sans"
-              :class="props.filters.queryId === q.id
-                ? 'bg-[#90b4d6] text-white px-2 py-0.5 rounded font-medium shadow-xs'
-                : 'text-sky-400 hover:text-sky-300 hover:underline px-0.5'"
-              :title="q.name"
-              @click="selectQuery(props.filters.queryId === q.id ? 'all' : q.id)"
-            >
-              {{ q.name }}
-            </button>
-          </div>
-        </div>
-
-        <!-- Fallback if queries exist without distinction -->
-        <div v-if="myQueries.length === 0 && publicQueries.length === 0 && visibleQueries.length > 0">
-          <h3 class="text-xs font-bold text-slate-400 mb-2 tracking-tight">Custom queries</h3>
-          <div class="space-y-0.5">
-            <button
-              v-for="q in visibleQueries"
-              :key="q.id"
-              type="button"
-              class="w-full text-left text-xs truncate transition-all cursor-pointer leading-tight block py-1 font-sans"
-              :class="props.filters.queryId === q.id
-                ? 'bg-[#90b4d6] text-white px-2 py-0.5 rounded font-medium shadow-xs'
-                : 'text-sky-400 hover:text-sky-300 hover:underline px-0.5'"
-              :title="q.name"
-              @click="selectQuery(props.filters.queryId === q.id ? 'all' : q.id)"
-            >
-              {{ q.name }}
-            </button>
-          </div>
-        </div>
-
-        <div v-if="visibleQueries.length === 0" class="text-[11px] text-slate-500 italic py-2">
-          No custom queries found.
-        </div>
-      </template>
-    </div>
+    <RedmineQueriesSidebar
+      :my-queries="myQueries"
+      :public-queries="publicQueries"
+      :visible-queries="visibleQueries"
+      :selected-query-id="props.filters.queryId"
+      :is-loading="props.isLoading"
+      :total-queries-count="props.queries.length"
+      @select-query="selectQuery"
+    />
   </div>
 </template>

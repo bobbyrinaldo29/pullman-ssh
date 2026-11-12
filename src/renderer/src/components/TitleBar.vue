@@ -119,7 +119,7 @@ function handleClose(): void {
 
 <template>
   <header
-    class="app-drag h-10 w-full bg-[#20242F] border-b border-[#293040] flex items-center justify-between select-none z-50 text-[12px] relative"
+    class="app-drag h-10 shrink-0 w-full bg-[#20242F] border-b border-[#293040] flex items-center justify-between select-none z-50 text-[12px] relative"
     :class="isMac ? 'px-3' : 'pl-3 pr-0'"
   >
     <!-- Left Section: Traffic Light Padding on macOS / App Icon on Windows -->

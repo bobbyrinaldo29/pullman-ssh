@@ -23,6 +23,11 @@ const openIssuesCount = computed(() => props.issues.filter((i) => !i.status.is_c
 const closedIssuesCount = computed(() => props.issues.filter((i) => i.status.is_closed).length)
 const bugCount = computed(() => props.issues.filter((i) => i.tracker.name.toLowerCase().includes('bug')).length)
 const featureCount = computed(() => props.issues.filter((i) => i.tracker.name.toLowerCase().includes('feature')).length)
+
+function handleRecentIssueClick(): void {
+  if (window.getSelection()?.toString().trim()) return
+  emit('view-issues')
+}
 </script>
 
 <template>
@@ -32,7 +37,7 @@ const featureCount = computed(() => props.issues.filter((i) => i.tracker.name.to
       <div class="p-5 rounded-lg bg-[#1a202c] border border-[#273244] flex items-center justify-between shadow-sm">
         <div class="space-y-1">
           <span class="text-[10px] font-bold text-rose-400 uppercase tracking-wider">Project Overview</span>
-          <h2 class="text-lg font-bold text-white">
+          <h2 class="text-lg font-bold text-white select-text cursor-text">
             {{ props.project ? props.project.name : 'All Redmine Projects' }}
           </h2>
           <p class="text-xs text-slate-400 max-w-xl">
@@ -103,11 +108,11 @@ const featureCount = computed(() => props.issues.filter((i) => i.tracker.name.to
             v-for="issue in props.issues.slice(0, 5)"
             :key="issue.id"
             class="p-3 flex items-center justify-between text-xs hover:bg-[#1f2636] transition-colors cursor-pointer"
-            @click="emit('view-issues')"
+            @click="handleRecentIssueClick"
           >
             <div class="flex items-center space-x-2.5 truncate">
-              <span class="font-mono text-sky-400 font-bold">#{{ issue.id }}</span>
-              <span class="text-white font-medium truncate">{{ issue.subject }}</span>
+              <span class="font-mono text-sky-400 font-bold select-text">#{{ issue.id }}</span>
+              <span class="text-white font-medium truncate select-text cursor-text">{{ issue.subject }}</span>
             </div>
             <div class="flex items-center space-x-2 shrink-0">
               <span class="px-1.5 py-0.5 rounded text-[10px] font-medium border bg-slate-700/30 text-slate-300 border-slate-600/40">

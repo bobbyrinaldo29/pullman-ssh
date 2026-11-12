@@ -23,6 +23,11 @@ function formatDateTime(dateStr: string): string {
     return dateStr
   }
 }
+
+function handleIssueClick(issue: RedmineIssue): void {
+  if (window.getSelection()?.toString().trim()) return
+  emit('select-issue', issue)
+}
 </script>
 
 <template>
@@ -65,18 +70,18 @@ function formatDateTime(dateStr: string): string {
           v-for="issue in props.issues"
           :key="issue.id"
           class="p-3.5 rounded-lg bg-[#1a202c] border border-[#273244] hover:border-blue-500/40 transition-colors cursor-pointer space-y-1.5"
-          @click="emit('select-issue', issue)"
+          @click="handleIssueClick(issue)"
         >
           <div class="flex items-center justify-between text-[11px] text-slate-400">
             <div class="flex items-center space-x-1.5">
               <span class="w-2 h-2 rounded-full" :class="issue.status.is_closed ? 'bg-emerald-400' : 'bg-sky-400'"></span>
-              <span class="font-bold text-sky-400 font-mono">#{{ issue.id }}</span>
-              <span class="text-slate-300 font-medium">({{ issue.project.name }})</span>
+              <span class="font-bold text-sky-400 font-mono select-text">#{{ issue.id }}</span>
+              <span class="text-slate-300 font-medium select-text">({{ issue.project.name }})</span>
             </div>
             <span class="text-[10px]">{{ formatDateTime(issue.updated_on) }}</span>
           </div>
 
-          <p class="text-xs text-white font-semibold">
+          <p class="text-xs text-white font-semibold select-text cursor-text">
             {{ issue.subject }}
           </p>
 

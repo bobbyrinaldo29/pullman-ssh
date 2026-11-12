@@ -117,7 +117,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', checkScrollable)
 })
 
-const currentProject = () => {
+const currentProject = (): RedmineProject | null => {
   if (props.selectedProjectId === 'all') return null
   return props.projects.find((p) => p.id === props.selectedProjectId) || null
 }
@@ -132,10 +132,10 @@ const currentProject = () => {
           <FolderKanban class="w-4 h-4" />
         </div>
         <div>
-          <h1 class="text-lg font-bold tracking-tight text-white flex items-center space-x-2">
+          <h1 class="text-lg font-bold tracking-tight text-white flex items-center space-x-2 select-text cursor-text">
             <span>{{ currentProject() ? currentProject()?.name : 'Redmine Project Center' }}</span>
           </h1>
-          <p class="text-[10px] text-[#c0d4e5]">
+          <p class="text-[10px] text-[#c0d4e5] select-text cursor-text">
             {{ currentProject() ? currentProject()?.description || currentProject()?.identifier : 'Integrated Issue & Ticket Management' }}
           </p>
         </div>
@@ -290,7 +290,7 @@ const currentProject = () => {
       <!-- Horizontally Scrollable & Shrinkable Task Tabs -->
       <div
         ref="taskTabsContainerRef"
-        class="flex-1 flex items-center space-x-1 overflow-x-auto no-scrollbar scroll-smooth"
+        class="flex-1 min-w-0 flex items-center space-x-1 overflow-x-auto no-scrollbar scroll-smooth"
         @wheel="handleWheelScroll"
       >
         <div

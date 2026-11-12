@@ -1,27 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, onUnmounted } from 'vue'
-import {
-  Pencil,
-  Check,
-  RotateCw,
-  Upload,
-  File as FileIcon,
-  X,
-  Paperclip,
-  Eye
-} from 'lucide-vue-next'
-import { RedmineIssue, RedmineStatus, RedminePriority } from '../types'
+import { ref, computed, nextTick, onUnmounted, watch } from 'vue'
+import { Pencil, Check, RotateCw, Upload, X, Paperclip, Eye } from 'lucide-vue-next'
+import type { RedmineIssue, RedmineStatus, RedminePriority, RedmineUploadItem } from '../types'
+import { parseWikiContent, TOOLBAR_SNIPPETS } from '../utils/issueDisplay'
 import RedmineWikiToolbar from './RedmineWikiToolbar.vue'
-
-interface PendingUploadFile {
-  id: string
-  file: File
-  name: string
-  size: number
-  isImage: boolean
-  previewUrl?: string
-  description?: string
-}
+import RedmineWikiContent from './RedmineWikiContent.vue'
+import RedminePendingFilesGrid, { type PendingUploadFile } from './RedminePendingFilesGrid.vue'
 
 const props = defineProps<{
   issue: RedmineIssue
@@ -34,13 +18,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'content-resized'): void
   (e: 'submit', payload: {
     status_id?: number
     priority_id?: number
     assigned_to_id?: number
     done_ratio?: number
     notes?: string
-    uploads?: Array<{ token: string; filename: string; description?: string; content_type?: string }>
+    uploads?: RedmineUploadItem[]
   }): void
 }>()
 
@@ -52,41 +37,34 @@ const editNotes = ref<string>('')
 const noteMode = ref<'edit' | 'preview'>('edit')
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 
-// Drag & drop file upload state
 const pendingFiles = ref<PendingUploadFile[]>([])
 const isDragging = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const isUploading = ref(false)
 const uploadProgressText = ref('')
 
+watch(
+  () => props.issue.id,
+  () => {
+    editStatusId.value = props.issue.status?.id
+    editPriorityId.value = props.issue.priority?.id
+    editAssigneeId.value = props.issue.assigned_to?.id
+    editDoneRatio.value = props.issue.done_ratio || 0
+  }
+)
+
 const assignableUsers = computed(() => {
   const map = new Map<number, { id: number; name: string }>()
-  if (props.issue.assigned_to) {
-    map.set(props.issue.assigned_to.id, props.issue.assigned_to)
-  }
-  if (props.issue.author) {
-    map.set(props.issue.author.id, props.issue.author)
-  }
-  if (props.users) {
-    for (const u of props.users) {
-      map.set(u.id, u)
-    }
-  }
+  if (props.issue.assigned_to) map.set(props.issue.assigned_to.id, props.issue.assigned_to)
+  if (props.issue.author) map.set(props.issue.author.id, props.issue.author)
+  for (const u of props.users || []) map.set(u.id, u)
   return Array.from(map.values())
 })
 
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
 function getNextPastedImageName(extension = 'png'): string {
   const existingNames = new Set(pendingFiles.value.map((f) => f.name.toLowerCase()))
-  if (props.issue.attachments) {
-    for (const att of props.issue.attachments) {
-      existingNames.add(att.filename.toLowerCase())
-    }
+  for (const att of props.issue.attachments || []) {
+    existingNames.add(att.filename.toLowerCase())
   }
 
   let idx = 1
@@ -112,15 +90,13 @@ function insertTextAtCursor(textToInsert: string): void {
   const end = el.selectionEnd ?? editNotes.value.length
   const before = editNotes.value.substring(0, start)
   const after = editNotes.value.substring(end)
-
   const prefix = before.length > 0 && !before.endsWith('\n') ? '\n' : ''
-  const suffix = after.length > 0 && !after.startsWith('\n') ? '\n' : '\n'
-  const insertion = `${prefix}${textToInsert}${suffix}`
+  const insertion = `${prefix}${textToInsert}\n`
 
   editNotes.value = before + insertion + after
 
   nextTick(() => {
-    el.focus()
+    el.focus({ preventScroll: true })
     const newPos = start + insertion.length
     el.setSelectionRange(newPos, newPos)
   })
@@ -131,9 +107,7 @@ function addFiles(files: FileList | File[], autoInsertWikiSyntax = true): void {
 
   for (let i = 0; i < files.length; i++) {
     const f = files[i]
-    if (pendingFiles.value.some((pf) => pf.name === f.name && pf.size === f.size)) {
-      continue
-    }
+    if (pendingFiles.value.some((pf) => pf.name === f.name && pf.size === f.size)) continue
 
     const isImg = f.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(f.name)
     const newFile: PendingUploadFile = {
@@ -151,52 +125,32 @@ function addFiles(files: FileList | File[], autoInsertWikiSyntax = true): void {
     if (isImg) {
       const reader = new FileReader()
       reader.onload = (): void => {
-        if (typeof reader.result === 'string') {
-          newFile.previewUrl = reader.result
-        }
+        if (typeof reader.result === 'string') newFile.previewUrl = reader.result
       }
       reader.readAsDataURL(f)
-
-      if (autoInsertWikiSyntax) {
-        insertedCommands.push(`!${f.name}!`)
-      }
+      if (autoInsertWikiSyntax) insertedCommands.push(`!${f.name}!`)
     }
   }
 
-  if (insertedCommands.length > 0) {
-    insertTextAtCursor(insertedCommands.join('\n'))
-  }
+  if (insertedCommands.length > 0) insertTextAtCursor(insertedCommands.join('\n'))
+  nextTick(() => emit('content-resized'))
 }
 
 function removeFile(index: number): void {
   const item = pendingFiles.value[index]
-  if (item?.previewUrl && item.previewUrl.startsWith('blob:')) {
-    URL.revokeObjectURL(item.previewUrl)
-  }
+  if (item?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl)
   pendingFiles.value.splice(index, 1)
-}
-
-function handleDragOver(e: DragEvent): void {
-  e.preventDefault()
-  isDragging.value = true
-}
-
-function handleDragLeave(e: DragEvent): void {
-  e.preventDefault()
-  isDragging.value = false
 }
 
 function handleDrop(e: DragEvent): void {
   e.preventDefault()
   isDragging.value = false
-  if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-    addFiles(e.dataTransfer.files, true)
-  }
+  if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files, true)
 }
 
 function handleFileSelect(e: Event): void {
   const target = e.target as HTMLInputElement
-  if (target.files && target.files.length > 0) {
+  if (target.files?.length) {
     addFiles(target.files, true)
     target.value = ''
   }
@@ -212,12 +166,8 @@ function handlePaste(e: ClipboardEvent): void {
       const blob = item.getAsFile()
       if (blob) {
         const ext = (blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg')
-        const filename =
-          blob.name && blob.name !== 'image.png'
-            ? blob.name
-            : getNextPastedImageName(ext)
-        const namedFile = new File([blob], filename, { type: blob.type })
-        imageFiles.push(namedFile)
+        const filename = blob.name && blob.name !== 'image.png' ? blob.name : getNextPastedImageName(ext)
+        imageFiles.push(new File([blob], filename, { type: blob.type }))
       }
     }
   }
@@ -228,134 +178,40 @@ function handlePaste(e: ClipboardEvent): void {
   }
 }
 
-interface NoteBlockPart {
-  type: 'text' | 'image'
-  text?: string
-  filename?: string
-  url?: string
-}
-
-const parsedNotesParts = computed<NoteBlockPart[]>(() => {
-  if (!editNotes.value) return []
-  const text = editNotes.value
-  const parts: NoteBlockPart[] = []
-
-  const imgRegex = /!(?:\{.*?\})?(?:<|>|=)?([^\s!]+?\.(?:png|jpe?g|gif|webp|svg|bmp))(?:\([^\)]*?\))?!/gi
-  let lastIndex = 0
-  let match: RegExpExecArray | null = null
-
-  while ((match = imgRegex.exec(text)) !== null) {
-    const matchIndex = match.index
-    if (matchIndex > lastIndex) {
-      parts.push({
-        type: 'text',
-        text: text.substring(lastIndex, matchIndex)
-      })
-    }
-
-    const rawFilename = match[1].trim()
-    const isHttp = rawFilename.startsWith('http://') || rawFilename.startsWith('https://')
-
-    // 1. Search in pendingFiles (uploaded in this edit session)
-    const pendingMatch = pendingFiles.value.find(
-      (pf) =>
-        pf.name.toLowerCase() === rawFilename.toLowerCase() ||
-        rawFilename.toLowerCase().endsWith(pf.name.toLowerCase())
-    )
-
-    // 2. Search in existing issue attachments
-    const issueMatch = (props.issue.attachments || []).find(
-      (att) =>
-        att.filename.toLowerCase() === rawFilename.toLowerCase() ||
-        rawFilename.toLowerCase().endsWith(att.filename.toLowerCase())
-    )
-
-    if (pendingMatch) {
-      parts.push({
-        type: 'image',
-        filename: pendingMatch.name,
-        url: pendingMatch.previewUrl
-      })
-    } else if (issueMatch) {
-      parts.push({
-        type: 'image',
-        filename: issueMatch.filename,
-        url: issueMatch.content_url
-      })
-    } else if (isHttp) {
-      parts.push({
-        type: 'image',
-        filename: rawFilename.split('/').pop() || 'image',
-        url: rawFilename
-      })
-    } else {
-      parts.push({
-        type: 'image',
-        filename: rawFilename,
-        url: ''
-      })
-    }
-
-    lastIndex = matchIndex + match[0].length
-  }
-
-  if (lastIndex < text.length) {
-    parts.push({
-      type: 'text',
-      text: text.substring(lastIndex)
-    })
-  }
-
-  return parts
-})
+const parsedNotesParts = computed(() =>
+  parseWikiContent(editNotes.value, props.issue.attachments || [], pendingFiles.value)
+)
+const detectedImageParts = computed(() => parsedNotesParts.value.filter((p) => p.type === 'image' && p.url))
 
 onUnmounted(() => {
   for (const pf of pendingFiles.value) {
-    if (pf.previewUrl && pf.previewUrl.startsWith('blob:')) URL.revokeObjectURL(pf.previewUrl)
+    if (pf.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(pf.previewUrl)
   }
 })
 
 function handleToolbarAction(type: string): void {
   const el = textareaRef.value
-  if (!el) return
+  const snippet = TOOLBAR_SNIPPETS[type]
+  if (!el || !snippet) return
+
   const start = el.selectionStart
   const end = el.selectionEnd
-  const sel = editNotes.value.substring(start, end)
+  const selected = editNotes.value.substring(start, end)
+  const insertion = selected || snippet.placeholder
+  const after = snippet.after || ''
 
-  let before = ''
-  let after = ''
-  let defaultText = 'text'
+  editNotes.value =
+    editNotes.value.substring(0, start) + snippet.before + insertion + after + editNotes.value.substring(end)
 
-  switch (type) {
-    case 'bold': before = '**'; after = '**'; defaultText = 'Bold text'; break
-    case 'italic': before = '_'; after = '_'; defaultText = 'Italic text'; break
-    case 'underline': before = '+'; after = '+'; defaultText = 'Underlined text'; break
-    case 'strike': before = '-'; after = '-'; defaultText = 'Deleted text'; break
-    case 'code': before = '@'; after = '@'; defaultText = 'code'; break
-    case 'h1': before = '\nh1. '; defaultText = 'Heading 1'; break
-    case 'h2': before = '\nh2. '; defaultText = 'Heading 2'; break
-    case 'h3': before = '\nh3. '; defaultText = 'Heading 3'; break
-    case 'ul': before = '\n* '; defaultText = 'Bullet item'; break
-    case 'ol': before = '\n# '; defaultText = 'Numbered item'; break
-    case 'indent': before = '\n> '; defaultText = 'Quoted text'; break
-    case 'outdent': before = '\n'; defaultText = ''; break
-    case 'pre': before = '\n<pre>\n'; after = '\n</pre>\n'; defaultText = 'Preformatted block'; break
-    case 'code-block': before = '\n<pre><code class="sql">\n'; after = '\n</code></pre>\n'; defaultText = '-- Code here'; break
-    case 'link': before = '"'; after = '":https://example.com'; defaultText = 'Link title'; break
-    case 'image': before = '!'; after = '!'; defaultText = 'https://example.com/image.png'; break
-    case 'help': before = '\n\n*Formatting:* **bold**, _italic_, +underline+, -strike-, @inline code@, h1. Heading\n'; defaultText = ''; break
-  }
-
-  const insertion = sel || defaultText
-  editNotes.value = editNotes.value.substring(0, start) + before + insertion + after + editNotes.value.substring(end)
   nextTick(() => {
-    el.focus()
-    el.setSelectionRange(start + before.length, start + before.length + insertion.length)
+    el.focus({ preventScroll: true })
+    el.setSelectionRange(start + snippet.before.length, start + snippet.before.length + insertion.length)
   })
 }
 
 async function handleSubmit(): Promise<void> {
-  let uploads: Array<{ token: string; filename: string; description?: string; content_type?: string }> | undefined = undefined
+  if (isUploading.value || props.isLoading) return
+  let uploads: RedmineUploadItem[] | undefined
 
   if (pendingFiles.value.length > 0 && props.uploadAttachment) {
     isUploading.value = true
@@ -392,7 +248,7 @@ async function handleSubmit(): Promise<void> {
   })
 
   for (const pf of pendingFiles.value) {
-    if (pf.previewUrl) URL.revokeObjectURL(pf.previewUrl)
+    if (pf.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(pf.previewUrl)
   }
   pendingFiles.value = []
   editNotes.value = ''
@@ -402,108 +258,95 @@ defineExpose({
   insertQuote: (quote: string) => {
     editNotes.value = `${quote}\n\n`
     noteMode.value = 'edit'
-    nextTick(() => {
-      textareaRef.value?.focus()
-    })
+    nextTick(() => textareaRef.value?.focus({ preventScroll: true }))
   },
   focus: () => {
-    nextTick(() => {
-      textareaRef.value?.focus()
-    })
+    nextTick(() => textareaRef.value?.focus({ preventScroll: true }))
   }
 })
 </script>
 
 <template>
   <div
-    class="bg-[#171c27] border border-[#283447] rounded-md p-5 space-y-4 shadow-sm select-none"
+    class="bg-[#171c27] border border-[#283447] rounded-lg p-3.5 sm:p-4 space-y-2.5 shadow-sm select-none"
     @paste="handlePaste"
   >
-    <h4 class="text-[13px] font-bold text-white border-b border-[#242f42] pb-1.5 flex items-center justify-between">
+    <!-- Header -->
+    <div class="text-[13px] font-bold text-white border-b border-[#242f42] pb-2 flex items-center justify-between gap-2">
       <span class="flex items-center space-x-1.5">
         <Pencil class="w-3.5 h-3.5 text-amber-400" />
-        <span>Change properties & Add notes</span>
+        <span>Change properties &amp; Add notes</span>
       </span>
       <button
         type="button"
-        class="text-xs text-slate-400 hover:text-white cursor-pointer"
+        class="p-1 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors cursor-pointer text-xs flex items-center space-x-1"
+        title="Tutup form edit"
         @click="emit('close')"
       >
-        &times; Cancel
+        <X class="w-3.5 h-3.5" />
+        <span>Cancel</span>
       </button>
-    </h4>
+    </div>
 
     <!-- 4 Dropdowns: Status, Priority, Assignee, % Done -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5 text-xs">
       <div>
-        <label class="block font-bold text-slate-300 mb-1">Status:</label>
+        <label class="block font-bold text-slate-300 text-[11px] mb-1">Status:</label>
         <select
           v-model="editStatusId"
-          class="w-full px-2.5 py-1.5 bg-[#141822] border border-[#2b3548] rounded text-slate-200 focus:outline-none focus:border-blue-500 font-sans cursor-pointer"
+          class="w-full px-2.5 py-1 bg-[#141822] border border-[#2b3548] rounded-lg text-slate-200 focus:outline-none focus:border-blue-500 font-sans cursor-pointer"
         >
-          <option v-for="s in props.statuses" :key="s.id" :value="s.id">
-            {{ s.name }}
-          </option>
+          <option v-for="s in props.statuses" :key="s.id" :value="s.id">{{ s.name }}</option>
         </select>
       </div>
       <div>
-        <label class="block font-bold text-slate-300 mb-1">Priority:</label>
+        <label class="block font-bold text-slate-300 text-[11px] mb-1">Priority:</label>
         <select
           v-model="editPriorityId"
-          class="w-full px-2.5 py-1.5 bg-[#141822] border border-[#2b3548] rounded text-slate-200 focus:outline-none focus:border-blue-500 font-sans cursor-pointer"
+          class="w-full px-2.5 py-1 bg-[#141822] border border-[#2b3548] rounded-lg text-slate-200 focus:outline-none focus:border-blue-500 font-sans cursor-pointer"
         >
-          <option v-for="p in props.priorities" :key="p.id" :value="p.id">
-            {{ p.name }}
-          </option>
+          <option v-for="p in props.priorities" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
       </div>
       <div>
-        <label class="block font-bold text-slate-300 mb-1">Assignee:</label>
+        <label class="block font-bold text-slate-300 text-[11px] mb-1">Assignee:</label>
         <select
           v-model="editAssigneeId"
-          class="w-full px-2.5 py-1.5 bg-[#141822] border border-[#2b3548] rounded text-slate-200 focus:outline-none focus:border-blue-500 font-sans cursor-pointer"
+          class="w-full px-2.5 py-1 bg-[#141822] border border-[#2b3548] rounded-lg text-slate-200 focus:outline-none focus:border-blue-500 font-sans cursor-pointer"
         >
           <option :value="undefined">&lt;&lt; Unassigned &gt;&gt;</option>
-          <option v-for="u in assignableUsers" :key="u.id" :value="u.id">
-            {{ u.name }}
-          </option>
+          <option v-for="u in assignableUsers" :key="u.id" :value="u.id">{{ u.name }}</option>
         </select>
       </div>
       <div>
-        <label class="block font-bold text-slate-300 mb-1">% Done:</label>
+        <label class="block font-bold text-slate-300 text-[11px] mb-1">% Done:</label>
         <select
           v-model="editDoneRatio"
-          class="w-full px-2.5 py-1.5 bg-[#141822] border border-[#2b3548] rounded text-slate-200 focus:outline-none focus:border-blue-500 font-sans cursor-pointer"
+          class="w-full px-2.5 py-1 bg-[#141822] border border-[#2b3548] rounded-lg text-slate-200 focus:outline-none focus:border-blue-500 font-sans cursor-pointer"
         >
-          <option :value="0">0%</option>
-          <option :value="20">20%</option>
-          <option :value="40">40%</option>
-          <option :value="60">60%</option>
-          <option :value="80">80%</option>
-          <option :value="100">100%</option>
+          <option v-for="pct in [0, 20, 40, 60, 80, 100]" :key="pct" :value="pct">{{ pct }}%</option>
         </select>
       </div>
     </div>
 
     <!-- Notes with Redmine Wiki Formatting Toolbar -->
-    <div class="space-y-1.5">
-      <label class="block font-bold text-slate-300 mb-0.5">Notes:</label>
+    <div class="space-y-1">
+      <div class="flex items-center justify-between">
+        <label class="font-bold text-slate-300 text-[11px]">Notes:</label>
+        <span class="text-[10px] text-slate-500">Ctrl+Enter untuk Submit cepat</span>
+      </div>
 
-      <!-- Wiki Toolbar -->
-      <RedmineWikiToolbar
-        v-model:active-tab="noteMode"
-        @action="handleToolbarAction"
-      />
+      <RedmineWikiToolbar v-model:active-tab="noteMode" @action="handleToolbarAction" />
 
-      <!-- Edit Textarea Area -->
       <textarea
         v-show="noteMode === 'edit'"
         ref="textareaRef"
         v-model="editNotes"
-        rows="5"
+        rows="3"
         placeholder="Add a comment or update note here... Paste screenshot (Ctrl+V) or drop images directly to insert !Gambar1.png!"
-        class="w-full px-3 py-2 bg-[#141822] border border-[#2b3548] rounded-b text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 font-sans resize-y leading-relaxed text-xs select-text"
+        class="w-full min-h-[74px] max-h-[260px] px-3 py-2 bg-[#141822] border border-[#2b3548] rounded-b-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 font-sans resize-y leading-relaxed text-xs select-text"
         @paste="handlePaste"
+        @keydown.ctrl.enter.prevent="handleSubmit"
         @dragover.prevent="isDragging = true"
         @dragleave="isDragging = false"
         @drop="handleDrop"
@@ -511,13 +354,13 @@ defineExpose({
 
       <!-- Live Mini Image Preview in Edit Mode -->
       <div
-        v-if="noteMode === 'edit' && parsedNotesParts.some((p) => p.type === 'image' && p.url)"
-        class="p-2.5 bg-[#10141d] border border-[#252f42] rounded text-xs space-y-2 mt-1.5"
+        v-if="noteMode === 'edit' && detectedImageParts.length > 0"
+        class="p-2 bg-[#10141d] border border-[#252f42] rounded-lg text-xs space-y-1.5 mt-1"
       >
         <div class="flex items-center justify-between text-[11px] font-bold text-slate-400">
           <div class="flex items-center space-x-1.5 text-sky-400">
             <Eye class="w-3.5 h-3.5" />
-            <span>Gambar Terdeteksi di Notes ({{ parsedNotesParts.filter((p) => p.type === 'image' && p.url).length }}):</span>
+            <span>Gambar Terdeteksi di Notes ({{ detectedImageParts.length }}):</span>
           </div>
           <button
             type="button"
@@ -528,18 +371,14 @@ defineExpose({
           </button>
         </div>
 
-        <div class="flex flex-wrap gap-2.5">
+        <div class="flex flex-wrap gap-2">
           <div
-            v-for="(part, idx) in parsedNotesParts.filter((p) => p.type === 'image' && p.url)"
+            v-for="(part, idx) in detectedImageParts"
             :key="idx"
-            class="border border-[#2d374a] rounded bg-[#0a0d14] overflow-hidden max-w-[280px] shadow"
+            class="border border-[#2d374a] rounded bg-[#0a0d14] overflow-hidden max-w-[240px] shadow"
           >
-            <div class="h-28 bg-black/50 flex items-center justify-center p-1">
-              <img
-                :src="part.url"
-                :alt="part.filename"
-                class="max-w-full max-h-full object-contain"
-              />
+            <div class="h-20 bg-black/50 flex items-center justify-center p-1">
+              <img :src="part.url" :alt="part.filename" class="max-w-full max-h-full object-contain" />
             </div>
             <div class="px-2 py-1 bg-[#141924] border-t border-[#232b3a] text-[10px] text-slate-300 font-mono truncate flex items-center justify-between">
               <span class="truncate mr-1 font-bold text-sky-300">!{{ part.filename }}!</span>
@@ -552,45 +391,22 @@ defineExpose({
       <!-- Preview Live Rendering Area -->
       <div
         v-show="noteMode === 'preview'"
-        class="w-full px-4 py-3 bg-[#141822] border border-[#2b3548] rounded-b text-slate-200 font-sans min-h-[130px] text-xs leading-relaxed select-text space-y-2"
+        class="w-full px-3.5 py-2.5 bg-[#141822] border border-[#2b3548] rounded-b-lg text-slate-200 font-sans min-h-[82px] text-xs leading-relaxed select-text space-y-2"
       >
-        <template v-if="parsedNotesParts.length > 0">
-          <template v-for="(part, pIdx) in parsedNotesParts" :key="pIdx">
-            <!-- Text Part -->
-            <div v-if="part.type === 'text'" class="whitespace-pre-wrap leading-relaxed">{{ part.text }}</div>
-
-            <!-- Inline Wiki Image Part (Directly renders !Gambar1.png!) -->
-            <div v-else-if="part.type === 'image'" class="my-2.5">
-              <div class="inline-block max-w-full rounded-lg border border-[#2b3548] bg-[#0c1017] shadow overflow-hidden group">
-                <div v-if="part.url" class="relative flex items-center justify-center bg-black/40 min-h-[60px] min-w-[120px]">
-                  <img
-                    :src="part.url"
-                    :alt="part.filename"
-                    class="max-w-full max-h-[450px] object-contain block group-hover:scale-[1.005] transition-transform"
-                  />
-                </div>
-                <div v-else class="p-3 bg-[#1a202c] text-amber-300 text-xs flex items-center space-x-1 font-mono">
-                  <span>!{{ part.filename }}!</span>
-                  <span class="text-slate-400">(Menunggu upload)</span>
-                </div>
-                <div class="px-2.5 py-1 text-[10px] text-slate-400 bg-[#141924] border-t border-[#222a3a] flex items-center justify-between font-mono">
-                  <span class="text-slate-300 truncate">{{ part.filename }}</span>
-                  <span class="text-[9px] text-emerald-400 font-sans">Preview</span>
-                </div>
-              </div>
-            </div>
-          </template>
-        </template>
-        <div v-else class="text-slate-500 italic">
-          Nothing to preview. Type something or paste/drop an image in Edit tab.
-        </div>
+        <RedmineWikiContent
+          :parts="parsedNotesParts"
+          max-image-height-class="max-h-[360px]"
+          :zoomable="false"
+          :preview-mode="true"
+          empty-text="Nothing to preview. Type something or paste/drop an image in Edit tab."
+        />
       </div>
     </div>
 
-    <!-- Drag & Drop Files Upload Area -->
-    <div class="space-y-2 pt-1">
+    <!-- Compact Drag & Drop Files Upload Area -->
+    <div class="space-y-1.5">
       <div class="flex items-center justify-between text-xs font-semibold text-slate-300">
-        <span class="flex items-center space-x-1.5">
+        <span class="flex items-center space-x-1.5 text-[11px]">
           <Paperclip class="w-3.5 h-3.5 text-sky-400" />
           <span>Files / Attachments</span>
         </span>
@@ -603,117 +419,52 @@ defineExpose({
         </button>
       </div>
 
-      <!-- Hidden File Input -->
-      <input
-        ref="fileInputRef"
-        type="file"
-        multiple
-        class="hidden"
-        @change="handleFileSelect"
-      />
+      <input ref="fileInputRef" type="file" multiple class="hidden" @change="handleFileSelect" />
 
-      <!-- Drag & Drop Box -->
       <div
-        class="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors"
+        class="border-2 border-dashed rounded-lg px-3 py-2 text-center cursor-pointer transition-colors"
         :class="
           isDragging
             ? 'border-sky-400 bg-sky-500/10 text-sky-300'
             : 'border-[#2d374a] hover:border-slate-500 bg-[#141822]/60 text-slate-400'
         "
-        @dragover="handleDragOver"
-        @dragleave="handleDragLeave"
+        @dragover.prevent="isDragging = true"
+        @dragleave.prevent="isDragging = false"
         @drop="handleDrop"
         @click="fileInputRef?.click()"
       >
-        <div class="flex flex-col items-center justify-center space-y-1.5 pointer-events-none select-none">
-          <Upload class="w-6 h-6 text-slate-400 mb-0.5" :class="{ 'text-sky-400 animate-bounce': isDragging }" />
-          <p class="text-xs font-medium text-slate-200">
+        <div class="flex items-center justify-center gap-2 pointer-events-none select-none flex-wrap">
+          <Upload class="w-4 h-4 text-slate-400 shrink-0" :class="{ 'text-sky-400 animate-bounce': isDragging }" />
+          <span class="text-xs font-medium text-slate-200">
             <span class="text-sky-400 underline">Click to browse</span> or drag and drop files here
-          </p>
-          <p class="text-[10px] text-slate-500">
-            Images (PNG, JPG, GIF), PDFs, documents. Paste screenshot with <kbd class="px-1 py-0.5 rounded bg-[#1e2534] border border-[#2d374a] text-slate-300">Ctrl+V</kbd>
-          </p>
+          </span>
+          <span class="text-[10px] text-slate-500">
+            &bull; Paste screenshot <kbd class="px-1 py-0.5 rounded bg-[#1e2534] border border-[#2d374a] text-slate-300">Ctrl+V</kbd>
+          </span>
         </div>
       </div>
 
-      <!-- Pending Files / Image Preview Grid -->
-      <div v-if="pendingFiles.length > 0" class="space-y-2 pt-1">
-        <div class="text-[11px] font-bold text-slate-400 flex items-center justify-between">
-          <span>Files to be uploaded ({{ pendingFiles.length }}):</span>
-          <span class="text-[10px] text-slate-500 font-normal">Will be attached when submitted</span>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-          <div
-            v-for="(pf, idx) in pendingFiles"
-            :key="pf.id"
-            class="relative border border-[#2b364a] bg-[#141822] rounded-md p-2 flex flex-col space-y-1.5 shadow-sm group hover:border-[#3a4964] transition-colors"
-          >
-            <!-- Delete Button -->
-            <button
-              type="button"
-              class="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-black/60 hover:bg-rose-600 text-slate-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer z-10"
-              title="Remove file"
-              @click.stop="removeFile(idx)"
-            >
-              <X class="w-3 h-3" />
-            </button>
-
-            <!-- Image Preview or Document Icon -->
-            <div v-if="pf.isImage" class="w-full h-28 rounded overflow-hidden bg-black/40 flex items-center justify-center border border-[#222a3a]">
-              <img
-                v-if="pf.previewUrl"
-                :src="pf.previewUrl"
-                :alt="pf.name"
-                class="w-full h-full object-contain"
-              />
-              <div v-else class="text-[10px] text-slate-500 flex items-center justify-center">
-                <span>Loading preview...</span>
-              </div>
-            </div>
-            <div v-else class="w-full h-20 rounded bg-[#1a2130] flex flex-col items-center justify-center text-slate-400 border border-[#222a3a]">
-              <FileIcon class="w-8 h-8 text-sky-400 mb-1" />
-              <span class="text-[10px] uppercase font-bold text-slate-500 font-mono">{{ pf.name.split('.').pop() || 'FILE' }}</span>
-            </div>
-
-            <!-- File Name & Size -->
-            <div class="text-xs truncate font-medium text-slate-200" :title="pf.name">
-              {{ pf.name }}
-            </div>
-            <div class="text-[10px] text-slate-500 font-mono">
-              {{ formatFileSize(pf.size) }}
-            </div>
-
-            <!-- Optional Description Input -->
-            <input
-              v-model="pf.description"
-              type="text"
-              placeholder="Description (optional)"
-              class="w-full px-2 py-1 bg-[#1a202c] border border-[#283447] rounded text-[11px] text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
-            />
-          </div>
-        </div>
-      </div>
+      <RedminePendingFilesGrid :files="pendingFiles" @remove="removeFile" />
     </div>
 
-    <!-- Submit Actions -->
-    <div class="flex items-center justify-between pt-2 border-t border-[#222d3d]">
-      <div class="text-xs text-sky-400 font-medium">
+    <!-- Submit Actions Footer -->
+    <div class="flex items-center justify-between pt-2 border-t border-[#222d3d] gap-3">
+      <div class="text-xs text-sky-400 font-medium truncate">
         <span v-if="uploadProgressText">{{ uploadProgressText }}</span>
       </div>
 
-      <div class="flex items-center space-x-2">
+      <div class="flex items-center space-x-2 shrink-0">
         <button
           type="button"
-          class="px-3 py-1.5 rounded text-xs text-slate-400 hover:text-white hover:bg-[#202737] transition-colors cursor-pointer"
+          class="px-3.5 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-slate-300 hover:text-white text-xs font-medium transition-colors flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           :disabled="isUploading || props.isLoading"
           @click="emit('close')"
         >
-          Cancel
+          <span>Cancel</span>
         </button>
         <button
           type="button"
-          class="px-4 py-1.5 rounded text-xs font-semibold text-white bg-[#b32d2e] hover:bg-[#c93637] transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 shadow-sm"
+          class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1.5 cursor-pointer"
           :disabled="isUploading || props.isLoading"
           @click="handleSubmit"
         >
@@ -725,4 +476,3 @@ defineExpose({
     </div>
   </div>
 </template>
-

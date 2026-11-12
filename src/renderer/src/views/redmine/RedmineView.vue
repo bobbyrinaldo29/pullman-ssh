@@ -124,7 +124,7 @@ function handleSelectNotification(item: RedmineChangeNotification): void {
 </script>
 
 <template>
-  <div class="flex-1 flex flex-col bg-[#141822] text-slate-200 overflow-hidden font-sans select-none">
+  <div class="flex-1 min-h-0 min-w-0 flex flex-col bg-[#141822] text-slate-200 overflow-hidden font-sans select-none">
     <!-- Redmine Top Navigation Quicklinks -->
     <RedmineTopBar
       :user="currentUser"
@@ -162,7 +162,7 @@ function handleSelectNotification(item: RedmineChangeNotification): void {
     />
 
     <!-- Main Content Area -->
-    <div class="flex-1 flex flex-col overflow-hidden relative">
+    <div class="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden relative">
       <!-- Unconnected / Not Logged In Screen -->
       <div
         v-if="!isConnected"
@@ -228,11 +228,11 @@ function handleSelectNotification(item: RedmineChangeNotification): void {
         <RedmineIssuesTable
           v-else-if="activeTab === 'issues'"
           v-model:selected-project-id="selectedProjectId"
+          v-model:filters="filters"
           :issues="filteredIssues"
           :trackers="trackers"
           :priorities="priorities"
           :queries="queries"
-          :filters="filters"
           :is-loading="isLoading"
           :error="error"
           @select-issue="(issue) => openIssueTab(issue)"
