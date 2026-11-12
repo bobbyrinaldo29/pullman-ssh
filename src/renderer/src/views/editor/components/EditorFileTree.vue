@@ -39,6 +39,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'connect', host: HostItem, path?: string): void
   (e: 'disconnect'): void
+  (e: 'retry-connect'): void
   (e: 'open-file', node: EditorFileNode): void
   (e: 'toggle-folder', node: EditorFileNode): void
   (e: 'refresh-tree'): void
@@ -83,12 +84,7 @@ watch(() => props.rootPath, () => {
   if (isEditingPath.value) isEditingPath.value = false
 })
 
-const contextMenu = ref<{
-  show: boolean
-  x: number
-  y: number
-  node: EditorFileNode | null
-}>({
+const contextMenu = ref<{ show: boolean; x: number; y: number; node: EditorFileNode | null }>({
   show: false,
   x: 0,
   y: 0,
@@ -109,36 +105,24 @@ function closeContextMenu(): void {
 }
 
 function handleMakeRoot(): void {
-  if (contextMenu.value.node) {
-    emit('set-root', contextMenu.value.node.path)
-  }
+  if (contextMenu.value.node) emit('set-root', contextMenu.value.node.path)
   closeContextMenu()
 }
 
 function handleCopyPath(): void {
-  if (contextMenu.value.node) {
-    navigator.clipboard.writeText(contextMenu.value.node.path).catch(() => {})
-  }
+  if (contextMenu.value.node) navigator.clipboard.writeText(contextMenu.value.node.path).catch(() => {})
   closeContextMenu()
 }
 
 // Modal State for New File / New Folder
-const modalState = ref<{
-  show: boolean
-  type: 'file' | 'folder'
-  targetDir: string
-}>({
+const modalState = ref<{ show: boolean; type: 'file' | 'folder'; targetDir: string }>({
   show: false,
   type: 'file',
   targetDir: '/'
 })
 
 function openNewItemModal(type: 'file' | 'folder', targetDir?: string): void {
-  modalState.value = {
-    show: true,
-    type,
-    targetDir: targetDir || props.rootPath || '/'
-  }
+  modalState.value = { show: true, type, targetDir: targetDir || props.rootPath || '/' }
 }
 
 function handleCreateItem(name: string): void {
@@ -151,11 +135,7 @@ function handleCreateItem(name: string): void {
 }
 
 // Modal State for Delete File / Folder
-const deleteModalState = ref<{
-  show: boolean
-  node: EditorFileNode | null
-  isDeleting: boolean
-}>({
+const deleteModalState = ref<{ show: boolean; node: EditorFileNode | null; isDeleting: boolean }>({
   show: false,
   node: null,
   isDeleting: false
@@ -263,6 +243,15 @@ onUnmounted(() => {
       <div v-else-if="connectionError" class="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-300 text-xs max-w-[220px] text-left">
         <p class="font-semibold mb-1">Connection failed:</p>
         <p class="text-[11px] leading-relaxed break-words">{{ connectionError }}</p>
+        <button
+          type="button"
+          class="mt-2.5 w-full px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-1.5"
+          :disabled="isConnecting"
+          @click="emit('retry-connect')"
+        >
+          <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isConnecting }" />
+          <span>{{ isConnecting ? 'Connecting...' : 'Retry Connection' }}</span>
+        </button>
       </div>
     </div>
 

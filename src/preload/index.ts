@@ -239,7 +239,7 @@ const api = {
     hash: string,
     filePath: string,
     sessionId?: string
-  ): Promise<string> =>
+  ): Promise<{ diff: string; original: string; modified: string }> =>
     ipcRenderer.invoke('sftp:git-file-diff', { remotePath, hash, filePath, sessionId }),
   sftpSearchRemote: (
     query: string,

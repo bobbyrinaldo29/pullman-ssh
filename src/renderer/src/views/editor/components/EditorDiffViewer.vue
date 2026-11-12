@@ -1,0 +1,189 @@
+<script setup lang="ts">
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { Columns2, AlignJustify, ChevronUp, ChevronDown, FileCode } from 'lucide-vue-next'
+import { monaco, getMonacoLanguage } from '../monaco/monacoSetup'
+import { parseUnifiedDiff } from '../utils/diffParser'
+
+const props = withDefaults(
+  defineProps<{
+    original?: string
+    modified?: string
+    diffContent?: string
+    filename?: string
+    language?: string
+    readOnly?: boolean
+    hideHeader?: boolean
+  }>(),
+  {
+    original: '',
+    modified: '',
+    diffContent: '',
+    filename: '',
+    language: '',
+    readOnly: true,
+    hideHeader: false
+  }
+)
+
+const diffContainerRef = ref<HTMLDivElement | null>(null)
+let diffEditor: monaco.editor.IStandaloneDiffEditor | null = null
+let originalModel: monaco.editor.ITextModel | null = null
+let modifiedModel: monaco.editor.ITextModel | null = null
+
+const isInline = ref(false)
+
+const cleanFilename = computed(() => {
+  return (props.filename || '').replace(/\s*\(Diff\)/i, '').trim()
+})
+
+const computedTexts = computed(() => {
+  if (props.original || props.modified) {
+    return { original: props.original, modified: props.modified }
+  }
+  if (props.diffContent) {
+    return parseUnifiedDiff(props.diffContent)
+  }
+  return { original: '', modified: '' }
+})
+
+const detectedLanguage = computed(() => {
+  if (props.language && props.language !== 'diff') return getMonacoLanguage(props.language)
+  if (cleanFilename.value) return getMonacoLanguage(cleanFilename.value)
+  return 'plaintext'
+})
+
+function updateModels(): void {
+  if (!diffEditor) return
+
+  // Dispose old models
+  if (originalModel && !originalModel.isDisposed()) originalModel.dispose()
+  if (modifiedModel && !modifiedModel.isDisposed()) modifiedModel.dispose()
+
+  const lang = detectedLanguage.value
+  const origUri = monaco.Uri.parse(`inmemory://diff-orig/${Date.now()}/${encodeURIComponent(cleanFilename.value || 'original')}`)
+  const modUri = monaco.Uri.parse(`inmemory://diff-mod/${Date.now()}/${encodeURIComponent(cleanFilename.value || 'modified')}`)
+
+  originalModel = monaco.editor.createModel(computedTexts.value.original, lang, origUri)
+  modifiedModel = monaco.editor.createModel(computedTexts.value.modified, lang, modUri)
+
+  diffEditor.setModel({
+    original: originalModel,
+    modified: modifiedModel
+  })
+}
+
+function initDiffEditor(): void {
+  if (!diffContainerRef.value || diffEditor) return
+
+  diffEditor = monaco.editor.createDiffEditor(diffContainerRef.value, {
+    theme: 'pullman-dark',
+    automaticLayout: true,
+    readOnly: props.readOnly,
+    renderSideBySide: !isInline.value,
+    originalEditable: false,
+    fontSize: 12,
+    fontFamily: "'Fira Code', Menlo, Monaco, 'Courier New', monospace",
+    lineHeight: 20,
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+    diffWordWrap: 'on',
+    renderIndicators: true,
+    smoothScrolling: true,
+    hideUnchangedRegions: {
+      enabled: true,
+      revealLineCount: 20,
+      minimumLineCount: 3
+    }
+  })
+
+  updateModels()
+}
+
+function toggleInlineView(): void {
+  isInline.value = !isInline.value
+  diffEditor?.updateOptions({
+    renderSideBySide: !isInline.value
+  })
+}
+
+function nextChange(): void {
+  diffEditor?.goToDiff('next')
+}
+
+function prevChange(): void {
+  diffEditor?.goToDiff('previous')
+}
+
+watch(
+  [() => props.original, () => props.modified, () => props.diffContent, () => props.filename],
+  () => {
+    nextTick(() => {
+      if (diffEditor) updateModels()
+    })
+  }
+)
+
+onMounted(() => {
+  nextTick(() => {
+    initDiffEditor()
+  })
+})
+
+onUnmounted(() => {
+  if (originalModel && !originalModel.isDisposed()) originalModel.dispose()
+  if (modifiedModel && !modifiedModel.isDisposed()) modifiedModel.dispose()
+  diffEditor?.dispose()
+  diffEditor = null
+})
+</script>
+
+<template>
+  <div class="flex-1 flex flex-col h-full bg-[#1E222B] overflow-hidden select-none">
+    <!-- Diff Header Toolbar -->
+    <div
+      v-if="!hideHeader"
+      class="h-7 px-3 bg-[#181A1F] border-b border-[#24272E] flex items-center justify-between text-xs shrink-0 select-none"
+    >
+      <div class="flex items-center space-x-2 truncate">
+        <FileCode class="w-3.5 h-3.5 text-blue-400 shrink-0" />
+        <span class="text-slate-300 font-medium truncate text-[11px]">{{ filename || 'Diff Viewer' }}</span>
+        <span class="text-[10px] text-slate-500 font-mono">({{ detectedLanguage }})</span>
+      </div>
+
+      <!-- Controls: Toggle Inline/Split, Navigate Changes -->
+      <div class="flex items-center space-x-1 shrink-0">
+        <button
+          type="button"
+          class="p-1 rounded text-slate-400 hover:text-white hover:bg-[#252A36] transition-colors"
+          title="Previous Change"
+          @click="prevChange"
+        >
+          <ChevronUp class="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          class="p-1 rounded text-slate-400 hover:text-white hover:bg-[#252A36] transition-colors"
+          title="Next Change"
+          @click="nextChange"
+        >
+          <ChevronDown class="w-3.5 h-3.5" />
+        </button>
+        <div class="h-3 w-px bg-[#2D3547] mx-1"></div>
+        <button
+          type="button"
+          class="px-2 py-0.5 rounded text-[11px] font-medium flex items-center space-x-1 transition-colors"
+          :class="isInline ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30' : 'text-slate-400 hover:text-white hover:bg-[#252A36]'"
+          :title="isInline ? 'Switch to Side-by-Side View' : 'Switch to Inline View'"
+          @click="toggleInlineView"
+        >
+          <component :is="isInline ? AlignJustify : Columns2" class="w-3 h-3" />
+          <span>{{ isInline ? 'Inline' : 'Side-by-Side' }}</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Monaco Diff Editor Host Container -->
+    <div ref="diffContainerRef" class="flex-1 w-full h-full min-h-0 overflow-hidden"></div>
+  </div>
+</template>
+

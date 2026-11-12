@@ -11,6 +11,7 @@ import EditorSearchPane from './EditorSearchPane.vue'
 import EditorSourceControlPane from './EditorSourceControlPane.vue'
 import EditorTabs from './EditorTabs.vue'
 import EditorCodeArea from './EditorCodeArea.vue'
+import EditorDiffViewer from './EditorDiffViewer.vue'
 import EditorGitGraphView from './EditorGitGraphView.vue'
 import EditorAntigravityPane from './EditorAntigravityPane.vue'
 import EditorAiGenInline from './EditorAiGenInline.vue'
@@ -49,49 +50,24 @@ function startSidebarResize(e: MouseEvent): void {
   isResizingSidebar.value = true
   const startX = e.clientX
   const startWidth = sidebarWidth.value
-
-  const onMouseMove = (moveEvent: MouseEvent) => {
-    const deltaX = moveEvent.clientX - startX
-    const newWidth = Math.max(160, Math.min(700, startWidth + deltaX))
-    sidebarWidth.value = newWidth
+  const onMouseMove = (me: MouseEvent) => {
+    sidebarWidth.value = Math.max(160, Math.min(700, startWidth + me.clientX - startX))
   }
-
   const onMouseUp = () => {
     isResizingSidebar.value = false
     window.removeEventListener('mousemove', onMouseMove)
     window.removeEventListener('mouseup', onMouseUp)
   }
-
   window.addEventListener('mousemove', onMouseMove)
   window.addEventListener('mouseup', onMouseUp)
 }
 
 const {
-  sessionId,
-  isConnected,
-  isConnecting,
-  connectionError,
-  currentHost,
-  rootPath,
-  gitInfo,
-  fetchGitInfo,
-  fileTree,
-  isTreeLoading,
-  openTabs,
-  activeTabId,
-  activeTab,
-  connectToHost,
-  disconnect,
-  loadRootDirectory,
-  toggleFolder,
-  openFile,
-  saveActiveTab,
-  closeTab,
-  setRootFolder,
-  navigateUp,
-  createRemoteFile,
-  createRemoteFolder,
-  deleteRemoteNode
+  sessionId, isConnected, isConnecting, connectionError, currentHost,
+  rootPath, gitInfo, fetchGitInfo, fileTree, isTreeLoading,
+  openTabs, activeTabId, activeTab, connectToHost, disconnect,
+  loadRootDirectory, toggleFolder, openFile, saveActiveTab, closeTab,
+  setRootFolder, navigateUp, createRemoteFile, createRemoteFolder, deleteRemoteNode
 } = useEditorSsh()
 
 const splitActiveTab = computed(() => {
@@ -155,9 +131,13 @@ function updateGitBlame(): void {
   }, 250)
 }
 
-watch([() => cursorPos.value.line, () => activeTab.value?.path], () => {
-  updateGitBlame()
-})
+watch(
+  [() => cursorPos.value.line, () => activeTab.value?.path],
+  () => {
+    updateGitBlame()
+  },
+  { immediate: true }
+)
 
 const gitCandidatePath = computed(() => {
   if (activeTab.value?.path && activeTab.value.viewType !== 'git-graph') {
@@ -210,45 +190,49 @@ function handleGitPathUpdate(path: string): void {
 
 function openGitGraphTab(): void {
   const existing = openTabs.value.find((t) => t.id === 'git-graph-tab')
-  if (existing) {
-    activeTabId.value = 'git-graph-tab'
-    return
-  }
+  if (existing) { activeTabId.value = 'git-graph-tab'; return }
   openTabs.value.push({
-    id: 'git-graph-tab',
-    name: 'Git Graph',
-    path: activeGitGraphPath.value || rootPath.value || '',
-    content: '',
-    originalContent: '',
-    isDirty: false,
-    isSaving: false,
-    language: 'Git Graph',
-    readOnly: true,
-    viewType: 'git-graph'
+    id: 'git-graph-tab', name: 'Git Graph', path: activeGitGraphPath.value || rootPath.value || '',
+    content: '', originalContent: '', isDirty: false, isSaving: false, language: 'Git Graph', readOnly: true, viewType: 'git-graph'
   })
   activeTabId.value = 'git-graph-tab'
 }
 
+async function openDiffTab(filePath: string, hash?: string): Promise<void> {
+  const fileName = filePath.split('/').pop() || filePath
+  const tabId = `diff:${filePath}`
+  const existing = openTabs.value.find((t) => t.id === tabId)
+  if (existing) { activeTabId.value = tabId; return }
+
+  let diffContent = '', diffOriginal = '', diffModified = ''
+  if (window.api?.sftpGitFileDiff) {
+    const res = await window.api.sftpGitFileDiff(rootPath.value || '/', hash || 'HEAD', filePath, sessionId.value)
+    if (typeof res === 'string') {
+      diffContent = res
+    } else if (res) {
+      diffContent = res.diff || ''
+      diffOriginal = res.original || ''
+      diffModified = res.modified || ''
+    }
+  }
+
+  openTabs.value.push({
+    id: tabId, name: `${fileName} (Diff)`, path: filePath, content: '', originalContent: '',
+    isDirty: false, isSaving: false, language: 'diff', readOnly: true, viewType: 'diff',
+    diffContent, diffOriginal, diffModified
+  })
+  activeTabId.value = tabId
+}
+
 function handleKeyDown(e: KeyboardEvent): void {
   if (!props.isActive) return
-
-  if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
-    e.preventDefault()
-    isAiGenOpen.value = !isAiGenOpen.value
-  } else if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === 's' || e.key === 'S')) {
-    e.preventDefault()
-    saveActiveTab(true)
-  } else if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
-    e.preventDefault()
-    handleToggleSplit()
-  } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'g' || e.key === 'G')) {
-    e.preventDefault()
-    handleToggleView('git')
-  } else if (e.altKey && (e.key === 'l' || e.key === 'L' || e.code === 'KeyL' || e.key === '¬')) {
-    if (document.activeElement?.tagName !== 'TEXTAREA') {
-      e.preventDefault()
-      primaryCodeAreaRef.value?.handleWrapLog()
-    }
+  const isCmd = e.metaKey || e.ctrlKey
+  if (isCmd && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); isAiGenOpen.value = !isAiGenOpen.value }
+  else if (isCmd && e.altKey && (e.key === 's' || e.key === 'S')) { e.preventDefault(); saveActiveTab(true) }
+  else if (isCmd && e.key === '\\') { e.preventDefault(); handleToggleSplit() }
+  else if (isCmd && e.shiftKey && (e.key === 'g' || e.key === 'G')) { e.preventDefault(); handleToggleView('git') }
+  else if (e.altKey && (e.key === 'l' || e.key === 'L' || e.code === 'KeyL' || e.key === '¬')) {
+    if (document.activeElement?.tagName !== 'TEXTAREA') { e.preventDefault(); primaryCodeAreaRef.value?.handleWrapLog() }
   }
 }
 
@@ -270,14 +254,8 @@ function hasUnsavedChanges(): boolean {
 }
 
 defineExpose({
-  connectToHost,
-  disconnect,
-  openGitGraphTab,
-  openFile,
-  hasUnsavedChanges,
-  sessionId,
-  isConnected,
-  isConnecting
+  connectToHost, disconnect, openGitGraphTab, openDiffTab, openFile,
+  hasUnsavedChanges, sessionId, isConnected, isConnecting
 })
 </script>
 
@@ -313,6 +291,7 @@ defineExpose({
           :is-tree-loading="isTreeLoading"
           :active-file-path="activeTab?.path"
           :git-info="gitInfo"
+          @retry-connect="props.host ? connectToHost(props.host) : undefined"
           @disconnect="disconnect"
           @open-file="openFile"
           @toggle-folder="toggleFolder"
@@ -343,7 +322,7 @@ defineExpose({
           :session-id="sessionId"
           :root-path="rootPath"
           :active-file-path="activeTab?.path"
-          @open-file="openFile"
+          @open-file="(f) => openDiffTab(f.path)"
           @refresh-git="fetchGitInfo(activeTab?.path || rootPath)"
           @open-git-graph="openGitGraphTab"
         />
@@ -417,6 +396,16 @@ defineExpose({
             @update:active-git-path="handleGitPathUpdate"
           />
 
+          <!-- Diff Editor View (when activeTab is diff) -->
+          <EditorDiffViewer
+            v-else-if="activeTab?.viewType === 'diff'"
+            class="flex-1 min-h-0"
+            :filename="activeTab.name"
+            :diff-content="activeTab.diffContent"
+            :original="activeTab.diffOriginal"
+            :modified="activeTab.diffModified"
+          />
+
           <!-- Code Editor Area -->
           <EditorCodeArea
             v-else
@@ -429,6 +418,7 @@ defineExpose({
             @save="saveActiveTab(false)"
             @save-as-sudo="saveActiveTab(true)"
             @toggle-ai-gen="isAiGenOpen = !isAiGenOpen"
+            @open-git-graph="openGitGraphTab"
           />
         </div>
 
@@ -464,11 +454,23 @@ defineExpose({
             </button>
           </div>
 
+          <!-- Split Diff Editor View (when splitActiveTab is diff) -->
+          <EditorDiffViewer
+            v-if="splitActiveTab?.viewType === 'diff'"
+            class="flex-1 min-h-0"
+            :filename="splitActiveTab.name"
+            :diff-content="splitActiveTab.diffContent"
+            :original="splitActiveTab.diffOriginal"
+            :modified="splitActiveTab.diffModified"
+          />
+
           <!-- Split Code Editor Area -->
           <EditorCodeArea
+            v-else
             :active-tab="splitActiveTab"
             @save="saveActiveTab(false)"
             @save-as-sudo="saveActiveTab(true)"
+            @open-git-graph="openGitGraphTab"
           />
         </div>
       </div>

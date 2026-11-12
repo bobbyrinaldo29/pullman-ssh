@@ -4,11 +4,10 @@ import {
   Check,
   Copy,
   RotateCw,
-  Plus,
-  Minus,
   FileCode
 } from 'lucide-vue-next'
 import { GitGraphCommit } from '../types'
+import EditorDiffViewer from './EditorDiffViewer.vue'
 
 defineProps<{
   selectedCommit: GitGraphCommit
@@ -16,8 +15,9 @@ defineProps<{
   isLoadingDetails: boolean
   selectedDiffFile: { status: 'M' | 'A' | 'D'; path: string } | null
   diffContent: string
+  diffOriginal?: string
+  diffModified?: string
   isLoadingDiff: boolean
-  diffLines: { type: string; text: string }[]
   isCopied: boolean
 }>()
 
@@ -32,7 +32,7 @@ const emit = defineEmits<{
 <template>
   <div
     class="border-t border-[#24272E] bg-[#16181E] flex flex-col shrink-0 text-xs shadow-2xl"
-    style="height: 260px"
+    style="height: 340px"
   >
     <!-- Details Drawer Header -->
     <div class="h-8 px-4 border-b border-[#24272E] bg-[#1a1d24] flex items-center justify-between font-semibold shrink-0">
@@ -77,36 +77,24 @@ const emit = defineEmits<{
 
     <!-- Details Drawer Content -->
     <div class="flex-1 flex overflow-hidden">
-      <!-- DIFF VIEWER (when a file is selected) -->
+      <!-- DIFF VIEWER (when a file is selected) - Powered by Monaco Diff Editor -->
       <template v-if="selectedDiffFile">
-        <div class="flex-1 overflow-y-auto font-mono text-[11px] leading-5">
-          <div v-if="isLoadingDiff" class="flex items-center justify-center py-8 text-slate-400 space-x-2">
-            <RotateCw class="w-4 h-4 animate-spin text-blue-400" />
-            <span>Loading diff...</span>
-          </div>
-          <div v-else-if="!diffContent" class="flex items-center justify-center py-8 text-slate-500">
-            No diff available for this file.
-          </div>
-          <div v-else>
-            <div
-              v-for="(line, idx) in diffLines"
-              :key="idx"
-              class="px-4 whitespace-pre-wrap break-all"
-              :class="{
-                'bg-emerald-900/30 text-emerald-300': line.type === 'add',
-                'bg-rose-900/30 text-rose-300': line.type === 'del',
-                'bg-sky-900/20 text-sky-400 font-semibold': line.type === 'hunk',
-                'text-slate-500': line.type === 'meta',
-                'text-slate-300': line.type === 'ctx'
-              }"
-            >
-              <span v-if="line.type === 'add'" class="mr-1 text-emerald-500"><Plus class="w-3 h-3 inline" /></span>
-              <span v-else-if="line.type === 'del'" class="mr-1 text-rose-500"><Minus class="w-3 h-3 inline" /></span>
-              <span v-else class="mr-1 opacity-0">·</span>
-              {{ line.text.substring(line.type === 'add' || line.type === 'del' ? 1 : 0) }}
-            </div>
-          </div>
+        <div v-if="isLoadingDiff" class="flex-1 flex items-center justify-center py-8 text-slate-400 space-x-2">
+          <RotateCw class="w-4 h-4 animate-spin text-blue-400" />
+          <span>Loading diff editor...</span>
         </div>
+        <div v-else-if="!diffContent && !diffOriginal && !diffModified" class="flex-1 flex items-center justify-center py-8 text-slate-500">
+          No diff available for this file.
+        </div>
+        <EditorDiffViewer
+          v-else
+          class="flex-1 min-h-0"
+          :filename="selectedDiffFile.path"
+          :diff-content="diffContent"
+          :original="diffOriginal"
+          :modified="diffModified"
+          :hide-header="false"
+        />
       </template>
 
       <!-- COMMIT META + FILES LIST (default view) -->

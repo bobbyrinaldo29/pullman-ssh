@@ -763,44 +763,29 @@ export class SftpService {
   }
 
   public async gitStageAll(remotePath: string, sessionId?: string): Promise<void> {
-    const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
-    const cleanPath = (remotePath || '/').replace(/\/+/g, '/')
-    const escDir = cleanPath.replace(/'/g, "'\\''")
+    const escDir = (remotePath || '/').replace(/\/+/g, '/').replace(/'/g, "'\\''")
     await this.execRemote(`PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* add -A`, sessionId, false)
   }
 
   public async gitDiscardAll(remotePath: string, sessionId?: string): Promise<void> {
-    const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
-    const cleanPath = (remotePath || '/').replace(/\/+/g, '/')
-    const escDir = cleanPath.replace(/'/g, "'\\''")
+    const escDir = (remotePath || '/').replace(/\/+/g, '/').replace(/'/g, "'\\''")
     await this.execRemote(`PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* checkout -- . && git -c safe.directory=* clean -fd`, sessionId, false)
   }
 
   public async gitPull(remotePath: string, sessionId?: string): Promise<{ success: boolean; message: string }> {
-    const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
-    const cleanPath = (remotePath || '/').replace(/\/+/g, '/')
-    const escDir = cleanPath.replace(/'/g, "'\\''")
+    const escDir = (remotePath || '/').replace(/\/+/g, '/').replace(/'/g, "'\\''")
     const res = await this.execRemote(`PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* pull`, sessionId, false)
     return { success: true, message: res.stdout.trim() || res.stderr.trim() || 'Pulled.' }
   }
 
   public async gitPush(remotePath: string, sessionId?: string): Promise<{ success: boolean; message: string }> {
-    const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
-    const cleanPath = (remotePath || '/').replace(/\/+/g, '/')
-    const escDir = cleanPath.replace(/'/g, "'\\''")
+    const escDir = (remotePath || '/').replace(/\/+/g, '/').replace(/'/g, "'\\''")
     const res = await this.execRemote(`PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* push`, sessionId, false)
     return { success: true, message: res.stdout.trim() || res.stderr.trim() || 'Pushed.' }
   }
 
   public async gitLog(remotePath: string, sessionId?: string): Promise<string> {
-    const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
-    const cleanPath = (remotePath || '/').replace(/\/+/g, '/')
-    const escDir = cleanPath.replace(/'/g, "'\\''")
+    const escDir = (remotePath || '/').replace(/\/+/g, '/').replace(/'/g, "'\\''")
     const res = await this.execRemote(`PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* log --graph --oneline --decorate -n 35 2>/dev/null || true`, sessionId, false)
     return res.stdout.trim() || res.stderr.trim() || 'No git log available.'
   }
@@ -808,8 +793,7 @@ export class SftpService {
   public async getGitGraphCommits(remotePath: string, sessionId?: string, limit = 80): Promise<string> {
     const session = this.getSession(sessionId)
     if (!session || !session.isConnected) return ''
-    const escDir = (remotePath || '').replace(/\/+/g, '/').replace(/'/g, "'\\''")
-    const escCwd = (session.cwd || '').replace(/'/g, "'\\''")
+    const escDir = (remotePath || '').replace(/\/+/g, '/').replace(/'/g, "'\\''"), escCwd = (session.cwd || '').replace(/'/g, "'\\''")
     const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; for P in '${escDir}' '${escCwd}'; do [ -z "$P" ] && continue; T="$P"; [ -f "$T" ] && T=$(dirname "$T"); [ ! -d "$T" ] && continue; cd "$T" 2>/dev/null || continue; R=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null); if [ -n "$R" ]; then cd "$R" 2>/dev/null && git -c safe.directory=* log --all --date-order -n ${limit} --pretty=format:'%H%x09%h%x09%P%x09%an%x09%ae%x09%ar%x09%s%x09%D' 2>/dev/null || git -c safe.directory=* log -n ${limit} --pretty=format:'%H%x09%h%x09%P%x09%an%x09%ae%x09%ar%x09%s%x09%D' 2>/dev/null; exit 0; fi; done`
     const res = await this.execRemote(cmd, sessionId, false)
     return res.stdout.trim()
@@ -818,23 +802,42 @@ export class SftpService {
   public async getCommitDetails(remotePath: string, hash: string, sessionId?: string): Promise<string> {
     const session = this.getSession(sessionId)
     if (!session || !session.isConnected) return ''
-    const escDir = (remotePath || '').replace(/\/+/g, '/').replace(/'/g, "'\\''")
-    const escCwd = (session.cwd || '').replace(/'/g, "'\\''")
-    const escHash = hash.replace(/'/g, "'\\''")
+    const escDir = (remotePath || '').replace(/\/+/g, '/').replace(/'/g, "'\\''"), escCwd = (session.cwd || '').replace(/'/g, "'\\''"), escHash = hash.replace(/'/g, "'\\''")
     const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; for P in '${escDir}' '${escCwd}'; do [ -z "$P" ] && continue; T="$P"; [ -f "$T" ] && T=$(dirname "$T"); [ ! -d "$T" ] && continue; cd "$T" 2>/dev/null || continue; R=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null); if [ -n "$R" ]; then cd "$R" 2>/dev/null && git -c safe.directory=* show --stat --name-status -n 1 '${escHash}' 2>/dev/null; exit 0; fi; done`
     const res = await this.execRemote(cmd, sessionId, false)
     return res.stdout.trim()
   }
 
-  public async getGitFileDiff(remotePath: string, hash: string, filePath: string, sessionId?: string): Promise<string> {
+  public async getGitFileDiff(
+    remotePath: string, hash: string, filePath: string, sessionId?: string
+  ): Promise<{ diff: string; original: string; modified: string }> {
     const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) return ''
+    if (!session || !session.isConnected) return { diff: '', original: '', modified: '' }
     const escDir = (remotePath || '').replace(/\/+/g, '/').replace(/'/g, "'\\''")
-    const escHash = hash.replace(/[^a-f0-9]/gi, '')
     const escFile = (filePath || '').replace(/'/g, "'\\''")
-    const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; cd '${escDir}' 2>/dev/null; R=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null); if [ -n "$R" ]; then cd "$R" 2>/dev/null && git -c safe.directory=* show '${escHash}' -- '${escFile}' 2>/dev/null; fi`
-    const res = await this.execRemote(cmd, sessionId, false)
-    return res.stdout.trim()
+    const isCommit = hash && !['HEAD', 'working', 'staged', 'current'].includes(hash) && /^[a-f0-9]{4,40}$/i.test(hash)
+    const escHash = isCommit ? hash.replace(/[^a-f0-9]/gi, '') : ''
+
+    const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; if [ -f '${escFile}' ]; then cd "$(dirname '${escFile}')" 2>/dev/null; else cd '${escDir}' 2>/dev/null; fi
+R=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null)
+if [ -n "$R" ]; then
+  cd "$R" 2>/dev/null; REL=$(git -c safe.directory=* ls-files --full-name '${escFile}' 2>/dev/null); [ -z "$REL" ] && REL=$(basename '${escFile}')
+  ${isCommit
+    ? `D=$(git -c safe.directory=* show '${escHash}' -- "$REL" 2>/dev/null || git -c safe.directory=* show '${escHash}' -- '${escFile}' 2>/dev/null); O=$(git -c safe.directory=* show '${escHash}~1':"$REL" 2>/dev/null); M=$(git -c safe.directory=* show '${escHash}':"$REL" 2>/dev/null)`
+    : `D=$(git -c safe.directory=* diff HEAD -- "$REL" 2>/dev/null || git -c safe.directory=* diff -- "$REL" 2>/dev/null || git -c safe.directory=* diff HEAD -- '${escFile}' 2>/dev/null)
+  [ -z "$D" ] && [ -f '${escFile}' ] && D=$(git -c safe.directory=* diff --no-index /dev/null '${escFile}' 2>/dev/null)
+  O=$(git -c safe.directory=* show HEAD:"$REL" 2>/dev/null); M=$([ -f '${escFile}' ] && cat '${escFile}' 2>/dev/null || cat "$REL" 2>/dev/null || echo "")`}
+  printf "%s\\n___PULLMAN_DIFF_SEP___\\n%s\\n___PULLMAN_DIFF_SEP___\\n%s" "$D" "$O" "$M"
+fi`
+
+    try {
+      const res = await this.execRemote(cmd, sessionId, false)
+      const p = res.stdout.split('___PULLMAN_DIFF_SEP___')
+      if (p.length >= 3) return { diff: p[0].trim(), original: p[1].replace(/^\n+|\n+$/g, ''), modified: p[2].replace(/^\n+|\n+$/g, '') }
+      return { diff: res.stdout.trim(), original: '', modified: '' }
+    } catch {
+      return { diff: '', original: '', modified: '' }
+    }
   }
 
   public async searchRemote(
@@ -956,19 +959,12 @@ export class SftpService {
 
       let timeAgo = 'recently'
       if (!isUncommitted && authorTime > 0) {
-        const diffMs = Date.now() - authorTime
-        const diffMins = Math.floor(diffMs / 60000)
-        const diffHours = Math.floor(diffMins / 60)
-        const diffDays = Math.floor(diffHours / 24)
-        const diffMonths = Math.floor(diffDays / 30)
-        const diffYears = Math.floor(diffDays / 365)
-
-        if (diffYears > 0) timeAgo = `${diffYears} year${diffYears > 1 ? 's' : ''} ago`
-        else if (diffMonths > 0) timeAgo = `${diffMonths} month${diffMonths > 1 ? 's' : ''} ago`
-        else if (diffDays > 0) timeAgo = `${diffDays} day${diffDays > 1 ? 's' : ''} ago`
-        else if (diffHours > 0) timeAgo = `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`
-        else if (diffMins > 0) timeAgo = `${diffMins} min${diffMins > 1 ? 's' : ''} ago`
-        else timeAgo = 'just now'
+        const m = Math.floor((Date.now() - authorTime) / 60000), h = Math.floor(m / 60), d = Math.floor(h / 24)
+        if (d >= 365) timeAgo = `${Math.floor(d / 365)}y ago`
+        else if (d >= 30) timeAgo = `${Math.floor(d / 30)}mo ago`
+        else if (d > 0) timeAgo = `${d}d ago`
+        else if (h > 0) timeAgo = `${h}h ago`
+        else timeAgo = m > 0 ? `${m}m ago` : 'just now'
       }
 
       return {
