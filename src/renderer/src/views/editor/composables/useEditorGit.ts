@@ -31,12 +31,30 @@ export function useEditorGit(props: {
   const stagedFiles = computed(() => gitStatus.value.files.filter((f) => f.staged))
   const unstagedFiles = computed(() => gitStatus.value.files.filter((f) => !f.staged))
 
-  async function fetchStatus(): Promise<void> {
+  const currentActivePath = computed(() => {
+    if (gitStatus.value.isGit && gitStatus.value.root) {
+      return gitStatus.value.root
+    }
+    const cleanActive = props.activeFilePath?.replace(/^diff:/, '')
+    return cleanActive || props.rootPath || '/'
+  })
+
+  async function fetchStatus(customPath?: string): Promise<void> {
     if (!props.isConnected || !window.api?.sftpGetGitStatus) return
     isLoading.value = true
     try {
-      const target = props.activeFilePath || props.rootPath || '/'
-      const res = await window.api.sftpGetGitStatus(target, props.sessionId)
+      const cleanActive = props.activeFilePath?.replace(/^diff:/, '')?.trim()
+      const target = customPath || cleanActive || gitStatus.value.root || props.rootPath || '/'
+      let res = await window.api.sftpGetGitStatus(target, props.sessionId)
+
+      // Fallback: If target was outside git or failed, but we already had a known git root, keep it
+      if ((!res || !res.isGit) && gitStatus.value.root && target !== gitStatus.value.root) {
+        const fallbackRes = await window.api.sftpGetGitStatus(gitStatus.value.root, props.sessionId)
+        if (fallbackRes && fallbackRes.isGit) {
+          res = fallbackRes
+        }
+      }
+
       gitStatus.value = res || { isGit: false, branch: '', root: '', files: [] }
       emit('refresh-git')
     } catch (err) {
@@ -263,6 +281,7 @@ export function useEditorGit(props: {
     commitMessage,
     gitStatus,
     repoName,
+    currentActivePath,
     stagedFiles,
     unstagedFiles,
     fetchStatus,

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { X } from 'lucide-vue-next'
 import { HostItem } from '../../../types/connection'
 import { EditorCursorPos, GitBlameInfo } from '../types'
 import { useEditorSsh } from '../composables/useEditorSsh'
@@ -16,6 +15,7 @@ import EditorGitGraphView from './EditorGitGraphView.vue'
 import EditorAntigravityPane from './EditorAntigravityPane.vue'
 import EditorAiGenInline from './EditorAiGenInline.vue'
 import EditorStatusBar from './EditorStatusBar.vue'
+import EditorSplitView from './EditorSplitView.vue'
 
 const props = defineProps<{
   host: HostItem
@@ -145,9 +145,9 @@ watch(
 
 const gitCandidatePath = computed(() => {
   if (activeTab.value?.path && activeTab.value.viewType !== 'git-graph') {
-    return activeTab.value.path
+    return activeTab.value.path.replace(/^diff:/, '')
   }
-  return rootPath.value || undefined
+  return activeGitGraphPath.value || rootPath.value || undefined
 })
 
 function handleToggleView(view: 'explorer' | 'search' | 'git' | 'antigravity'): void {
@@ -218,6 +218,12 @@ async function openDiffTab(filePath: string, hash?: string): Promise<void> {
       diffOriginal = res.original || ''
       diffModified = res.modified || ''
     }
+  }
+
+  // If the file is open and has unsaved edits in an active editor tab, use that content for modified
+  const openCodeTab = openTabs.value.find((t) => t.path === filePath && t.viewType !== 'diff')
+  if (openCodeTab && openCodeTab.content && openCodeTab.isDirty) {
+    diffModified = openCodeTab.content
   }
 
   openTabs.value.push({
@@ -326,9 +332,9 @@ defineExpose({
           :is-connected="isConnected"
           :session-id="sessionId"
           :root-path="rootPath"
-          :active-file-path="activeTab?.path"
+          :active-file-path="gitCandidatePath"
           @open-file="(f) => openDiffTab(f.path)"
-          @refresh-git="fetchGitInfo(activeTab?.path || rootPath)"
+          @refresh-git="fetchGitInfo(gitCandidatePath || rootPath)"
           @open-git-graph="openGitGraphTab"
         />
 
@@ -358,13 +364,14 @@ defineExpose({
         class="fixed inset-0 z-50 cursor-col-resize select-none"
       ></div>
 
-      <!-- 3. Editor Canvas (Single or Side-by-Side Split) -->
-      <div class="flex-1 flex overflow-hidden min-w-0 bg-[#1E222B]">
-        <!-- Primary Left Editor Pane -->
-        <div
-          class="flex flex-col min-w-0 overflow-hidden relative"
-          :class="isSplit ? 'w-1/2 border-r border-[#24272E]' : 'flex-1'"
-        >
+      <!-- 3. Editor Canvas (Single or Resizable VS Code Split/Grid View) -->
+      <EditorSplitView
+        v-model:is-split="isSplit"
+        v-model:secondary-tab-id="splitActiveTabId"
+        :tabs="openTabs"
+        @close-split="isSplit = false"
+      >
+        <template #primary>
           <!-- Top Tabs Strip -->
           <EditorTabs
             :tabs="openTabs"
@@ -425,40 +432,9 @@ defineExpose({
             @toggle-ai-gen="isAiGenOpen = !isAiGenOpen"
             @open-git-graph="openGitGraphTab"
           />
-        </div>
+        </template>
 
-        <!-- Secondary Right Editor Pane (Split View) -->
-        <div
-          v-if="isSplit"
-          class="w-1/2 flex flex-col min-w-0 overflow-hidden bg-[#1E222B]"
-        >
-          <!-- Split Header & Tab Picker -->
-          <div class="h-9 flex items-center justify-between px-3 bg-[#181A1F] border-b border-[#24272E] select-none text-xs shrink-0">
-            <div class="flex items-center space-x-2 truncate">
-              <span class="text-slate-400 font-medium">Split:</span>
-              <select
-                v-if="openTabs.length > 0"
-                v-model="splitActiveTabId"
-                class="bg-[#252A36] text-slate-200 border border-[#32394C] rounded px-2 py-0.5 text-xs focus:outline-none focus:border-blue-500 cursor-pointer"
-              >
-                <option v-for="t in openTabs" :key="t.id" :value="t.id">
-                  {{ t.name }}
-                </option>
-              </select>
-              <span v-else class="text-slate-500">No open file</span>
-            </div>
-
-            <!-- Close Split Button -->
-            <button
-              type="button"
-              class="p-1 rounded text-slate-400 hover:text-white hover:bg-[#252A36] transition-colors"
-              title="Close Split Editor (⌘\)"
-              @click="isSplit = false"
-            >
-              <X class="w-3.5 h-3.5" />
-            </button>
-          </div>
-
+        <template #secondary>
           <!-- Split Diff Editor View (when splitActiveTab is diff) -->
           <EditorDiffViewer
             v-if="splitActiveTab?.viewType === 'diff'"
@@ -477,8 +453,8 @@ defineExpose({
             @save-as-sudo="saveActiveTab(true)"
             @open-git-graph="openGitGraphTab"
           />
-        </div>
-      </div>
+        </template>
+      </EditorSplitView>
     </div>
 
     <!-- 4. VS Code Blue Status Bar (Bottom) -->

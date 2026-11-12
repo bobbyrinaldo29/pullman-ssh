@@ -591,6 +591,12 @@ export class SftpService {
     })
   }
 
+  private gitCd(remotePath: string): string {
+    const clean = (remotePath || '/').replace(/^diff:/, '').replace(/\/+/g, '/')
+    const esc = clean.replace(/'/g, "'\\''")
+    return `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; P='${esc}'; if [ -d "$P" ]; then cd "$P" 2>/dev/null; else cd "$(dirname "$P")" 2>/dev/null; fi`
+  }
+
   public async getGitInfo(
     remotePath: string,
     sessionId?: string
@@ -600,9 +606,8 @@ export class SftpService {
       return { isGit: false, branch: '', isDirty: false }
     }
     try {
-      const cleanPath = (remotePath || '/').replace(/\/+/g, '/')
-      const esc = cleanPath.replace(/'/g, "'\\''")
-      const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${esc}' 2>/dev/null && git -c safe.directory=* rev-parse --is-inside-work-tree 2>/dev/null && git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null || true`
+      const cd = this.gitCd(remotePath)
+      const cmd = `${cd} && git -c safe.directory=* rev-parse --is-inside-work-tree 2>/dev/null && git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null || true`
       const res = await this.execRemote(cmd, sessionId, false)
       const lines = res.stdout.trim().split('\n').map((l) => l.trim()).filter(Boolean)
       if (lines.length === 0) {
@@ -617,7 +622,7 @@ export class SftpService {
       let isDirty = false
       try {
         const statusRes = await this.execRemote(
-          `PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${esc}' 2>/dev/null && git -c safe.directory=* status --porcelain 2>/dev/null | head -n 1 || true`,
+          `${cd} && git -c safe.directory=* status --porcelain 2>/dev/null | head -n 1 || true`,
           sessionId,
           false
         )
@@ -647,10 +652,8 @@ export class SftpService {
     }
 
     try {
-      const cleanPath = (remotePath || '/').replace(/\/+/g, '/')
-      const esc = cleanPath.replace(/'/g, "'\\''")
-
-      const infoCmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${esc}' 2>/dev/null && git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null && git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null || true`
+      const cd = this.gitCd(remotePath)
+      const infoCmd = `${cd} && git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null && git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null || true`
       const infoRes = await this.execRemote(infoCmd, sessionId, false)
       const infoLines = infoRes.stdout.trim().split('\n').map((l) => l.trim()).filter(Boolean)
       if (infoLines.length < 2) {
@@ -715,11 +718,9 @@ export class SftpService {
     if (!session || !session.isConnected) {
       throw new Error('SFTP client is not connected.')
     }
-    const cleanPath = (remotePath || '/').replace(/\/+/g, '/')
-    const escDir = cleanPath.replace(/'/g, "'\\''")
+    const cd = this.gitCd(remotePath)
     const escMsg = message.replace(/'/g, "'\\''")
-
-    const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* add -A && git -c safe.directory=* commit -m '${escMsg}'`
+    const cmd = `${cd} && git -c safe.directory=* add -A && git -c safe.directory=* commit -m '${escMsg}'`
     const res = await this.execRemote(cmd, sessionId, false)
     return { success: true, message: res.stdout.trim() || 'Committed successfully.' }
   }
@@ -763,30 +764,25 @@ export class SftpService {
   }
 
   public async gitStageAll(remotePath: string, sessionId?: string): Promise<void> {
-    const escDir = (remotePath || '/').replace(/\/+/g, '/').replace(/'/g, "'\\''")
-    await this.execRemote(`PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* add -A`, sessionId, false)
+    await this.execRemote(`${this.gitCd(remotePath)} && git -c safe.directory=* add -A`, sessionId, false)
   }
 
   public async gitDiscardAll(remotePath: string, sessionId?: string): Promise<void> {
-    const escDir = (remotePath || '/').replace(/\/+/g, '/').replace(/'/g, "'\\''")
-    await this.execRemote(`PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* checkout -- . && git -c safe.directory=* clean -fd`, sessionId, false)
+    await this.execRemote(`${this.gitCd(remotePath)} && git -c safe.directory=* checkout -- . && git -c safe.directory=* clean -fd`, sessionId, false)
   }
 
   public async gitPull(remotePath: string, sessionId?: string): Promise<{ success: boolean; message: string }> {
-    const escDir = (remotePath || '/').replace(/\/+/g, '/').replace(/'/g, "'\\''")
-    const res = await this.execRemote(`PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* pull`, sessionId, false)
+    const res = await this.execRemote(`${this.gitCd(remotePath)} && git -c safe.directory=* pull`, sessionId, false)
     return { success: true, message: res.stdout.trim() || res.stderr.trim() || 'Pulled.' }
   }
 
   public async gitPush(remotePath: string, sessionId?: string): Promise<{ success: boolean; message: string }> {
-    const escDir = (remotePath || '/').replace(/\/+/g, '/').replace(/'/g, "'\\''")
-    const res = await this.execRemote(`PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* push`, sessionId, false)
+    const res = await this.execRemote(`${this.gitCd(remotePath)} && git -c safe.directory=* push`, sessionId, false)
     return { success: true, message: res.stdout.trim() || res.stderr.trim() || 'Pushed.' }
   }
 
   public async gitLog(remotePath: string, sessionId?: string): Promise<string> {
-    const escDir = (remotePath || '/').replace(/\/+/g, '/').replace(/'/g, "'\\''")
-    const res = await this.execRemote(`PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* log --graph --oneline --decorate -n 35 2>/dev/null || true`, sessionId, false)
+    const res = await this.execRemote(`${this.gitCd(remotePath)} && git -c safe.directory=* log --graph --oneline --decorate -n 35 2>/dev/null || true`, sessionId, false)
     return res.stdout.trim() || res.stderr.trim() || 'No git log available.'
   }
 
@@ -818,15 +814,15 @@ export class SftpService {
     const isCommit = hash && !['HEAD', 'working', 'staged', 'current'].includes(hash) && /^[a-f0-9]{4,40}$/i.test(hash)
     const escHash = isCommit ? hash.replace(/[^a-f0-9]/gi, '') : ''
 
-    const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; if [ -f '${escFile}' ]; then cd "$(dirname '${escFile}')" 2>/dev/null; else cd '${escDir}' 2>/dev/null; fi
-R=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null)
+    const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; FILE='${escFile}'; if [ -f "$FILE" ]; then cd "$(dirname "$FILE")" 2>/dev/null; else cd '${escDir}' 2>/dev/null; fi
+R=$(git -c 'safe.directory=*' rev-parse --show-toplevel 2>/dev/null)
 if [ -n "$R" ]; then
-  cd "$R" 2>/dev/null; REL=$(git -c safe.directory=* ls-files --full-name '${escFile}' 2>/dev/null); [ -z "$REL" ] && REL=$(basename '${escFile}')
+  REL="\${FILE#$R/}"; [ "$REL" = "$FILE" ] && REL=$(basename "$FILE")
   ${isCommit
-    ? `D=$(git -c safe.directory=* show '${escHash}' -- "$REL" 2>/dev/null || git -c safe.directory=* show '${escHash}' -- '${escFile}' 2>/dev/null); O=$(git -c safe.directory=* show '${escHash}~1':"$REL" 2>/dev/null); M=$(git -c safe.directory=* show '${escHash}':"$REL" 2>/dev/null)`
-    : `D=$(git -c safe.directory=* diff HEAD -- "$REL" 2>/dev/null || git -c safe.directory=* diff -- "$REL" 2>/dev/null || git -c safe.directory=* diff HEAD -- '${escFile}' 2>/dev/null)
-  [ -z "$D" ] && [ -f '${escFile}' ] && D=$(git -c safe.directory=* diff --no-index /dev/null '${escFile}' 2>/dev/null)
-  O=$(git -c safe.directory=* show HEAD:"$REL" 2>/dev/null); M=$([ -f '${escFile}' ] && cat '${escFile}' 2>/dev/null || cat "$REL" 2>/dev/null || echo "")`}
+    ? `D=$(git -c 'safe.directory=*' show '${escHash}' -- "$REL" 2>/dev/null || git -c 'safe.directory=*' show '${escHash}' -- "$FILE" 2>/dev/null); O=$(git -c 'safe.directory=*' show '${escHash}~1':"$REL" 2>/dev/null); M=$(git -c 'safe.directory=*' show '${escHash}':"$REL" 2>/dev/null)`
+    : `D=$(git -c 'safe.directory=*' diff HEAD -- "$REL" 2>/dev/null || git -c 'safe.directory=*' diff -- "$REL" 2>/dev/null || git -c 'safe.directory=*' diff HEAD -- "$FILE" 2>/dev/null)
+  [ -z "$D" ] && [ -f "$FILE" ] && D=$(git -c 'safe.directory=*' diff --no-index /dev/null "$FILE" 2>/dev/null)
+  O=$(git -c 'safe.directory=*' show HEAD:"$REL" 2>/dev/null); M=$([ -f "$FILE" ] && cat "$FILE" 2>/dev/null || cat "$R/$REL" 2>/dev/null || echo "")`}
   printf "%s\\n___PULLMAN_DIFF_SEP___\\n%s\\n___PULLMAN_DIFF_SEP___\\n%s" "$D" "$O" "$M"
 fi`
 
