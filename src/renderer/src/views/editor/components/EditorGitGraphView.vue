@@ -40,6 +40,8 @@ const isCopied = ref(false)
 // Diff viewer state
 const selectedDiffFile = ref<{ status: 'M' | 'A' | 'D'; path: string } | null>(null)
 const diffContent = ref('')
+const diffOriginal = ref('')
+const diffModified = ref('')
 const isLoadingDiff = ref(false)
 
 const allBranches = computed(() => {
@@ -81,19 +83,6 @@ const layout = computed(() => {
 
 const graphWidth = computed(() => {
   return Math.max(90, layout.value.width)
-})
-
-// Parse diff output into structured lines
-const diffLines = computed(() => {
-  if (!diffContent.value) return []
-  return diffContent.value.split('\n').map((line) => {
-    if (line.startsWith('+++') || line.startsWith('---')) return { type: 'meta', text: line }
-    if (line.startsWith('@@')) return { type: 'hunk', text: line }
-    if (line.startsWith('+')) return { type: 'add', text: line }
-    if (line.startsWith('-')) return { type: 'del', text: line }
-    if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('new file') || line.startsWith('deleted file')) return { type: 'meta', text: line }
-    return { type: 'ctx', text: line }
-  })
 })
 
 async function fetchCommits(): Promise<void> {
@@ -158,11 +147,20 @@ async function openFileDiff(f: { status: 'M' | 'A' | 'D'; path: string }): Promi
   if (!selectedCommit.value) return
   selectedDiffFile.value = f
   diffContent.value = ''
+  diffOriginal.value = ''
+  diffModified.value = ''
   isLoadingDiff.value = true
   try {
     const target = activeGitPath.value || props.rootPath
     if (window.api?.sftpGitFileDiff) {
-      diffContent.value = await window.api.sftpGitFileDiff(target, selectedCommit.value.hash, f.path, props.sessionId)
+      const res = await window.api.sftpGitFileDiff(target, selectedCommit.value.hash, f.path, props.sessionId)
+      if (typeof res === 'string') {
+        diffContent.value = res
+      } else if (res) {
+        diffContent.value = res.diff || ''
+        diffOriginal.value = res.original || ''
+        diffModified.value = res.modified || ''
+      }
     }
   } catch (err) {
     console.error('Failed to load file diff:', err)
@@ -409,11 +407,12 @@ onMounted(() => {
       :is-loading-details="isLoadingDetails"
       :selected-diff-file="selectedDiffFile"
       :diff-content="diffContent"
+      :diff-original="diffOriginal"
+      :diff-modified="diffModified"
       :is-loading-diff="isLoadingDiff"
-      :diff-lines="diffLines"
       :is-copied="isCopied"
-      @close="selectedCommit = null; selectedDiffFile = null; diffContent = ''"
-      @back-to-files="selectedDiffFile = null; diffContent = ''"
+      @close="selectedCommit = null; selectedDiffFile = null; diffContent = ''; diffOriginal = ''; diffModified = ''"
+      @back-to-files="selectedDiffFile = null; diffContent = ''; diffOriginal = ''; diffModified = ''"
       @copy-hash="copyHash"
       @open-file-diff="openFileDiff"
     />

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { X, ChevronRight, FileCode, FileText, File, Columns2, ShieldAlert, GitBranch, Sparkles } from 'lucide-vue-next'
+import { X, ChevronRight, FileCode, FileText, File, Columns2, ShieldAlert, GitBranch, GitCompare, Sparkles } from 'lucide-vue-next'
 import { EditorTab } from '../types'
 
 defineProps<{
@@ -21,6 +21,7 @@ const emit = defineEmits<{
 
 function getIcon(tab: EditorTab): any {
   if (tab.viewType === 'git-graph' || tab.name === 'Git Graph') return GitBranch
+  if (tab.viewType === 'diff') return GitCompare
   const ext = tab.name.split('.').pop()?.toLowerCase() || ''
   if (['ts', 'js', 'vue', 'json', 'html', 'css', 'php', 'py', 'sh', 'sql'].includes(ext)) return FileCode
   if (['txt', 'md', 'log', 'env'].includes(ext)) return FileText
@@ -29,6 +30,7 @@ function getIcon(tab: EditorTab): any {
 
 function getIconColor(tab: EditorTab): string {
   if (tab.viewType === 'git-graph' || tab.name === 'Git Graph') return 'text-blue-400'
+  if (tab.viewType === 'diff') return 'text-purple-400'
   const ext = tab.name.split('.').pop()?.toLowerCase() || ''
   if (ext === 'vue') return 'text-emerald-400'
   if (ext === 'ts') return 'text-sky-400'
@@ -42,7 +44,7 @@ function getIconColor(tab: EditorTab): string {
 </script>
 
 <template>
-  <div class="flex flex-col shrink-0 select-none border-b border-[#24272E] bg-[#181A1F]">
+  <div class="flex flex-col shrink-0 select-none border-b border-[#24272E] bg-[#181A1F] relative z-0">
     <!-- Tabs Header Strip -->
     <div class="h-9 flex items-center justify-between bg-[#181A1F] overflow-hidden">
       <!-- Tabs Scroll Container -->
@@ -136,6 +138,14 @@ function getIconColor(tab: EditorTab): string {
         >
           {{ gitPath || activeTab.path }}
         </span>
+      </template>
+
+      <!-- Git Diff Breadcrumb -->
+      <template v-else-if="activeTab.viewType === 'diff'">
+        <ChevronRight class="w-3 h-3 opacity-50 shrink-0" />
+        <span class="text-purple-400 font-medium shrink-0">Diff</span>
+        <ChevronRight class="w-3 h-3 opacity-50 shrink-0" />
+        <span class="text-slate-200 font-mono truncate">{{ activeTab.name }}</span>
       </template>
 
       <!-- Standard File Breadcrumbs -->

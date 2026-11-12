@@ -21,7 +21,10 @@ export interface EditorTab {
   isSaving: boolean
   language: string
   readOnly?: boolean
-  viewType?: 'code' | 'git-graph'
+  viewType?: 'code' | 'git-graph' | 'diff'
+  diffContent?: string
+  diffOriginal?: string
+  diffModified?: string
 }
 
 export interface GitGraphCommit {

@@ -3,6 +3,7 @@ import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { Code } from 'lucide-vue-next'
 import { EditorTab, EditorCursorPos, GitBlameInfo } from '../types'
 import { monaco, getMonacoLanguage } from '../monaco/monacoSetup'
+import '../monaco/editorMonaco.css'
 
 const props = defineProps<{
   activeTab: EditorTab | null
@@ -16,6 +17,7 @@ const emit = defineEmits<{
   (e: 'save'): void
   (e: 'save-as-sudo'): void
   (e: 'toggle-ai-gen'): void
+  (e: 'open-git-graph'): void
 }>()
 
 const containerRef = ref<HTMLDivElement | null>(null)
@@ -24,7 +26,104 @@ let resizeObserver: ResizeObserver | null = null
 
 // Cache models per tab to preserve undo/redo history and cursor states
 const modelMap = new Map<string, monaco.editor.ITextModel>()
-let blameDecorations: string[] = []
+
+// Git Blame Content Widget DOM Node
+const blameWidgetNode = document.createElement('div')
+blameWidgetNode.className = 'monaco-git-blame-inline'
+blameWidgetNode.style.display = 'none'
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function updateBlameContentWidget(): void {
+  if (!editor) return
+
+  const blame = props.blame
+  if (!blame || !blame.author) {
+    blameWidgetNode.style.display = 'none'
+    blameWidgetNode.innerHTML = ''
+    editor.layoutContentWidget(gitBlameContentWidget)
+    return
+  }
+
+  const pos = editor.getPosition()
+  const model = editor.getModel()
+  if (!pos || !model) {
+    blameWidgetNode.style.display = 'none'
+    editor.layoutContentWidget(gitBlameContentWidget)
+    return
+  }
+
+  const lineContent = model.getLineContent(pos.lineNumber)
+  if (!lineContent.trim()) {
+    blameWidgetNode.style.display = 'none'
+    editor.layoutContentWidget(gitBlameContentWidget)
+    return
+  }
+
+  const isCleanCommit = Boolean(blame.hash && !blame.isUncommitted && !blame.hash.startsWith('0000000') && blame.hash !== 'dirty')
+  const displayHash = isCleanCommit ? (blame.hash || '').substring(0, 7) : 'Uncommitted'
+
+  blameWidgetNode.style.display = 'inline-flex'
+  blameWidgetNode.innerHTML = `
+    <div class="git-blame-badge" title="GitLens Blame: ${escapeHtml(blame.author)}, ${escapeHtml(blame.timeAgo || '')}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="git-blame-icon">
+        <circle cx="12" cy="12" r="3"></circle>
+        <line x1="3" y1="12" x2="9" y2="12"></line>
+        <line x1="15" y1="12" x2="21" y2="12"></line>
+      </svg>
+      <span class="git-blame-author">${escapeHtml(blame.author)}</span>
+      <span class="git-blame-time">${escapeHtml(blame.timeAgo || '')}</span>
+      <span class="git-blame-sep">•</span>
+      <span class="git-blame-summary">${escapeHtml(blame.summary || '')}</span>
+    </div>
+    <div class="git-blame-popover">
+      <div class="git-blame-popover-header">
+        <div class="git-blame-popover-hash">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;color:#38bdf8;">
+            <circle cx="12" cy="12" r="3"></circle><line x1="3" y1="12" x2="9" y2="12"></line><line x1="15" y1="12" x2="21" y2="12"></line>
+          </svg>
+          <span>${displayHash}</span>
+        </div>
+        <div class="git-blame-popover-actions">
+          ${isCleanCommit ? `<button type="button" class="git-blame-action-btn" data-blame-action="copy">Copy SHA</button>` : ''}
+          <button type="button" class="git-blame-action-btn git-blame-action-graph" data-blame-action="graph">Git Graph</button>
+        </div>
+      </div>
+      <div class="git-blame-popover-body">
+        <div class="git-blame-popover-author"><strong>${escapeHtml(blame.author)}</strong> <span style="color:#64748b;">committed ${escapeHtml(blame.timeAgo || '')}</span></div>
+        <div class="git-blame-popover-msg">${escapeHtml(blame.summary || '')}</div>
+      </div>
+    </div>
+  `
+
+  editor.layoutContentWidget(gitBlameContentWidget)
+}
+
+const gitBlameContentWidget: monaco.editor.IContentWidget = {
+  getId: () => 'pullman.editor.gitBlameWidget',
+  getDomNode: () => blameWidgetNode,
+  getPosition: () => {
+    if (!props.blame || !props.blame.author || !editor) return null
+    const pos = editor.getPosition()
+    const model = editor.getModel()
+    if (!pos || !model) return null
+
+    const lineContent = model.getLineContent(pos.lineNumber)
+    if (!lineContent.trim()) return null
+
+    const maxCol = model.getLineMaxColumn(pos.lineNumber)
+    return {
+      position: { lineNumber: pos.lineNumber, column: maxCol },
+      preference: [monaco.editor.ContentWidgetPositionPreference.EXACT]
+    }
+  }
+}
 
 function getOrCreateModel(tab: EditorTab): monaco.editor.ITextModel {
   const existing = modelMap.get(tab.id)
@@ -47,39 +146,6 @@ function getOrCreateModel(tab: EditorTab): monaco.editor.ITextModel {
   return model
 }
 
-function updateBlameGhost(): void {
-  if (!editor) return
-  if (!props.blame || !props.blame.hash || !props.blame.author) {
-    blameDecorations = editor.deltaDecorations(blameDecorations, [])
-    return
-  }
-
-  const pos = editor.getPosition()
-  if (!pos) return
-  const line = pos.lineNumber
-  const model = editor.getModel()
-  if (!model) return
-
-  const lineContent = model.getLineContent(line)
-  if (!lineContent.trim()) {
-    blameDecorations = editor.deltaDecorations(blameDecorations, [])
-    return
-  }
-
-  const maxCol = model.getLineMaxColumn(line)
-  blameDecorations = editor.deltaDecorations(blameDecorations, [
-    {
-      range: new monaco.Range(line, maxCol, line, maxCol),
-      options: {
-        after: {
-          content: `   ${props.blame.author} • ${props.blame.timeAgo} • ${props.blame.summary}`,
-          inlineClassName: 'monaco-blame-ghost'
-        }
-      }
-    }
-  ])
-}
-
 function initMonaco(): void {
   if (!containerRef.value || editor) return
 
@@ -100,13 +166,22 @@ function initMonaco(): void {
     guides: { indentation: true, bracketPairs: true },
     padding: { top: 10, bottom: 10 },
     roundedSelection: true,
+    fixedOverflowWidgets: true,
     formatOnPaste: true
   })
+
+  // Add Git Blame content widget
+  editor.addContentWidget(gitBlameContentWidget)
 
   // Track cursor position
   editor.onDidChangeCursorPosition((e) => {
     emit('cursor-change', { line: e.position.lineNumber, col: e.position.column })
-    updateBlameGhost()
+    updateBlameContentWidget()
+  })
+
+  // Track scroll position to keep blame widget aligned
+  editor.onDidScrollChange(() => {
+    updateBlameContentWidget()
   })
 
   // Keyboard Shortcuts: Save, Save as Sudo, AI Gen, Wrap Log
@@ -130,11 +205,13 @@ function initMonaco(): void {
   if (props.activeTab) {
     const model = getOrCreateModel(props.activeTab)
     editor.setModel(model)
+    updateBlameContentWidget()
   }
 
   // Setup ResizeObserver for layout
   resizeObserver = new ResizeObserver(() => {
     editor?.layout()
+    updateBlameContentWidget()
   })
   resizeObserver.observe(containerRef.value)
 }
@@ -153,9 +230,10 @@ function switchTabModel(): void {
       monaco.editor.setModelLanguage(model, lang)
     }
     editor.focus()
-    updateBlameGhost()
+    updateBlameContentWidget()
   } else {
     editor.setModel(null)
+    updateBlameContentWidget()
   }
 }
 
@@ -175,7 +253,7 @@ watch(
 watch(
   () => props.blame,
   () => {
-    updateBlameGhost()
+    updateBlameContentWidget()
   },
   { deep: true }
 )
@@ -186,6 +264,7 @@ function goToLine(lineNumber: number): void {
   editor.revealLineInCenter(lineNumber)
   editor.setPosition({ lineNumber, column: 1 })
   editor.focus()
+  updateBlameContentWidget()
 }
 
 function insertSnippet(code: string): void {
@@ -249,6 +328,23 @@ defineExpose({
 })
 
 onMounted(() => {
+  blameWidgetNode.onclick = (e: MouseEvent) => {
+    e.stopPropagation()
+    const target = e.target as HTMLElement
+    const copyBtn = target.closest('[data-blame-action="copy"]') as HTMLElement | null
+    const graphBtn = target.closest('[data-blame-action="graph"]') as HTMLElement | null
+    if (copyBtn && props.blame?.hash) {
+      navigator.clipboard.writeText(props.blame.hash)
+      const oldText = copyBtn.innerText
+      copyBtn.innerText = '✓ Copied'
+      setTimeout(() => {
+        if (copyBtn) copyBtn.innerText = oldText
+      }, 1500)
+    } else if (graphBtn) {
+      emit('open-git-graph')
+    }
+  }
+
   nextTick(() => {
     if (props.activeTab && containerRef.value) {
       initMonaco()
@@ -258,6 +354,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   resizeObserver?.disconnect()
+  try {
+    editor?.removeContentWidget(gitBlameContentWidget)
+  } catch {}
   for (const m of modelMap.values()) {
     if (!m.isDisposed()) m.dispose()
   }
@@ -268,7 +367,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex-1 flex flex-col bg-[#1E222B] overflow-hidden relative">
+  <div class="flex-1 flex flex-col bg-[#1E222B] relative z-10 min-h-0">
     <!-- Empty Welcome Screen when no file is open -->
     <div
       v-if="!activeTab"
@@ -294,17 +393,11 @@ onUnmounted(() => {
     <div
       v-show="activeTab"
       ref="containerRef"
-      class="flex-1 w-full h-full overflow-hidden"
+      class="flex-1 w-full h-full min-h-0"
     ></div>
   </div>
 </template>
 
 <style scoped>
-:deep(.monaco-blame-ghost) {
-  color: #5c6370 !important;
-  font-style: italic !important;
-  font-size: 11px !important;
-  opacity: 0.6 !important;
-  pointer-events: none !important;
-}
+/* Scoped styles kept minimal; Monaco and GitLens styles are maintained in ../monaco/editorMonaco.css */
 </style>
