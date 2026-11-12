@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref } from 'vue'
 import {
   X,
   Pipette,
-  ChevronDown,
   ChevronsUpDown,
   Eye,
   EyeOff,
@@ -14,7 +13,9 @@ import {
   RefreshCw,
   ShieldAlert
 } from 'lucide-vue-next'
-import { PRESET_COLORS } from '../utils/connectionColors'
+import { useConnectionForm } from '../composables/useConnectionForm'
+import ConnectionGroupSelector from './connection/ConnectionGroupSelector.vue'
+import DatabaseConnectionTab from './connection/DatabaseConnectionTab.vue'
 
 const props = defineProps<{
   show: boolean
@@ -27,342 +28,52 @@ const emit = defineEmits<{
   (e: 'close'): void
   (e: 'save', connectionData: Record<string, unknown>): void
   (e: 'test', connectionData: Record<string, unknown>): void
+  (e: 'group-added', groupName: string): void
 }>()
 
-// Tabs
-const activeTab = ref<'sshConnection' | 'databaseConnection'>('sshConnection')
+const {
+  activeTab,
+  name,
+  host,
+  port,
+  user,
+  password,
+  showPassword,
+  savePassword,
+  group,
+  remotePath,
+  isProduction,
+  dbHost,
+  dbPort,
+  dbUser,
+  dbPassword,
+  showDbPassword,
+  dbSavePassword,
+  database,
+  groups,
+  colors,
+  selectedColor,
+  customColorHex,
+  isTesting,
+  testResult,
+  isEditing,
+  isCustomColor,
+  displayAutoName,
+  testButtonLabel,
+  handleSelectOrCreateGroup,
+  selectColor,
+  onCustomColorInput,
+  handleTestConnection,
+  handleSaveAndConnect
+} = useConnectionForm(props, emit)
 
-// Form State (SSH)
-const url = ref('')
-const name = ref('')
-const dbType = ref('MariaDB')
-const host = ref('127.0.0.1')
-const port = ref(22)
-const user = ref('root')
-const password = ref('')
-const showPassword = ref(false)
-const savePassword = ref(true)
-const group = ref('')
-const remotePath = ref('')
-const branch = ref('main')
-const notes = ref('')
-const isProduction = ref(false)
-
-// Form State (Database Connection)
-const dbHost = ref('127.0.0.1')
-const dbPort = ref(3306)
-const dbUser = ref('root')
-const dbPassword = ref('')
-const showDbPassword = ref(false)
-const dbSavePassword = ref(true)
-const database = ref('')
-
-// Available Groups (loaded from SQLite)
-const groups = ref<string[]>([])
-const showGroupDropdown = ref(false)
-
-const isEditing = computed(
-  () => props.editingConnection?.id !== undefined && props.editingConnection?.id !== null
-)
-
-function initFormData(): void {
-  testResult.value = null
-  if (props.editingConnection) {
-    const ec = props.editingConnection
-    url.value = String(ec.url || '')
-    name.value = String(ec.name || '')
-    dbType.value = String(ec.type || 'MariaDB')
-    host.value = String(ec.host || ec.ip || '127.0.0.1')
-    port.value = Number(ec.port || 22)
-    user.value = String(ec.user || 'root')
-    password.value = String(ec.password || '')
-    savePassword.value = ec.savePassword !== false
-    database.value = String(ec.database || '')
-    notes.value = String(ec.notes || '')
-    group.value = String(ec.group || '')
-    if (ec.color) {
-      const match = colors.find((c) => c.id.toLowerCase() === String(ec.color).toLowerCase())
-      selectedColor.value = match ? match.id : String(ec.color)
-      customColorHex.value = match ? '' : String(ec.color)
-    } else {
-      selectedColor.value = colors[0].id
-      customColorHex.value = ''
-    }
-    remotePath.value = String(ec.remotePath || '')
-    branch.value = String(ec.branch || 'main')
-    isProduction.value = Boolean(ec.isProduction || (ec as any).is_production)
-
-    dbHost.value = String(ec.dbHost || ec.db_host || '127.0.0.1')
-    dbPort.value = Number(ec.dbPort || ec.db_port || 3306)
-    dbUser.value = String(ec.dbUser || ec.db_user || 'root')
-    dbPassword.value = String(ec.dbPassword || ec.db_password || '')
-    dbSavePassword.value = ec.dbSavePassword !== false && ec.db_save_password !== false
-  } else {
-    url.value = ''
-    name.value = ''
-    dbType.value = 'MariaDB'
-    host.value = '127.0.0.1'
-    port.value = 22
-    user.value = 'root'
-    password.value = ''
-    savePassword.value = true
-    database.value = ''
-    notes.value = ''
-    selectedColor.value = colors[0].id
-    customColorHex.value = ''
-    remotePath.value = ''
-    branch.value = 'main'
-    isProduction.value = false
-
-    dbHost.value = '127.0.0.1'
-    dbPort.value = 3306
-    dbUser.value = 'root'
-    dbPassword.value = ''
-    dbSavePassword.value = true
-
-    if (props.initialGroup) {
-      group.value = props.initialGroup
-    } else if (groups.value.length > 0) {
-      group.value = groups.value[0]
-    } else {
-      group.value = ''
-    }
-  }
-}
-
-async function loadGroups(): Promise<void> {
-  let gList: string[] = []
-  if (props.availableGroups && props.availableGroups.length > 0) {
-    gList = [...props.availableGroups]
-  } else if (window.api?.getGroups) {
-    try {
-      const fetched = await window.api.getGroups()
-      if (fetched) {
-        gList = fetched
-      }
-    } catch {
-      // ignore
-    }
-  }
-  groups.value = gList
-
-  if (props.editingConnection) {
-    group.value = String(props.editingConnection.group || '')
-  } else if (props.initialGroup) {
-    group.value = props.initialGroup
-  } else if (group.value && groups.value.includes(group.value)) {
-    // keep existing selection
-  } else if (groups.value.length > 0) {
-    group.value = groups.value[0]
-  } else {
-    group.value = ''
-  }
-}
-
-watch(
-  () => props.show,
-  async (isVisible) => {
-    if (isVisible) {
-      await loadGroups()
-      initFormData()
-    }
-  },
-  { immediate: true }
-)
-
-watch(
-  () => props.editingConnection,
-  () => {
-    initFormData()
-  },
-  { deep: true }
-)
-
-watch(
-  () => props.availableGroups,
-  (newGroups) => {
-    if (newGroups) {
-      groups.value = [...newGroups]
-      if (props.initialGroup) {
-        group.value = props.initialGroup
-      }
-    }
-  },
-  { deep: true }
-)
-
-watch(
-  () => props.initialGroup,
-  (newInit) => {
-    if (newInit) {
-      group.value = newInit
-    }
-  }
-)
-
-function closeGroupDropdownOnClickOutside(e: MouseEvent): void {
-  const target = e.target as HTMLElement
-  if (!target.closest('#group-dropdown-container')) {
-    showGroupDropdown.value = false
-  }
-}
-
-onMounted(async () => {
-  await loadGroups()
-  window.addEventListener('click', closeGroupDropdownOnClickOutside)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('click', closeGroupDropdownOnClickOutside)
-})
-
-// Colors
-const colors = PRESET_COLORS
-const selectedColor = ref(colors[0].id)
-const customColorHex = ref('')
 const colorInputRef = ref<HTMLInputElement | null>(null)
+const groupSelectorRef = ref<InstanceType<typeof ConnectionGroupSelector> | null>(null)
 
-const isCustomColor = computed(() => {
-  return !colors.some((c) => c.id.toLowerCase() === selectedColor.value.toLowerCase())
-})
-
-function selectColor(colorId: string): void {
-  selectedColor.value = colorId
-  customColorHex.value = ''
+function onSubmitConnection(): void {
+  groupSelectorRef.value?.commitPendingNewGroup()
+  handleSaveAndConnect()
 }
-
-function triggerColorPicker(): void {
-  colorInputRef.value?.click()
-}
-
-function onCustomColorInput(event: Event): void {
-  const target = event.target as HTMLInputElement
-  if (target.value) {
-    customColorHex.value = target.value
-    selectedColor.value = target.value
-  }
-}
-
-function selectGroup(g: string): void {
-  group.value = g
-  showGroupDropdown.value = false
-}
-const isTesting = ref(false)
-const testResult = ref<{ success: boolean; message: string } | null>(null)
-
-async function handleTestConnection(): Promise<void> {
-  const isDb = activeTab.value === 'databaseConnection'
-  const targetHost = (isDb ? dbHost.value : host.value).trim()
-  const targetPort = Number(isDb ? dbPort.value : port.value) || (isDb ? 3306 : 22)
-  const targetUser = (isDb ? dbUser.value : user.value).trim()
-  const targetPassword = isDb ? dbPassword.value : password.value
-  const targetDatabase = database.value.trim()
-
-  if (!targetHost) {
-    testResult.value = {
-      success: false,
-      message: `${isDb ? 'Database host' : 'Host'} cannot be empty.`
-    }
-    return
-  }
-
-  if (!targetUser) {
-    testResult.value = {
-      success: false,
-      message: `${isDb ? 'Database user' : 'User'} cannot be empty.`
-    }
-    return
-  }
-
-  isTesting.value = true
-  testResult.value = null
-
-  try {
-    if (window.api?.testConnection) {
-      const sshPayload =
-        isDb && host.value.trim()
-          ? {
-              host: host.value.trim(),
-              port: Number(port.value) || 22,
-              user: user.value.trim() || 'root',
-              password: password.value
-            }
-          : undefined
-
-      const res = await window.api.testConnection({
-        type: isDb ? 'database' : 'ssh',
-        host: targetHost,
-        port: targetPort,
-        user: targetUser,
-        password: targetPassword,
-        database: isDb ? targetDatabase : undefined,
-        ssh: sshPayload
-      })
-      testResult.value = res
-    } else {
-      // Fallback in web preview mode
-      testResult.value = {
-        success: true,
-        message: `Successfully connected to ${targetUser}@${targetHost}:${targetPort}`
-      }
-    }
-  } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err)
-    testResult.value = {
-      success: false,
-      message: `Connection test error: ${errorMsg}`
-    }
-  } finally {
-    isTesting.value = false
-  }
-}
-
-function handleSaveAndConnect(): void {
-  const targetHost = host.value.trim() || '127.0.0.1'
-  const targetPort = Number(port.value) || 22
-  const targetUser = user.value.trim() || 'root'
-  const autoGeneratedName = `${targetUser}@${targetHost}:${targetPort}`
-
-  const isExisting =
-    props.editingConnection?.id !== undefined && props.editingConnection?.id !== null
-  const connectionPayload: Record<string, unknown> = {
-    id: isExisting ? Number(props.editingConnection!.id) : undefined,
-    url: url.value.trim(),
-    name: name.value.trim() || autoGeneratedName,
-    type: dbType.value,
-    color: selectedColor.value,
-    group: group.value.trim(),
-    host: targetHost,
-    port: targetPort,
-    user: targetUser,
-    password: password.value,
-    savePassword: savePassword.value,
-    database: database.value.trim(),
-    notes: notes.value.trim(),
-    remotePath: remotePath.value.trim(),
-    branch: branch.value.trim() || 'main',
-    dbHost: dbHost.value.trim() || '127.0.0.1',
-    dbPort: Number(dbPort.value) || 3306,
-    dbUser: dbUser.value.trim() || 'root',
-    dbPassword: dbPassword.value,
-    dbSavePassword: dbSavePassword.value,
-    isProduction: isProduction.value
-  }
-
-  emit('save', connectionPayload)
-  emit('close')
-}
-
-const displayAutoName = computed(() => {
-  if (name.value) return name.value
-  return `${user.value || 'root'}@${host.value || 'localhost'}`
-})
-
-const testButtonLabel = computed(() => {
-  if (activeTab.value === 'sshConnection') return 'Test SSH'
-  if (activeTab.value === 'databaseConnection') return 'Test Database'
-  return 'Test'
-})
 </script>
 
 <template>
@@ -381,7 +92,7 @@ const testButtonLabel = computed(() => {
         </h2>
         <button
           type="button"
-          class="p-1 rounded text-[#94A3B8] hover:text-white hover:bg-[#2B3244] transition-colors"
+          class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors"
           @click="emit('close')"
         >
           <X class="w-4 h-4" />
@@ -389,13 +100,11 @@ const testButtonLabel = computed(() => {
       </div>
 
       <!-- Navigation Tabs -->
-      <div
-        class="px-5 pt-3 pb-2 flex items-center space-x-1.5 border-b border-[#282F40] bg-[#1A1F2B]"
-      >
+      <div class="px-5 pt-3 pb-2 flex items-center space-x-1.5 border-b border-[#282F40] bg-[#1A1F2B]">
         <button
           type="button"
           :class="[
-            'px-3 py-1 rounded-md text-xs font-medium transition-colors',
+            'px-3 py-1 rounded-lg text-xs font-medium transition-colors',
             activeTab === 'sshConnection'
               ? 'bg-[#2B3346] text-white shadow-sm border border-[#3E4860]'
               : 'text-[#94A3B8] hover:text-white hover:bg-[#232938]'
@@ -407,7 +116,7 @@ const testButtonLabel = computed(() => {
         <button
           type="button"
           :class="[
-            'px-3 py-1 rounded-md text-xs font-medium transition-colors',
+            'px-3 py-1 rounded-lg text-xs font-medium transition-colors',
             activeTab === 'databaseConnection'
               ? 'bg-[#2B3346] text-white shadow-sm border border-[#3E4860]'
               : 'text-[#94A3B8] hover:text-white hover:bg-[#232938]'
@@ -430,7 +139,7 @@ const testButtonLabel = computed(() => {
                 v-model="name"
                 type="text"
                 :placeholder="`Connection name, auto-generated if empty (${displayAutoName})`"
-                class="w-full bg-[#161922] border border-[#2D3547] rounded-md px-3 py-1.5 text-xs text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500 transition-colors"
+                class="w-full bg-[#161922] border border-[#2D3547] rounded-lg px-3 py-1.5 text-xs text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500 transition-colors"
               />
             </div>
           </div>
@@ -438,7 +147,7 @@ const testButtonLabel = computed(() => {
           <!-- Color & Group -->
           <div class="flex items-center">
             <label class="w-36 text-[#C2C9D6] text-xs font-medium">Color</label>
-            <div class="flex-1 flex items-center justify-between">
+            <div class="flex-1 flex items-center justify-between gap-3">
               <!-- Color Palette Dots -->
               <div class="flex items-center space-x-2">
                 <button
@@ -466,13 +175,11 @@ const testButtonLabel = computed(() => {
                     type="button"
                     class="w-5 h-5 rounded-full border border-dashed border-[#475569] flex items-center justify-center text-[#94A3B8] hover:text-white hover:border-slate-300 transition-colors relative cursor-pointer"
                     :class="
-                      isCustomColor
-                        ? 'ring-2 ring-offset-2 ring-offset-[#1D222E] ring-blue-400'
-                        : ''
+                      isCustomColor ? 'ring-2 ring-offset-2 ring-offset-[#1D222E] ring-blue-400' : ''
                     "
                     :style="isCustomColor ? { backgroundColor: customColorHex || selectedColor } : {}"
                     title="Choose custom color"
-                    @click="triggerColorPicker"
+                    @click="colorInputRef?.click()"
                   >
                     <Check v-if="isCustomColor" class="w-3 h-3 text-white drop-shadow" />
                     <Pipette v-else class="w-3 h-3" />
@@ -487,56 +194,20 @@ const testButtonLabel = computed(() => {
                 </div>
               </div>
 
-              <!-- Group Selector (Dynamically populated from user's created groups) -->
-              <div id="group-dropdown-container" class="relative flex items-center space-x-2">
-                <span class="text-[#94A3B8] text-xs">Group</span>
-                <div class="relative">
-                  <button
-                    type="button"
-                    class="bg-[#161922] border border-[#2D3547] rounded-md px-3 py-1.5 flex items-center justify-between space-x-4 text-xs text-white hover:border-[#3D4760] transition-colors min-w-[150px]"
-                    @click="showGroupDropdown = !showGroupDropdown"
-                  >
-                    <span class="truncate" :class="group ? 'text-white' : 'text-[#64748B]'">
-                      {{ group || 'None (No Group)' }}
-                    </span>
-                    <ChevronDown class="w-3 h-3 text-[#64748B]" />
-                  </button>
-
-                  <!-- Group Dropdown Menu -->
-                  <div
-                    v-if="showGroupDropdown"
-                    class="absolute right-0 top-full mt-1 w-52 bg-[#161922] border border-[#2D3547] rounded-md shadow-2xl py-1 z-30 text-xs max-h-60 overflow-y-auto"
-                  >
-                    <button
-                      type="button"
-                      class="w-full text-left px-3 py-1.5 hover:bg-[#252B3A] text-slate-400 hover:text-white italic transition-colors flex items-center justify-between"
-                      @click="selectGroup('')"
-                    >
-                      <span>None (No Group)</span>
-                      <Check v-if="!group" class="w-3.5 h-3.5 text-blue-400" />
-                    </button>
-                    <div v-if="groups.length > 0" class="my-1 border-t border-[#282F3E]"></div>
-                    <button
-                      v-for="g in groups"
-                      :key="g"
-                      type="button"
-                      class="w-full text-left px-3 py-1.5 hover:bg-[#252B3A] text-slate-200 hover:text-white transition-colors flex items-center justify-between"
-                      @click="selectGroup(g)"
-                    >
-                      <span class="truncate">{{ g }}</span>
-                      <Check v-if="group === g" class="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <!-- Searchable & Editable Group Combobox -->
+              <ConnectionGroupSelector
+                ref="groupSelectorRef"
+                :model-value="group"
+                :groups="groups"
+                @update:model-value="handleSelectOrCreateGroup"
+              />
             </div>
           </div>
 
-          <!-- Production Safeguards Card (Screenshot 2) -->
+          <!-- Production Safeguards Card -->
           <div
             class="rounded-lg border border-rose-500/35 bg-[#25181E] px-3.5 py-2.5 flex items-center justify-between transition-colors shadow-sm"
           >
-            <!-- Left: Icon & Label -->
             <div class="flex items-center space-x-1.5 text-rose-400 font-bold text-[10px] tracking-wider shrink-0 select-none">
               <ShieldAlert class="w-3 h-3 text-rose-400 shrink-0" />
               <span>PROD</span>
@@ -546,14 +217,12 @@ const testButtonLabel = computed(() => {
               />
             </div>
 
-            <!-- Middle Text & Switch Toggle -->
             <div class="flex-1 ml-5 flex items-center justify-between">
               <div class="space-y-0.5 select-none">
                 <div class="text-slate-200 text-xs font-medium">Enable production safeguards</div>
                 <div class="text-slate-400 text-[11px]">Protection scope</div>
               </div>
 
-              <!-- Switch -->
               <button
                 type="button"
                 role="switch"
@@ -579,13 +248,13 @@ const testButtonLabel = computed(() => {
                 v-model="host"
                 type="text"
                 placeholder="127.0.0.1"
-                class="flex-1 bg-[#161922] border border-[#2D3547] rounded-md px-3 py-1.5 text-xs text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500 transition-colors"
+                class="flex-1 bg-[#161922] border border-[#2D3547] rounded-lg px-3 py-1.5 text-xs text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500 transition-colors"
               />
               <div class="relative w-28">
                 <input
                   v-model.number="port"
                   type="number"
-                  class="w-full bg-[#161922] border border-[#2D3547] rounded-md px-3 py-1.5 pr-6 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                  class="w-full bg-[#161922] border border-[#2D3547] rounded-lg px-3 py-1.5 pr-6 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
                 />
                 <ChevronsUpDown
                   class="w-3.5 h-3.5 text-[#64748B] absolute right-2 top-2 pointer-events-none"
@@ -602,7 +271,7 @@ const testButtonLabel = computed(() => {
                 v-model="user"
                 type="text"
                 placeholder="root"
-                class="w-full bg-[#161922] border border-[#2D3547] rounded-md px-3 py-1.5 text-xs text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500 transition-colors"
+                class="w-full bg-[#161922] border border-[#2D3547] rounded-lg px-3 py-1.5 text-xs text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500 transition-colors"
               />
             </div>
           </div>
@@ -615,7 +284,7 @@ const testButtonLabel = computed(() => {
                 v-model="password"
                 :type="showPassword ? 'text' : 'password'"
                 placeholder="••••••••••••"
-                class="w-full bg-[#161922] border border-[#2D3547] rounded-md px-3 py-1.5 pr-8 text-xs text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500 transition-colors"
+                class="w-full bg-[#161922] border border-[#2D3547] rounded-lg px-3 py-1.5 pr-8 text-xs text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500 transition-colors"
               />
               <button
                 type="button"
@@ -653,101 +322,23 @@ const testButtonLabel = computed(() => {
                 v-model="remotePath"
                 type="text"
                 placeholder="e.g. /var/www/app"
-                class="w-full bg-[#161922] border border-[#2D3547] rounded-md px-3 py-1.5 text-xs text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500 transition-colors"
+                class="w-full bg-[#161922] border border-[#2D3547] rounded-lg px-3 py-1.5 text-xs text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500 transition-colors"
               />
             </div>
           </div>
         </template>
 
-        <!-- Database Connection Fields (Same form as SSH Connection without Name, Color, Group, and Remote Path) -->
-        <template v-else-if="activeTab === 'databaseConnection'">
-          <!-- Host & Port -->
-          <div class="flex items-center">
-            <label class="w-36 text-[#C2C9D6] text-xs font-medium">Host</label>
-            <div class="flex-1 flex items-center space-x-2">
-              <input
-                v-model="dbHost"
-                type="text"
-                placeholder="127.0.0.1"
-                class="flex-1 bg-[#161922] border border-[#2D3547] rounded-md px-3 py-1.5 text-xs text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500 transition-colors"
-              />
-              <div class="relative w-28">
-                <input
-                  v-model.number="dbPort"
-                  type="number"
-                  class="w-full bg-[#161922] border border-[#2D3547] rounded-md px-3 py-1.5 pr-6 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
-                />
-                <ChevronsUpDown
-                  class="w-3.5 h-3.5 text-[#64748B] absolute right-2 top-2 pointer-events-none"
-                />
-              </div>
-            </div>
-          </div>
-
-          <!-- User -->
-          <div class="flex items-center">
-            <label class="w-36 text-[#C2C9D6] text-xs font-medium">User</label>
-            <div class="flex-1">
-              <input
-                v-model="dbUser"
-                type="text"
-                placeholder="root"
-                class="w-full bg-[#161922] border border-[#2D3547] rounded-md px-3 py-1.5 text-xs text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500 transition-colors"
-              />
-            </div>
-          </div>
-
-          <!-- Password -->
-          <div class="flex items-center">
-            <label class="w-36 text-[#C2C9D6] text-xs font-medium">Password</label>
-            <div class="flex-1 relative">
-              <input
-                v-model="dbPassword"
-                :type="showDbPassword ? 'text' : 'password'"
-                placeholder="••••••••••••"
-                class="w-full bg-[#161922] border border-[#2D3547] rounded-md px-3 py-1.5 pr-8 text-xs text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500 transition-colors"
-              />
-              <button
-                type="button"
-                class="absolute right-2.5 top-2 text-[#64748B] hover:text-white transition-colors"
-                @click="showDbPassword = !showDbPassword"
-              >
-                <Eye v-if="!showDbPassword" class="w-3.5 h-3.5" />
-                <EyeOff v-else class="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          <!-- Save password checkbox -->
-          <div class="flex items-center">
-            <div class="w-36"></div>
-            <div class="flex-1 flex items-center space-x-2">
-              <input
-                id="save-db-password-checkbox"
-                v-model="dbSavePassword"
-                type="checkbox"
-                class="w-4 h-4 rounded bg-[#161922] border-[#2D3547] text-blue-500 focus:ring-0 focus:ring-offset-0 cursor-pointer accent-blue-500"
-              />
-              <label for="save-db-password-checkbox" class="text-xs text-[#C2C9D6] cursor-pointer">
-                Save password
-              </label>
-              <HelpCircle class="w-3.5 h-3.5 text-[#64748B] cursor-help" />
-            </div>
-          </div>
-
-          <!-- Database -->
-          <div class="flex items-center">
-            <label class="w-36 text-[#C2C9D6] text-xs font-medium">Database</label>
-            <div class="flex-1">
-              <input
-                v-model="database"
-                type="text"
-                placeholder="Optional"
-                class="w-full bg-[#161922] border border-[#2D3547] rounded-md px-3 py-1.5 text-xs text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500 transition-colors"
-              />
-            </div>
-          </div>
-        </template>
+        <!-- Database Connection Fields -->
+        <DatabaseConnectionTab
+          v-else-if="activeTab === 'databaseConnection'"
+          v-model:db-host="dbHost"
+          v-model:db-port="dbPort"
+          v-model:db-user="dbUser"
+          v-model:db-password="dbPassword"
+          v-model:show-db-password="showDbPassword"
+          v-model:db-save-password="dbSavePassword"
+          v-model:database="database"
+        />
 
         <!-- Test result notification banner if available -->
         <div
@@ -759,10 +350,7 @@ const testButtonLabel = computed(() => {
               : 'bg-red-500/10 border-red-500/30 text-red-400'
           "
         >
-          <CheckCircle2
-            v-if="testResult.success"
-            class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"
-          />
+          <CheckCircle2 v-if="testResult.success" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
           <AlertCircle v-else class="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
           <div class="flex-1">
             <p class="font-medium">
@@ -770,7 +358,11 @@ const testButtonLabel = computed(() => {
             </p>
             <p class="mt-0.5 opacity-90 leading-relaxed">{{ testResult.message }}</p>
           </div>
-          <button type="button" class="text-[#64748B] hover:text-white" @click="testResult = null">
+          <button
+            type="button"
+            class="p-1 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors"
+            @click="testResult = null"
+          >
             <X class="w-3.5 h-3.5" />
           </button>
         </div>
@@ -778,24 +370,21 @@ const testButtonLabel = computed(() => {
 
       <!-- Modal Footer -->
       <div class="px-5 py-3.5 bg-[#171B24] border-t border-[#293040] flex items-center justify-end">
-        <!-- Right Side Action Buttons -->
         <div class="flex items-center space-x-2">
-          <!-- Test Button -->
           <button
             type="button"
             :disabled="isTesting"
-            class="px-4 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-slate-300 hover:text-white transition-colors disabled:opacity-50 flex items-center space-x-1.5"
+            class="px-3.5 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-slate-300 hover:text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1.5"
             @click="handleTestConnection"
           >
             <RefreshCw v-if="isTesting" class="w-3.5 h-3.5 animate-spin text-sky-400" />
             <span>{{ isTesting ? 'Testing...' : testButtonLabel }}</span>
           </button>
 
-          <!-- Save & Connect Button -->
           <button
             type="button"
-            class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium shadow-md transition-colors flex items-center space-x-1.5"
-            @click="handleSaveAndConnect"
+            class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1.5"
+            @click="onSubmitConnection"
           >
             <span>{{ isEditing ? 'Save Changes' : 'Save & Connect' }}</span>
           </button>

@@ -84,7 +84,7 @@ async function loadConnectionsFromDb(): Promise<void> {
         branch: String(r.branch || 'main'),
         status: String(r.status || 'Ready'),
         statusType: (r.statusType as 'success' | 'warning' | 'error' | 'idle') || 'idle',
-        group: String(r.group || ''),
+        group: String(r.group || '').trim(),
         url: String(r.url || ''),
         type: String(r.type || 'MariaDB'),
         color: String(r.color || 'blue'),
@@ -125,17 +125,25 @@ async function loadGroupsFromDb(): Promise<void> {
 }
 
 function handleGroupAdded(groupName: string): void {
-  if (!groupsList.value.includes(groupName)) {
-    groupsList.value.push(groupName)
+  const trimmed = groupName.trim()
+  if (
+    trimmed &&
+    !groupsList.value.some((g) => g.trim().toLowerCase() === trimmed.toLowerCase())
+  ) {
+    groupsList.value.push(trimmed)
   }
   loadGroupsFromDb()
 }
 
 function handleGroupRenamed(payload: { oldName: string; newName: string }): void {
+  const oldLower = payload.oldName.trim().toLowerCase()
   for (const h of hostsList.value) {
-    if (h.group === payload.oldName) {
+    if ((h.group || '').trim().toLowerCase() === oldLower) {
       h.group = payload.newName
     }
+  }
+  if (selectedGroupFilter.value.trim().toLowerCase() === oldLower) {
+    selectedGroupFilter.value = payload.newName
   }
   loadConnectionsFromDb()
   loadGroupsFromDb()
@@ -194,14 +202,16 @@ onUnmounted(() => {
 })
 
 const availableFilterGroups = computed(() => {
-  const set = new Set<string>()
+  const seen = new Map<string, string>()
   for (const g of groupsList.value) {
-    if (g && g.trim()) set.add(g.trim())
+    const t = (g || '').trim()
+    if (t && !seen.has(t.toLowerCase())) seen.set(t.toLowerCase(), t)
   }
   for (const h of hostsList.value) {
-    if (h.group && h.group.trim()) set.add(h.group.trim())
+    const t = (h.group || '').trim()
+    if (t && !seen.has(t.toLowerCase())) seen.set(t.toLowerCase(), t)
   }
-  return Array.from(set).sort()
+  return Array.from(seen.values()).sort((a, b) => a.localeCompare(b))
 })
 
 const hasUngroupedHosts = computed(() => {
@@ -350,6 +360,39 @@ async function handleDeleteHost(id: number): Promise<void> {
   }
 }
 
+function buildConnectionUpdateInput(existing: HostItem, updates: Record<string, unknown>): Record<string, unknown> {
+  return {
+    name: existing.name,
+    ip: existing.ip,
+    host: existing.ip,
+    port: updates.port !== undefined ? Number(updates.port) : existing.port,
+    remotePath: updates.remotePath !== undefined ? String(updates.remotePath) : existing.remotePath,
+    branch: existing.branch || 'main',
+    group: updates.group !== undefined ? String(updates.group).trim() : existing.group,
+    color: updates.color !== undefined ? String(updates.color) : existing.color,
+    user: updates.user !== undefined ? String(updates.user) : existing.user,
+    database: updates.database !== undefined ? String(updates.database) : existing.database,
+    dbHost: updates.dbHost !== undefined ? String(updates.dbHost) : existing.dbHost,
+    dbPort: updates.dbPort !== undefined ? Number(updates.dbPort) : existing.dbPort,
+    dbUser: updates.dbUser !== undefined ? String(updates.dbUser) : existing.dbUser,
+    isProduction: updates.isProduction !== undefined ? Boolean(updates.isProduction) : Boolean(existing.isProduction)
+  }
+}
+
+async function handleMoveHostToGroup(payload: { host: HostItem; group: string }): Promise<void> {
+  if (!window.api?.updateConnection) return
+  try {
+    await window.api.updateConnection(
+      payload.host.id,
+      buildConnectionUpdateInput(payload.host, { group: payload.group.trim() })
+    )
+    await loadConnectionsFromDb()
+    await loadGroupsFromDb()
+  } catch (err) {
+    console.error('Failed to move connection to group in SQLite:', err)
+  }
+}
+
 async function handleBulkUpdateHosts(payload: { hostIds: number[]; updates: Record<string, unknown> }): Promise<void> {
   if (!window.api?.updateConnection || payload.hostIds.length === 0) return
   isLoading.value = true
@@ -357,22 +400,7 @@ async function handleBulkUpdateHosts(payload: { hostIds: number[]; updates: Reco
     for (const id of payload.hostIds) {
       const existing = hostsList.value.find((h) => h.id === id)
       if (!existing) continue
-      await window.api.updateConnection(id, {
-        name: existing.name,
-        ip: existing.ip,
-        host: existing.ip,
-        port: payload.updates.port !== undefined ? Number(payload.updates.port) : existing.port,
-        remotePath: payload.updates.remotePath !== undefined ? String(payload.updates.remotePath) : existing.remotePath,
-        branch: existing.branch || 'main',
-        group: payload.updates.group !== undefined ? String(payload.updates.group) : existing.group,
-        color: payload.updates.color !== undefined ? String(payload.updates.color) : existing.color,
-        user: payload.updates.user !== undefined ? String(payload.updates.user) : existing.user,
-        database: payload.updates.database !== undefined ? String(payload.updates.database) : existing.database,
-        dbHost: payload.updates.dbHost !== undefined ? String(payload.updates.dbHost) : existing.dbHost,
-        dbPort: payload.updates.dbPort !== undefined ? Number(payload.updates.dbPort) : existing.dbPort,
-        dbUser: payload.updates.dbUser !== undefined ? String(payload.updates.dbUser) : existing.dbUser,
-        isProduction: payload.updates.isProduction !== undefined ? Boolean(payload.updates.isProduction) : Boolean(existing.isProduction)
-      })
+      await window.api.updateConnection(id, buildConnectionUpdateInput(existing, payload.updates))
     }
     await loadConnectionsFromDb()
     await loadGroupsFromDb()
@@ -453,6 +481,14 @@ function openSshForHost(host: HostItem): void {
   })
 }
 
+function openEditorForHost(host: HostItem): void {
+  selectedHostId.value = host.id
+  currentView.value = 'editor'
+  nextTick(() => {
+    editorViewRef.value?.openSessionForHost(host)
+  })
+}
+
 function openSftpForHost(hostId: number): void {
   selectedHostId.value = hostId
   currentView.value = 'sftp'
@@ -500,7 +536,7 @@ function handlePluginCenter(): void {
     <NewConnectionDialog
       :show="showNewConnectionDialog"
       :initial-group="targetGroupForNewConn"
-      :available-groups="groupsList"
+      :available-groups="availableFilterGroups"
       :editing-connection="editingHost"
       @close="
         () => {
@@ -509,6 +545,7 @@ function handlePluginCenter(): void {
         }
       "
       @save="handleSaveConnection"
+      @group-added="handleGroupAdded"
     />
 
     <!-- Main Workspace Area -->
@@ -518,12 +555,14 @@ function handlePluginCenter(): void {
         v-model:collapsed="isSidebarCollapsed"
         :hosts="hostsList"
         :selected-host-id="selectedHostId"
+        :available-groups="availableFilterGroups"
         @select-host="handleSelectHost"
         @dblclick-host="handleHostDblClick"
         @edit-host="handleEditHost"
         @delete-host="(h) => handleDeleteHost(h.id)"
         @add-host="handleNewConnection"
         @add-host-in-group="handleNewConnection"
+        @move-host-to-group="handleMoveHostToGroup"
         @group-added="handleGroupAdded"
         @group-renamed="handleGroupRenamed"
         @group-deleted="handleGroupDeleted"
@@ -575,6 +614,7 @@ function handlePluginCenter(): void {
           @reload="loadConnectionsFromDb"
           @open-terminal="openSshForHost"
           @open-sftp="openSftpForHost"
+          @open-editor="openEditorForHost"
           @edit-host="handleEditHost"
           @delete-host="handleDeleteHost"
           @bulk-update="handleBulkUpdateHosts"

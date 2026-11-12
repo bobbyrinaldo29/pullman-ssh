@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import { FolderPlus, X } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -12,11 +12,17 @@ const emit = defineEmits<{
 }>()
 
 const groupName = ref('')
+const groupInputRef = ref<HTMLInputElement | null>(null)
 
 watch(
   () => props.show,
   (val) => {
-    if (val) groupName.value = ''
+    if (val) {
+      groupName.value = ''
+      nextTick(() => {
+        groupInputRef.value?.focus()
+      })
+    }
   }
 )
 
@@ -47,7 +53,7 @@ function handleConfirm(): void {
             <FolderPlus class="w-4 h-4 text-amber-400" />
             <span>New Connection Group</span>
           </div>
-          <button class="text-slate-400 hover:text-white" @click="handleClose">
+          <button class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors" @click="handleClose">
             <X class="w-4 h-4" />
           </button>
         </div>
@@ -55,11 +61,11 @@ function handleConfirm(): void {
         <div class="space-y-1.5">
           <label class="text-slate-300 font-medium">Group Name</label>
           <input
+            ref="groupInputRef"
             v-model="groupName"
             type="text"
-            autofocus
             placeholder="e.g. Staging, Production Cluster, EU Servers"
-            class="w-full bg-[#161922] border border-[#2D3547] rounded-md px-3 py-1.5 text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500"
+            class="w-full bg-[#161922] border border-[#2D3547] rounded-lg px-3 py-1.5 text-white placeholder-[#58647A] focus:outline-none focus:border-blue-500 transition-colors"
             @keyup.enter="handleConfirm"
           />
         </div>
