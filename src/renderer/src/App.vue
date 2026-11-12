@@ -237,8 +237,10 @@ function handlePluginCenter(): void {
     <!-- New / Edit Connection Modal Dialog -->
     <NewConnectionDialog
       :show="showNewConnectionDialog"
+      :editing-connection="editingHost"
       :initial-data="editingHost"
       :available-groups="availableFilterGroups"
+      :initial-group="targetGroupForNewConn"
       :default-group="targetGroupForNewConn"
       @close="showNewConnectionDialog = false"
       @save="handleSaveConnection"

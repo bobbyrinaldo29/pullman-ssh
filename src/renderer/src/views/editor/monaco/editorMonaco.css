@@ -1,5 +1,18 @@
 /* Monaco Editor Pullman Customizations & GitLens Blame */
 
+/* Base editor font colors & fallback for plaintext (.txt, log, ini, markdown plain text, etc.) */
+.monaco-editor,
+.monaco-editor .view-line,
+.monaco-editor .view-lines,
+.monaco-editor .lines-content {
+  color: #abb2bf;
+}
+
+/* Force default un-tokenized plaintext token to be light & clearly readable */
+.monaco-editor .mtk1 {
+  color: #abb2bf !important;
+}
+
 /* Find Widget styling & elevation */
 .monaco-editor .find-widget {
   top: 8px !important;

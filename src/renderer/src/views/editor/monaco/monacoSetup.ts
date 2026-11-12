@@ -39,6 +39,7 @@ monaco.editor.defineTheme('pullman-dark', {
     { token: 'variable', foreground: 'e06c75' }
   ],
   colors: {
+    'editor.foreground': '#abb2bf',
     'editor.background': '#1E222B',
     'editorGutter.background': '#1E222B',
     'editorLineNumber.foreground': '#4b5263',
@@ -95,6 +96,11 @@ export function getMonacoLanguage(languageOrFilename?: string): string {
     dockerfile: 'dockerfile',
     ini: 'ini',
     properties: 'ini',
+    conf: 'ini',
+    env: 'ini',
+    txt: 'plaintext',
+    text: 'plaintext',
+    log: 'plaintext',
     vue: 'html'
   }
 

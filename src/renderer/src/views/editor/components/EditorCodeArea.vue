@@ -473,7 +473,7 @@ onUnmounted(() => {
     <div
       v-show="activeTab"
       ref="containerRef"
-      class="flex-1 w-full min-h-0 overflow-hidden"
+      class="flex-1 w-full min-h-0 bg-[#1E222B] text-[#abb2bf] overflow-hidden"
     ></div>
   </div>
 </template>

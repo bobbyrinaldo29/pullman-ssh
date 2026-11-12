@@ -386,8 +386,23 @@ onUnmounted(() => {
     <!-- Native xterm.js Terminal Canvas Area -->
     <div
       ref="terminalContainer"
-      class="flex-1 overflow-hidden p-3 bg-[#12151D] select-text"
+      class="flex-1 overflow-hidden bg-[#12151D] select-text relative"
       @click="term?.focus()"
     ></div>
   </div>
 </template>
+
+<style scoped>
+:deep(.xterm) {
+  padding: 6px 12px 10px 12px;
+  height: 100%;
+}
+
+:deep(.xterm-viewport) {
+  background-color: transparent !important;
+}
+
+:deep(.xterm-screen) {
+  margin: 0;
+}
+</style>

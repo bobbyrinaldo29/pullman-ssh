@@ -20,8 +20,10 @@ import DatabaseConnectionTab from './connection/DatabaseConnectionTab.vue'
 const props = defineProps<{
   show: boolean
   initialGroup?: string
+  defaultGroup?: string
   availableGroups?: string[]
   editingConnection?: Record<string, unknown> | null
+  initialData?: Record<string, unknown> | null
 }>()
 
 const emit = defineEmits<{

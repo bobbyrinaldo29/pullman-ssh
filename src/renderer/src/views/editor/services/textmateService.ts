@@ -30,6 +30,7 @@ export const pullmanDarkShikiTheme: ThemeRegistrationAny = {
   name: 'pullman-dark',
   type: 'dark',
   colors: {
+    'editor.foreground': '#abb2bf',
     'editor.background': '#1E222B',
     'editorGutter.background': '#1E222B',
     'editorLineNumber.foreground': '#4b5263',
@@ -53,7 +54,7 @@ export const pullmanDarkShikiTheme: ThemeRegistrationAny = {
     'diffEditor.diagonalFill': '#252B3A80'
   },
   tokenColors: [
-    { settings: { foreground: '#abb2bf' } },
+    { scope: ['', 'text', 'source', 'plaintext'], settings: { foreground: '#abb2bf' } },
     { scope: ['comment', 'punctuation.definition.comment'], settings: { foreground: '#5c6370', fontStyle: 'italic' } },
     { scope: ['keyword', 'keyword.control', 'storage', 'storage.type', 'storage.modifier'], settings: { foreground: '#c678dd' } },
     { scope: ['string', 'string.quoted', 'string.template'], settings: { foreground: '#98c379' } },
