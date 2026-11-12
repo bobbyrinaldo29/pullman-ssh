@@ -164,6 +164,17 @@ const currentProject = (): RedmineProject | null => {
     <!-- Navigation Tabs (Classic Redmine Style) -->
     <div class="px-3 flex items-end justify-between text-xs font-semibold overflow-x-auto no-scrollbar">
       <div class="flex items-end space-x-1">
+        <!-- New Issue Action Tab -->
+        <button
+          type="button"
+          class="px-2.5 py-1.5 rounded-t-sm transition-colors cursor-pointer border-t border-x flex items-center space-x-1 bg-[#3b556b] text-[#7ee787] hover:bg-[#405c75] hover:text-white border-transparent"
+          title="Create a new Redmine issue"
+          @click="emit('open-new-issue')"
+        >
+          <Plus class="w-3 h-3" />
+          <span>New issue</span>
+        </button>
+        
         <!-- Overview Tab -->
         <button
           type="button"
@@ -197,17 +208,6 @@ const currentProject = (): RedmineProject | null => {
           >
             {{ props.issuesCount }}
           </span>
-        </button>
-
-        <!-- New Issue Action Tab -->
-        <button
-          type="button"
-          class="px-2.5 py-1.5 rounded-t-sm transition-colors cursor-pointer border-t border-x flex items-center space-x-1 bg-[#3b556b] text-[#7ee787] hover:bg-[#405c75] hover:text-white border-transparent"
-          title="Create a new Redmine issue"
-          @click="emit('open-new-issue')"
-        >
-          <Plus class="w-3 h-3" />
-          <span>New issue</span>
         </button>
 
         <!-- Projects Tab -->
