@@ -122,9 +122,9 @@ function getIconColor(tab: EditorTab): string {
       </div>
     </div>
 
-    <!-- Breadcrumb Bar -->
+    <!-- Breadcrumb Bar (for Git Graph and Diff Views) -->
     <div
-      v-if="activeTab"
+      v-if="activeTab && (activeTab.viewType === 'git-graph' || activeTab.viewType === 'diff')"
       class="h-6 px-3 bg-[#1E222B] border-t border-[#24272E] flex items-center space-x-1.5 text-[11px] text-[#848D97] overflow-x-auto"
     >
       <span class="text-blue-400 font-medium shrink-0">{{ currentHostName || 'remote' }}</span>
@@ -146,16 +146,6 @@ function getIconColor(tab: EditorTab): string {
         <span class="text-purple-400 font-medium shrink-0">Diff</span>
         <ChevronRight class="w-3 h-3 opacity-50 shrink-0" />
         <span class="text-slate-200 font-mono truncate">{{ activeTab.name }}</span>
-      </template>
-
-      <!-- Standard File Breadcrumbs -->
-      <template v-else>
-        <template v-for="(segment, idx) in activeTab.path.split('/').filter(Boolean)" :key="idx">
-          <ChevronRight class="w-3 h-3 opacity-50 shrink-0" />
-          <span class="hover:text-white transition-colors cursor-pointer truncate" :class="{ 'text-slate-200': idx === activeTab.path.split('/').filter(Boolean).length - 1 }">
-            {{ segment }}
-          </span>
-        </template>
       </template>
     </div>
   </div>

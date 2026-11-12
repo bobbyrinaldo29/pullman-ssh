@@ -4,6 +4,12 @@ import jsonWorker from 'monaco-editor/language/json/json.worker?worker'
 import cssWorker from 'monaco-editor/language/css/css.worker?worker'
 import htmlWorker from 'monaco-editor/language/html/html.worker?worker'
 import tsWorker from 'monaco-editor/language/typescript/ts.worker?worker'
+import { initTextmateService } from '../services/textmateService'
+import { initTreeSitterService } from '../services/treeSitterService'
+
+// Asynchronously initialize TextMate (Shiki/Oniguruma WASM) and Tree-sitter AST services
+initTextmateService(monaco).catch((e) => console.warn('Textmate init warning:', e))
+initTreeSitterService(monaco).catch((e) => console.warn('Tree-sitter init warning:', e))
 
 // Configure Monaco Environment workers for language services and diff computation
 self.MonacoEnvironment = {

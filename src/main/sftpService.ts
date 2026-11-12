@@ -733,13 +733,12 @@ export class SftpService {
     if (!session || !session.isConnected) {
       throw new Error('SFTP client is not connected.')
     }
-    const cleanPath = (filePath || '').replace(/\/+/g, '/')
+    const cleanPath = (filePath || '').replace(/^diff:/, '').replace(/\/+/g, '/')
     const dir = path.posix.dirname(cleanPath)
     const base = path.posix.basename(cleanPath)
-    const escDir = dir.replace(/'/g, "'\\''")
     const escBase = base.replace(/'/g, "'\\''")
 
-    const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && (git -c safe.directory=* checkout -- '${escBase}' 2>/dev/null || rm -f '${escBase}')`
+    const cmd = `${this.gitCd(dir)} && (git -c safe.directory=* restore -- '${escBase}' 2>/dev/null || git -c safe.directory=* checkout -- '${escBase}' 2>/dev/null || rm -f '${escBase}')`
     await this.execRemote(cmd, sessionId, false)
   }
 
@@ -752,14 +751,16 @@ export class SftpService {
     if (!session || !session.isConnected) {
       throw new Error('SFTP client is not connected.')
     }
-    const cleanPath = (filePath || '').replace(/\/+/g, '/')
+    const cleanPath = (filePath || '').replace(/^diff:/, '').replace(/\/+/g, '/')
     const dir = path.posix.dirname(cleanPath)
     const base = path.posix.basename(cleanPath)
-    const escDir = dir.replace(/'/g, "'\\''")
     const escBase = base.replace(/'/g, "'\\''")
 
-    const action = staged ? `git -c safe.directory=* add '${escBase}'` : `git -c safe.directory=* reset HEAD '${escBase}'`
-    const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && ${action}`
+    const action = staged
+      ? `git -c safe.directory=* add -A -- '${escBase}'`
+      : `git -c safe.directory=* restore --staged -- '${escBase}' 2>/dev/null || git -c safe.directory=* reset HEAD -- '${escBase}' 2>/dev/null || git -c safe.directory=* rm --cached -f -- '${escBase}' 2>/dev/null`
+
+    const cmd = `${this.gitCd(dir)} && ${action}`
     await this.execRemote(cmd, sessionId, false)
   }
 

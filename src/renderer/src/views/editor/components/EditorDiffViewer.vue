@@ -76,29 +76,39 @@ function updateModels(): void {
 function initDiffEditor(): void {
   if (!diffContainerRef.value || diffEditor) return
 
-  diffEditor = monaco.editor.createDiffEditor(diffContainerRef.value, {
-    theme: 'pullman-dark',
-    automaticLayout: true,
-    readOnly: props.readOnly,
-    renderSideBySide: !isInline.value,
-    originalEditable: false,
-    fontSize: 12,
-    fontFamily: "'Fira Code', Menlo, Monaco, 'Courier New', monospace",
-    lineHeight: 20,
-    minimap: { enabled: false },
-    scrollBeyondLastLine: false,
-    diffWordWrap: 'on',
-    wordWrap: 'on',
-    renderIndicators: true,
-    smoothScrolling: true,
-    ignoreTrimWhitespace: false,
-    enableSplitViewResizing: true,
-    hideUnchangedRegions: {
-      enabled: true,
-      revealLineCount: 20,
-      minimumLineCount: 3
-    }
-  })
+  try {
+    diffEditor = monaco.editor.createDiffEditor(diffContainerRef.value, {
+      theme: 'pullman-dark',
+      automaticLayout: true,
+      readOnly: props.readOnly,
+      renderSideBySide: !isInline.value,
+      originalEditable: false,
+      fontSize: 12,
+      fontFamily: "'Fira Code', Menlo, Monaco, 'Courier New', monospace",
+      lineHeight: 20,
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+      diffWordWrap: 'on',
+      wordWrap: 'on',
+      renderIndicators: true,
+      smoothScrolling: true,
+      ignoreTrimWhitespace: false,
+      enableSplitViewResizing: true,
+      hideUnchangedRegions: {
+        enabled: true,
+        revealLineCount: 20,
+        minimumLineCount: 3
+      }
+    })
+  } catch (err) {
+    console.warn('Failed to create diff editor with pullman-dark theme, falling back to vs-dark:', err)
+    diffEditor = monaco.editor.createDiffEditor(diffContainerRef.value, {
+      theme: 'vs-dark',
+      automaticLayout: true,
+      readOnly: props.readOnly,
+      renderSideBySide: !isInline.value
+    })
+  }
 
   diffEditor.onDidUpdateDiff(() => {
     const changes = diffEditor?.getLineChanges() || []

@@ -23,6 +23,7 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "@shikijs/monaco": "^4.6.0",
     "@tailwindcss/vite": "^4.3.4",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
@@ -31,9 +32,14 @@
     "monaco-editor": "^0.57.0",
     "mysql2": "^3.24.6",
     "pinia": "^4.1.0",
+    "shiki": "^4.6.0",
     "ssh2": "^1.17.0",
     "ssh2-sftp-client": "^12.1.1",
-    "tailwindcss": "^4.3.4"
+    "tailwindcss": "^4.3.4",
+    "tree-sitter-wasms": "^0.1.13",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2",
+    "web-tree-sitter": "0.22.6"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "3.0.1",

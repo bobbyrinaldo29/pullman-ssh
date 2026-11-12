@@ -3,12 +3,16 @@ import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { Code } from 'lucide-vue-next'
 import { EditorTab, EditorCursorPos, GitBlameInfo } from '../types'
 import { monaco, getMonacoLanguage } from '../monaco/monacoSetup'
+import { getEnclosingSymbolsAtPosition, getDocumentOutlineSymbols, BreadcrumbSymbol, DocumentOutlineSymbol } from '../services/treeSitterService'
+import EditorBreadcrumbBar from './EditorBreadcrumbBar.vue'
+import EditorSymbolOutlineModal from './EditorSymbolOutlineModal.vue'
 import '../monaco/editorMonaco.css'
 
 const props = defineProps<{
   activeTab: EditorTab | null
   cursorPos?: EditorCursorPos
   blame?: GitBlameInfo | null
+  hostName?: string
 }>()
 
 const emit = defineEmits<{
@@ -23,6 +27,42 @@ const emit = defineEmits<{
 const containerRef = ref<HTMLDivElement | null>(null)
 let editor: monaco.editor.IStandaloneCodeEditor | null = null
 let resizeObserver: ResizeObserver | null = null
+
+const activeSymbols = ref<BreadcrumbSymbol[]>([])
+const outlineSymbols = ref<DocumentOutlineSymbol[]>([])
+const isOutlineModalOpen = ref(false)
+
+async function updateOutlineSymbols(): Promise<void> {
+  if (!editor || !props.activeTab) {
+    outlineSymbols.value = []
+    return
+  }
+  const model = editor.getModel()
+  if (!model) return
+  const lang = getMonacoLanguage(props.activeTab.name || props.activeTab.path)
+  try {
+    const syms = await getDocumentOutlineSymbols(model, lang)
+    outlineSymbols.value = syms
+  } catch {
+    outlineSymbols.value = []
+  }
+}
+
+async function updateActiveSymbols(line: number, col: number): Promise<void> {
+  if (!editor || !props.activeTab) {
+    activeSymbols.value = []
+    return
+  }
+  const model = editor.getModel()
+  if (!model) return
+  const lang = getMonacoLanguage(props.activeTab.name || props.activeTab.path)
+  try {
+    const syms = await getEnclosingSymbolsAtPosition(model, lang, line, col)
+    activeSymbols.value = syms
+  } catch {
+    activeSymbols.value = []
+  }
+}
 
 // Cache models per tab to preserve undo/redo history and cursor states
 const modelMap = new Map<string, monaco.editor.ITextModel>()
@@ -70,37 +110,7 @@ function updateBlameContentWidget(): void {
   const displayHash = isCleanCommit ? (blame.hash || '').substring(0, 7) : 'Uncommitted'
 
   blameWidgetNode.style.display = 'inline-flex'
-  blameWidgetNode.innerHTML = `
-    <div class="git-blame-badge" title="GitLens Blame: ${escapeHtml(blame.author)}, ${escapeHtml(blame.timeAgo || '')}">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="git-blame-icon">
-        <circle cx="12" cy="12" r="3"></circle>
-        <line x1="3" y1="12" x2="9" y2="12"></line>
-        <line x1="15" y1="12" x2="21" y2="12"></line>
-      </svg>
-      <span class="git-blame-author">${escapeHtml(blame.author)}</span>
-      <span class="git-blame-time">${escapeHtml(blame.timeAgo || '')}</span>
-      <span class="git-blame-sep">•</span>
-      <span class="git-blame-summary">${escapeHtml(blame.summary || '')}</span>
-    </div>
-    <div class="git-blame-popover">
-      <div class="git-blame-popover-header">
-        <div class="git-blame-popover-hash">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;color:#38bdf8;">
-            <circle cx="12" cy="12" r="3"></circle><line x1="3" y1="12" x2="9" y2="12"></line><line x1="15" y1="12" x2="21" y2="12"></line>
-          </svg>
-          <span>${displayHash}</span>
-        </div>
-        <div class="git-blame-popover-actions">
-          ${isCleanCommit ? `<button type="button" class="git-blame-action-btn" data-blame-action="copy">Copy SHA</button>` : ''}
-          <button type="button" class="git-blame-action-btn git-blame-action-graph" data-blame-action="graph">Git Graph</button>
-        </div>
-      </div>
-      <div class="git-blame-popover-body">
-        <div class="git-blame-popover-author"><strong>${escapeHtml(blame.author)}</strong> <span style="color:#64748b;">committed ${escapeHtml(blame.timeAgo || '')}</span></div>
-        <div class="git-blame-popover-msg">${escapeHtml(blame.summary || '')}</div>
-      </div>
-    </div>
-  `
+  blameWidgetNode.innerHTML = `<div class="git-blame-badge" title="GitLens Blame: ${escapeHtml(blame.author)}, ${escapeHtml(blame.timeAgo || '')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="git-blame-icon"><circle cx="12" cy="12" r="3"></circle><line x1="3" y1="12" x2="9" y2="12"></line><line x1="15" y1="12" x2="21" y2="12"></line></svg><span class="git-blame-author">${escapeHtml(blame.author)}</span><span class="git-blame-time">${escapeHtml(blame.timeAgo || '')}</span><span class="git-blame-sep">•</span><span class="git-blame-summary">${escapeHtml(blame.summary || '')}</span></div><div class="git-blame-popover"><div class="git-blame-popover-header"><div class="git-blame-popover-hash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;color:#38bdf8;"><circle cx="12" cy="12" r="3"></circle><line x1="3" y1="12" x2="9" y2="12"></line><line x1="15" y1="12" x2="21" y2="12"></line></svg><span>${displayHash}</span></div><div class="git-blame-popover-actions">${isCleanCommit ? `<button type="button" class="git-blame-action-btn" data-blame-action="copy">Copy SHA</button>` : ''}<button type="button" class="git-blame-action-btn git-blame-action-graph" data-blame-action="graph">Git Graph</button></div></div><div class="git-blame-popover-body"><div class="git-blame-popover-author"><strong>${escapeHtml(blame.author)}</strong> <span style="color:#64748b;">committed ${escapeHtml(blame.timeAgo || '')}</span></div><div class="git-blame-popover-msg">${escapeHtml(blame.summary || '')}</div></div></div>`
 
   editor.layoutContentWidget(gitBlameContentWidget)
 }
@@ -128,6 +138,9 @@ const gitBlameContentWidget: monaco.editor.IContentWidget = {
 function getOrCreateModel(tab: EditorTab): monaco.editor.ITextModel {
   const existing = modelMap.get(tab.id)
   if (existing && !existing.isDisposed()) {
+    if (existing.getValue() !== tab.content && !tab.isDirty) {
+      existing.setValue(tab.content)
+    }
     return existing
   }
 
@@ -149,26 +162,41 @@ function getOrCreateModel(tab: EditorTab): monaco.editor.ITextModel {
 function initMonaco(): void {
   if (!containerRef.value || editor) return
 
-  editor = monaco.editor.create(containerRef.value, {
-    theme: 'pullman-dark',
-    automaticLayout: true,
-    fontSize: 13,
-    fontFamily: "'Fira Code', Menlo, Monaco, 'Courier New', monospace",
-    lineHeight: 22,
-    tabSize: 2,
-    minimap: { enabled: true, maxColumn: 80, scale: 1 },
-    scrollBeyondLastLine: false,
-    renderLineHighlight: 'all',
-    cursorBlinking: 'smooth',
-    cursorSmoothCaretAnimation: 'on',
-    smoothScrolling: true,
-    bracketPairColorization: { enabled: true },
-    guides: { indentation: true, bracketPairs: true },
-    padding: { top: 10, bottom: 10 },
-    roundedSelection: true,
-    fixedOverflowWidgets: true,
-    formatOnPaste: true
-  })
+  try {
+    editor = monaco.editor.create(containerRef.value, {
+      theme: 'pullman-dark',
+      automaticLayout: true,
+      fontSize: 13,
+      fontFamily: "'Fira Code', Menlo, Monaco, 'Courier New', monospace",
+      lineHeight: 22,
+      tabSize: 2,
+      minimap: { enabled: true, maxColumn: 80, scale: 1 },
+      scrollBeyondLastLine: false,
+      renderLineHighlight: 'all',
+      cursorBlinking: 'smooth',
+      cursorSmoothCaretAnimation: 'on',
+      smoothScrolling: true,
+      bracketPairColorization: { enabled: true },
+      guides: { indentation: true, bracketPairs: true },
+      padding: { top: 10, bottom: 10 },
+      roundedSelection: true,
+      fixedOverflowWidgets: true,
+      formatOnPaste: true
+    })
+  } catch (err) {
+    console.warn('Failed to create Monaco editor with pullman-dark theme, falling back to vs-dark:', err)
+    editor = monaco.editor.create(containerRef.value, {
+      theme: 'vs-dark',
+      automaticLayout: true,
+      fontSize: 13,
+      fontFamily: "'Fira Code', Menlo, Monaco, 'Courier New', monospace",
+      lineHeight: 22,
+      tabSize: 2,
+      minimap: { enabled: true, maxColumn: 80, scale: 1 },
+      scrollBeyondLastLine: false,
+      renderLineHighlight: 'all'
+    })
+  }
 
   // Add Git Blame content widget
   editor.addContentWidget(gitBlameContentWidget)
@@ -177,6 +205,7 @@ function initMonaco(): void {
   editor.onDidChangeCursorPosition((e) => {
     emit('cursor-change', { line: e.position.lineNumber, col: e.position.column })
     updateBlameContentWidget()
+    updateActiveSymbols(e.position.lineNumber, e.position.column)
   })
 
   // Track scroll position to keep blame widget aligned
@@ -201,12 +230,23 @@ function initMonaco(): void {
     handleWrapLog()
   })
 
+  // Quick Outline Modal shortcut: Cmd+Shift+O / Ctrl+Shift+O
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyO, () => {
+    isOutlineModalOpen.value = true
+  })
+
   // Set model if active tab exists
   if (props.activeTab) {
     const model = getOrCreateModel(props.activeTab)
     editor.setModel(model)
     updateBlameContentWidget()
+    updateOutlineSymbols()
   }
+
+  // Trigger immediate layout
+  nextTick(() => {
+    editor?.layout()
+  })
 
   // Setup ResizeObserver for layout
   resizeObserver = new ResizeObserver(() => {
@@ -231,7 +271,15 @@ function switchTabModel(): void {
     }
     editor.focus()
     updateBlameContentWidget()
+    updateOutlineSymbols()
+    nextTick(() => {
+      editor?.layout()
+    })
+    const pos = editor.getPosition()
+    if (pos) updateActiveSymbols(pos.lineNumber, pos.column)
   } else {
+    activeSymbols.value = []
+    outlineSymbols.value = []
     editor.setModel(null)
     updateBlameContentWidget()
   }
@@ -247,6 +295,17 @@ watch(
         switchTabModel()
       }
     })
+  }
+)
+
+watch(
+  () => props.activeTab?.content,
+  (newContent) => {
+    if (!editor || !props.activeTab || newContent === undefined) return
+    const model = editor.getModel()
+    if (model && model.getValue() !== newContent && !props.activeTab.isDirty) {
+      model.setValue(newContent)
+    }
   }
 )
 
@@ -389,11 +448,32 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- Tree-sitter AST & Path Breadcrumb Bar -->
+    <EditorBreadcrumbBar
+      v-if="activeTab && activeTab.viewType !== 'diff'"
+      :file-path="activeTab.path"
+      :file-name="activeTab.name"
+      :symbols="activeSymbols"
+      :host-name="hostName"
+      @select-symbol="(sym) => goToLine(sym.range.startLineNumber)"
+      @open-outline="isOutlineModalOpen = true"
+    />
+
+    <!-- Quick Outline Modal -->
+    <EditorSymbolOutlineModal
+      :is-open="isOutlineModalOpen"
+      :symbols="outlineSymbols"
+      :file-name="activeTab?.name"
+      :active-symbol-name="activeSymbols.length > 0 ? activeSymbols[activeSymbols.length - 1].name : undefined"
+      @select="(line) => goToLine(line)"
+      @close="isOutlineModalOpen = false"
+    />
+
     <!-- Monaco Code Editor Host Element -->
     <div
       v-show="activeTab"
       ref="containerRef"
-      class="flex-1 w-full h-full min-h-0"
+      class="flex-1 w-full min-h-0 overflow-hidden"
     ></div>
   </div>
 </template>

@@ -426,6 +426,7 @@ defineExpose({
             :active-tab="activeTab"
             :cursor-pos="cursorPos"
             :blame="currentBlame"
+            :host-name="currentHost?.name"
             @cursor-change="(pos) => (cursorPos = pos)"
             @diagnostics-change="(errors) => (syntaxDiagnostics = errors)"
             @save="saveActiveTab(false)"
@@ -450,6 +451,7 @@ defineExpose({
           <EditorCodeArea
             v-else
             :active-tab="splitActiveTab"
+            :host-name="currentHost?.name"
             @save="saveActiveTab(false)"
             @save-as-sudo="saveActiveTab(true)"
             @open-git-graph="openGitGraphTab"
