@@ -7,17 +7,24 @@ import { EditorConnectionTab } from './types'
 import ProdBadge from '../../components/ProdBadge.vue'
 import EditorSessionWorkspace from './components/EditorSessionWorkspace.vue'
 import { useActiveConnections } from '../../composables/useActiveConnections'
+import { useAppearance } from '../../composables/useAppearance'
 
 const props = defineProps<{
   hosts: HostItem[]
 }>()
 
 const { registerSession, unregisterSession } = useActiveConnections()
+const { colorTabsByConnection } = useAppearance()
 
 type EditorWorkspaceInstance = InstanceType<typeof EditorSessionWorkspace>
 const connectionTabs = ref<EditorConnectionTab[]>([])
 const activeConnectionTabId = ref<string>('')
 const sessionWorkspaceRefs = ref<Record<string, EditorWorkspaceInstance | null>>({})
+
+function getTabColor(t: EditorConnectionTab): string {
+  if (!colorTabsByConnection.value) return '#3b82f6'
+  return getConnectionColor(t.host.color)
+}
 
 const showHostPicker = ref(false)
 const hostFilterText = ref('')
@@ -153,7 +160,7 @@ defineExpose({
 <template>
   <div class="flex-1 flex flex-col h-full bg-[#171A21] overflow-hidden select-none">
     <!-- Top Connection Tabs Bar -->
-    <div class="h-10 bg-[#181A1F] border-b border-[#24272E] flex items-center justify-between px-2 text-xs shrink-0 relative z-30">
+    <div class="session-tabs-bar h-10 bg-[#181A1F] border-b border-[#24272E] flex items-center justify-between px-2 text-xs shrink-0 relative z-30">
       <!-- Tabs strip -->
       <div class="flex items-center space-x-1 overflow-x-auto flex-1 no-scrollbar py-1">
         <button
@@ -166,13 +173,13 @@ defineExpose({
               ? 'bg-[#1E222B] text-white font-medium'
               : 'text-[#8E99AF] hover:text-white hover:bg-[#252C3D] border-transparent'
           "
-          :style="activeConnectionTabId === t.id ? { borderBottomColor: getConnectionColor(t.host.color) } : {}"
+          :style="activeConnectionTabId === t.id ? { borderBottomColor: getTabColor(t) } : {}"
           @click="activeConnectionTabId = t.id"
         >
           <!-- Connection Color Dot -->
           <span
             class="w-2 h-2 rounded-full shrink-0"
-            :style="{ backgroundColor: getConnectionColor(t.host.color) }"
+            :style="{ backgroundColor: getTabColor(t) }"
             :class="{
               'animate-pulse': t.status === 'connecting'
             }"

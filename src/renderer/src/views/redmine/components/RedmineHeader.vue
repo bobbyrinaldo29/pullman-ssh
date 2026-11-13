@@ -7,8 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Settings,
-  X,
-  BellRing
+  X
 } from 'lucide-vue-next'
 import { RedmineProject, OpenIssueTab, RedmineChangeNotification } from '../types'
 import RedmineNotificationBell from './RedmineNotificationBell.vue'
@@ -254,21 +253,6 @@ const currentProject = (): RedmineProject | null => {
           @check-now="emit('check-updates-now')"
           @open-settings="emit('open-notification-settings')"
         />
-
-        <button
-          type="button"
-          class="px-2 py-1 rounded text-[11px] flex items-center space-x-1 transition-colors cursor-pointer"
-          :class="
-            props.isMonitoringActive
-              ? 'bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30 border border-emerald-400/30'
-              : 'text-[#c0d4e5] hover:text-white hover:bg-[#3b556b]'
-          "
-          title="Pengaturan Notifikasi Perubahan Redmine"
-          @click="emit('open-notification-settings')"
-        >
-          <BellRing class="w-3 h-3" />
-          <span>Pengaturan</span>
-        </button>
 
         <button
           type="button"

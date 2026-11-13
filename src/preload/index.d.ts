@@ -5,6 +5,8 @@ declare global {
     electron: ElectronAPI
     api: {
       platform: NodeJS.Platform
+      setZoomFactor?: (factor: number) => void
+      getZoomFactor?: () => number
       minimizeWindow: () => void
       maximizeWindow: () => void
       closeWindow: () => void
@@ -157,6 +159,7 @@ declare global {
       sftpDeleteLocal: (filePath: string, asSudo?: boolean) => Promise<void>
       showNotification: (payload: {
         title: string
+        subtitle?: string
         body: string
         silent?: boolean
         tag?: string

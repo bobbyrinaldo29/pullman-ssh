@@ -1,4 +1,6 @@
 @import 'tailwindcss';
+@import './lightTheme.css';
+@import './cornerStyle.css';
 
 :root {
   --app-bg: #171a21;
@@ -28,3 +30,29 @@ body,
 .app-no-drag {
   -webkit-app-region: no-drag;
 }
+
+/* Typography & Subpixel Font Smoothing */
+html.font-smooth,
+html.font-smooth body,
+html.font-smooth * {
+  -webkit-font-smoothing: subpixel-antialiased !important;
+  -moz-osx-font-smoothing: auto !important;
+  text-rendering: optimizeLegibility !important;
+}
+
+html.font-smooth-none,
+html.font-smooth-none body,
+html.font-smooth-none * {
+  -webkit-font-smoothing: antialiased !important;
+  -moz-osx-font-smoothing: grayscale !important;
+  text-rendering: geometricPrecision !important;
+}
+
+/* Interface Layout Modes */
+html.layout-compact .session-tabs-bar {
+  height: 2.125rem !important; /* 34px instead of 40px */
+}
+html.layout-compact .session-tabs-bar button.group {
+  height: 1.75rem !important; /* 28px instead of 32px */
+}
+

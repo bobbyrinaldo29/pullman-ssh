@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, Notification, net, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, net, dialog } from 'electron'
 import { join, dirname } from 'path'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import * as os from 'os'
@@ -11,6 +11,7 @@ import { sftpService } from './sftpService'
 import { SshShellService } from './sshShellService'
 import { googleAuthService } from './googleAuthService'
 import { redmineService } from './redmineService'
+import { notificationService } from './notificationService'
 import { extractDBeaverProjectFile, decryptDBeaverCredentialsNode } from './dbpExtractor'
 
 function testSshConnection(input: {
@@ -362,6 +363,11 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+}
+
+app.name = 'Pullman'
+if (process.platform === 'darwin') {
+  app.setName('Pullman')
 }
 
 // This method will be called when Electron has finished
@@ -903,34 +909,8 @@ app.whenReady().then(() => {
   ipcMain.handle('sftp:mkdir-local', (_, arg: string | { dirPath: string; asSudo?: boolean }) => sftpService.mkdirLocal(typeof arg === 'string' ? arg : arg.dirPath, typeof arg === 'object' ? Boolean(arg.asSudo) : false))
   ipcMain.handle('sftp:delete-local', (_, arg: string | { filePath: string; asSudo?: boolean }) => sftpService.deleteLocal(typeof arg === 'string' ? arg : arg.filePath, typeof arg === 'object' ? Boolean(arg.asSudo) : false))
 
-  ipcMain.handle(
-    'app:show-notification',
-    (event, { title, body, silent, tag, issueId }: { title: string; body: string; silent?: boolean; tag?: string; issueId?: number }) => {
-      try {
-        if (Notification.isSupported()) {
-          const notif = new Notification({
-            title: title || 'DO.MBA Pull Manager',
-            body: body || '',
-            silent: Boolean(silent),
-            icon
-          })
-          notif.on('click', () => {
-            const win = BrowserWindow.fromWebContents(event.sender) || BrowserWindow.getAllWindows()[0]
-            if (win && !win.isDestroyed()) {
-              if (win.isMinimized()) win.restore()
-              win.show()
-              win.focus()
-              if (tag || issueId !== undefined) {
-                win.webContents.send('app:notification-clicked', { tag, issueId })
-              }
-            }
-          })
-          notif.show()
-        }
-      } catch (err) {
-        console.error('Failed to show notification:', err)
-      }
-    }
+  ipcMain.handle('app:show-notification', (event, payload) =>
+    notificationService.show(event, payload, icon)
   )
 
   // IPC test

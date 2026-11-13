@@ -7,6 +7,7 @@ import { SshTab } from './types'
 import SshSessionPane from './components/SshSessionPane.vue'
 import ProdBadge from '../../components/ProdBadge.vue'
 import { useActiveConnections } from '../../composables/useActiveConnections'
+import { useAppearance } from '../../composables/useAppearance'
 
 const props = defineProps<{
   hosts: HostItem[]
@@ -17,6 +18,12 @@ defineEmits<{
 }>()
 
 const { registerSession, unregisterSession } = useActiveConnections()
+const { colorTabsByConnection } = useAppearance()
+
+function getTabColor(t: SshTab): string {
+  if (!colorTabsByConnection.value) return '#3b82f6'
+  return getConnectionColor(t.host.color)
+}
 
 const tabs = ref<SshTab[]>([])
 const activeTabId = ref<string>('')
@@ -338,7 +345,7 @@ defineExpose({
 <template>
   <div class="flex-1 flex flex-col h-full bg-[#171A21] overflow-hidden select-none">
     <!-- Top Session Tabs Bar -->
-    <div class="h-10 bg-[#1C202B] border-b border-[#282F3E] flex items-center justify-between px-2 text-xs shrink-0">
+    <div class="session-tabs-bar h-10 bg-[#1C202B] border-b border-[#282F3E] flex items-center justify-between px-2 text-xs shrink-0">
       <!-- Tabs strip -->
       <div class="flex items-center space-x-1 overflow-x-auto flex-1 no-scrollbar">
         <button
@@ -351,12 +358,12 @@ defineExpose({
               ? 'bg-[#12151D] text-white font-medium'
               : 'text-[#8E99AF] hover:text-white hover:bg-[#252C3D] border-transparent'
           "
-          :style="activeTabId === t.id ? { borderBottomColor: getConnectionColor(t.host.color) } : {}"
+          :style="activeTabId === t.id ? { borderBottomColor: getTabColor(t) } : {}"
           @click="activeTabId = t.id"
         >
           <span
             class="w-2 h-2 rounded-full shrink-0"
-            :style="{ backgroundColor: getConnectionColor(t.host.color) }"
+            :style="{ backgroundColor: getTabColor(t) }"
             :class="{
               'animate-pulse': t.status === 'connecting'
             }"

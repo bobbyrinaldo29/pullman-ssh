@@ -14,6 +14,8 @@ import {
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { useTheme } from '../../../composables/useTheme'
+import { DARK_TERMINAL_THEME, LIGHT_TERMINAL_THEME } from '../utils/terminalThemes'
 
 import { SshTab } from '../types'
 
@@ -27,6 +29,7 @@ const emit = defineEmits<{
   (e: 'disconnect'): void
 }>()
 
+const { isDarkMode } = useTheme()
 const asSudo = ref(false)
 const terminalContainer = ref<HTMLElement | null>(null)
 
@@ -56,28 +59,12 @@ function initTerminal(): void {
     cursorStyle: 'block',
     convertEol: true,
     scrollback: 5000,
-    theme: {
-      background: '#12151D',
-      foreground: '#E2E8F0',
-      cursor: '#22D3EE',
-      cursorAccent: '#12151D',
-      selectionBackground: 'rgba(6, 182, 212, 0.3)',
-      black: '#1E2430',
-      red: '#F43F5E',
-      green: '#10B981',
-      yellow: '#F59E0B',
-      blue: '#3B82F6',
-      magenta: '#A855F7',
-      cyan: '#06B6D4',
-      white: '#E2E8F0',
-      brightBlack: '#64748B',
-      brightRed: '#FB7185',
-      brightGreen: '#34D399',
-      brightYellow: '#FBBF24',
-      brightBlue: '#60A5FA',
-      brightMagenta: '#C084FC',
-      brightCyan: '#22D3EE',
-      brightWhite: '#FFFFFF'
+    theme: isDarkMode.value ? DARK_TERMINAL_THEME : LIGHT_TERMINAL_THEME
+  })
+
+  watch(isDarkMode, (isDark) => {
+    if (term) {
+      term.options.theme = isDark ? DARK_TERMINAL_THEME : LIGHT_TERMINAL_THEME
     }
   })
 

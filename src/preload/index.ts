@@ -1,9 +1,23 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 // Custom APIs for renderer
 const api = {
   platform: process.platform,
+  setZoomFactor: (factor: number): void => {
+    try {
+      webFrame.setZoomFactor(factor)
+    } catch (err) {
+      console.warn('Failed to set zoom factor:', err)
+    }
+  },
+  getZoomFactor: (): number => {
+    try {
+      return webFrame.getZoomFactor()
+    } catch {
+      return 1.0
+    }
+  },
   minimizeWindow: (): void => ipcRenderer.send('window-minimize'),
   maximizeWindow: (): void => ipcRenderer.send('window-maximize'),
   closeWindow: (): void => ipcRenderer.send('window-close'),
@@ -268,6 +282,7 @@ const api = {
     ipcRenderer.invoke('sftp:delete-local', { filePath, asSudo }),
   showNotification: (payload: {
     title: string
+    subtitle?: string
     body: string
     silent?: boolean
     tag?: string

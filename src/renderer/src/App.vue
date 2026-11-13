@@ -13,10 +13,17 @@ import RedmineView from './views/redmine/RedmineView.vue'
 import EditorView from './views/editor/EditorView.vue'
 import SshView from './views/ssh/SshView.vue'
 import RedmineNotificationToasts from './views/redmine/components/RedmineNotificationToasts.vue'
-import RedmineNotificationSettingsModal from './views/redmine/components/RedmineNotificationSettingsModal.vue'
+import SettingsView, { SettingsTabId } from './views/settings/SettingsView.vue'
 import { useRedmine } from './views/redmine/composables/useRedmine'
 import { useAppConnections } from './composables/useAppConnections'
+import { useTheme } from './composables/useTheme'
+import { useCornerStyle } from './composables/useCornerStyle'
+import { useAppearance } from './composables/useAppearance'
 import type { RedmineChangeNotification } from './views/redmine/types'
+
+const { toggleTheme } = useTheme()
+useCornerStyle()
+useAppearance()
 
 const {
   projects: redmineProjects,
@@ -66,7 +73,8 @@ const {
 } = useAppConnections()
 
 const appVersion = '1.3.1'
-const currentView = ref<'hosts' | 'ssh' | 'query' | 'sftp' | 'redmine' | 'editor'>('hosts')
+const currentView = ref<'hosts' | 'ssh' | 'query' | 'sftp' | 'redmine' | 'editor' | 'settings'>('hosts')
+const previousView = ref<string>('hosts')
 const visitedViews = ref<Set<string>>(new Set(['hosts']))
 watch(currentView, (v) => {
   visitedViews.value.add(v)
@@ -78,6 +86,35 @@ const sshViewRef = ref<InstanceType<typeof SshView> | null>(null)
 
 const showImportExportModal = ref(false)
 const importExportInitialTab = ref<'import' | 'export' | 'dbeaver'>('import')
+
+const settingsInitialTab = ref<SettingsTabId>('appearance')
+
+function handleOpenSettings(tab: SettingsTabId = 'appearance'): void {
+  if (currentView.value !== 'settings') {
+    previousView.value = currentView.value
+  }
+  settingsInitialTab.value = tab
+  currentView.value = 'settings'
+}
+
+function handleCloseSettings(): void {
+  currentView.value = (previousView.value as any) || 'hosts'
+}
+
+function handleToggleSettings(): void {
+  if (currentView.value === 'settings') {
+    handleCloseSettings()
+  } else {
+    handleOpenSettings('appearance')
+  }
+}
+
+watch(showNotificationSettingsModal, (val) => {
+  if (val) {
+    showNotificationSettingsModal.value = false
+    handleOpenSettings('redmine')
+  }
+})
 
 function openImportExport(tab: 'import' | 'export' | 'dbeaver'): void {
   importExportInitialTab.value = tab
@@ -229,7 +266,8 @@ function handlePluginCenter(): void {
       @open-editor="handleOpenEditor"
       @open-redmine="currentView = 'redmine'"
       @open-sftp="currentView = 'sftp'"
-      @open-settings="showNotificationSettingsModal = true"
+      @open-settings="handleToggleSettings"
+      @toggle-theme="toggleTheme"
       @new-connection="() => handleNewConnection()"
       @new-query="handleNewQuery"
       @data-transfer="handleDataTransfer"
@@ -253,6 +291,7 @@ function handlePluginCenter(): void {
     <div class="flex-1 min-h-0 min-w-0 flex overflow-hidden">
       <!-- Left Navigation Explorer -->
       <SidebarNavigator
+        v-show="currentView !== 'settings'"
         v-model:collapsed="isSidebarCollapsed"
         :hosts="hostsList"
         :selected-host-id="selectedHostId"
@@ -344,6 +383,25 @@ function handlePluginCenter(): void {
           ref="editorViewRef"
           :hosts="hostsList"
         />
+
+        <!-- Settings View Canvas -->
+        <SettingsView
+          v-if="visitedViews.has('settings')"
+          v-show="currentView === 'settings'"
+          :initial-tab="settingsInitialTab"
+          :redmine-settings="notificationSettings"
+          :redmine-projects="redmineProjects"
+          :is-redmine-connected="isRedmineConnected"
+          :is-checking-redmine="isCheckingUpdates"
+          :redmine-last-checked-at="lastCheckedAt"
+          :redmine-last-check-error="lastCheckError"
+          @close="handleCloseSettings"
+          @save-redmine="saveNotificationSettings"
+          @reset-redmine="resetNotificationSettings"
+          @check-redmine-now="checkForUpdates({ manual: true })"
+          @test-redmine-notification="triggerTestNotification"
+          @open-redmine-login="handleRedirectToRedmineLogin"
+        />
       </main>
     </div>
 
@@ -352,24 +410,7 @@ function handlePluginCenter(): void {
       :toasts="activeToasts"
       @dismiss="dismissToast"
       @open-issue="handleOpenToastIssue"
-      @open-settings="showNotificationSettingsModal = true"
-    />
-
-    <!-- Redmine Notification Settings Modal -->
-    <RedmineNotificationSettingsModal
-      :show="showNotificationSettingsModal"
-      :settings="notificationSettings"
-      :projects="redmineProjects"
-      :is-connected="isRedmineConnected"
-      :is-checking="isCheckingUpdates"
-      :last-checked-at="lastCheckedAt"
-      :last-check-error="lastCheckError"
-      @close="showNotificationSettingsModal = false"
-      @save="saveNotificationSettings"
-      @reset="resetNotificationSettings"
-      @check-now="checkForUpdates({ manual: true })"
-      @test-notification="triggerTestNotification"
-      @open-login="handleRedirectToRedmineLogin"
+      @open-settings="handleOpenSettings('redmine')"
     />
   </div>
 </template>

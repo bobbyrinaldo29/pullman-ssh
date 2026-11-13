@@ -337,8 +337,9 @@ function handleClose(): void {
         <!-- Settings -->
         <button
           type="button"
-          title="Pengaturan Notifikasi Redmine & Preferensi"
+          title="Settings"
           class="app-no-drag w-7 h-7 flex items-center justify-center rounded text-[#9CA5B8] hover:text-white hover:bg-[#2C3345] transition-colors"
+          :class="{ 'bg-[#2C3345] text-white': props.currentView === 'settings' }"
           @click="emit('open-settings')"
         >
           <Settings class="w-3.5 h-3.5" />

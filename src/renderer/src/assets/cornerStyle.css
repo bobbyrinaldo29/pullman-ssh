@@ -1,0 +1,217 @@
+/* ==========================================================================
+   PULLMAN SSH - GLOBAL CORNER STYLE THEME
+   Supports:
+     - Square (0px - crisp, sharp borders)
+     - Small  (4px - subtle, compact rounding)
+     - Large  (8px - 16px - generous modern rounding, default)
+   ========================================================================== */
+
+/* ==========================================================================
+   1. SQUARE CORNERS (0px)
+   ========================================================================== */
+html.corner-square button:not(.rounded-full):not([class*="rounded-full"]),
+html.corner-square input:not([type="checkbox"]):not([type="radio"]):not(.rounded-full):not([class*="rounded-full"]),
+html.corner-square select:not(.rounded-full):not([class*="rounded-full"]),
+html.corner-square textarea:not(.rounded-full):not([class*="rounded-full"]),
+html.corner-square dialog,
+html.corner-square [role="dialog"],
+html.corner-square [role="menu"],
+html.corner-square [role="listbox"],
+html.corner-square .rounded,
+html.corner-square .rounded-sm,
+html.corner-square .rounded-md,
+html.corner-square .rounded-lg,
+html.corner-square .rounded-xl,
+html.corner-square .rounded-2xl,
+html.corner-square .rounded-3xl,
+html.corner-square .rounded-t,
+html.corner-square .rounded-t-sm,
+html.corner-square .rounded-t-md,
+html.corner-square .rounded-t-lg,
+html.corner-square .rounded-t-xl,
+html.corner-square .rounded-t-2xl,
+html.corner-square .rounded-b,
+html.corner-square .rounded-b-sm,
+html.corner-square .rounded-b-md,
+html.corner-square .rounded-b-lg,
+html.corner-square .rounded-b-xl,
+html.corner-square .rounded-b-2xl,
+html.corner-square .rounded-l,
+html.corner-square .rounded-l-sm,
+html.corner-square .rounded-l-md,
+html.corner-square .rounded-l-lg,
+html.corner-square .rounded-l-xl,
+html.corner-square .rounded-r,
+html.corner-square .rounded-r-sm,
+html.corner-square .rounded-r-md,
+html.corner-square .rounded-r-lg,
+html.corner-square .rounded-r-xl,
+html.corner-square [class*="rounded-"]:not(.rounded-full):not([class*="rounded-full"]) {
+  border-radius: 0px !important;
+}
+
+/* ==========================================================================
+   2. SMALL CORNERS (4px)
+   ========================================================================== */
+html.corner-small button:not(.rounded-full):not([class*="rounded-full"]),
+html.corner-small input:not([type="checkbox"]):not([type="radio"]):not(.rounded-full):not([class*="rounded-full"]),
+html.corner-small select:not(.rounded-full):not([class*="rounded-full"]),
+html.corner-small textarea:not(.rounded-full):not([class*="rounded-full"]),
+html.corner-small dialog,
+html.corner-small [role="dialog"],
+html.corner-small [role="menu"],
+html.corner-small [role="listbox"],
+html.corner-small .rounded,
+html.corner-small .rounded-sm,
+html.corner-small .rounded-md,
+html.corner-small .rounded-lg,
+html.corner-small .rounded-xl,
+html.corner-small .rounded-2xl,
+html.corner-small .rounded-3xl,
+html.corner-small [class*="rounded-"]:not(.rounded-full):not([class*="rounded-full"]):not([class*="rounded-t"]):not([class*="rounded-b"]):not([class*="rounded-l"]):not([class*="rounded-r"]) {
+  border-radius: 4px !important;
+}
+
+/* Directional Small Radii */
+html.corner-small .rounded-t,
+html.corner-small .rounded-t-sm,
+html.corner-small .rounded-t-md,
+html.corner-small .rounded-t-lg,
+html.corner-small .rounded-t-xl,
+html.corner-small .rounded-t-2xl {
+  border-top-left-radius: 4px !important;
+  border-top-right-radius: 4px !important;
+  border-bottom-left-radius: 0px !important;
+  border-bottom-right-radius: 0px !important;
+}
+
+html.corner-small .rounded-b,
+html.corner-small .rounded-b-sm,
+html.corner-small .rounded-b-md,
+html.corner-small .rounded-b-lg,
+html.corner-small .rounded-b-xl,
+html.corner-small .rounded-b-2xl {
+  border-bottom-left-radius: 4px !important;
+  border-bottom-right-radius: 4px !important;
+  border-top-left-radius: 0px !important;
+  border-top-right-radius: 0px !important;
+}
+
+html.corner-small .rounded-l,
+html.corner-small .rounded-l-sm,
+html.corner-small .rounded-l-md,
+html.corner-small .rounded-l-lg,
+html.corner-small .rounded-l-xl {
+  border-top-left-radius: 4px !important;
+  border-bottom-left-radius: 4px !important;
+  border-top-right-radius: 0px !important;
+  border-bottom-right-radius: 0px !important;
+}
+
+html.corner-small .rounded-r,
+html.corner-small .rounded-r-sm,
+html.corner-small .rounded-r-md,
+html.corner-small .rounded-r-lg,
+html.corner-small .rounded-r-xl {
+  border-top-right-radius: 4px !important;
+  border-bottom-right-radius: 4px !important;
+  border-top-left-radius: 0px !important;
+  border-bottom-left-radius: 0px !important;
+}
+
+/* ==========================================================================
+   3. LARGE CORNERS (Default Tailwind, with explicit enforcement)
+   ========================================================================== */
+html.corner-large .rounded-sm {
+  border-radius: 2px !important;
+}
+
+html.corner-large .rounded {
+  border-radius: 4px !important;
+}
+
+html.corner-large .rounded-md {
+  border-radius: 6px !important;
+}
+
+html.corner-large .rounded-lg,
+html.corner-large button:not(.rounded-full):not([class*="rounded-full"]):not(.rounded-none):not(.rounded-sm):not(.rounded-md):not(.rounded-xl):not(.rounded-2xl):not(.rounded-3xl),
+html.corner-large input:not([type="checkbox"]):not([type="radio"]):not(.rounded-full):not([class*="rounded-full"]):not(.rounded-none):not(.rounded-sm):not(.rounded-md):not(.rounded-xl):not(.rounded-2xl):not(.rounded-3xl),
+html.corner-large select:not(.rounded-full):not([class*="rounded-full"]):not(.rounded-none):not(.rounded-sm):not(.rounded-md):not(.rounded-xl):not(.rounded-2xl):not(.rounded-3xl),
+html.corner-large textarea:not(.rounded-full):not([class*="rounded-full"]):not(.rounded-none):not(.rounded-sm):not(.rounded-md):not(.rounded-xl):not(.rounded-2xl):not(.rounded-3xl) {
+  border-radius: 8px !important;
+}
+
+html.corner-large .rounded-xl {
+  border-radius: 12px !important;
+}
+
+html.corner-large .rounded-2xl,
+html.corner-large dialog,
+html.corner-large [role="dialog"] {
+  border-radius: 16px !important;
+}
+
+html.corner-large .rounded-3xl {
+  border-radius: 24px !important;
+}
+
+/* Directional Large Radii */
+html.corner-large .rounded-t-sm {
+  border-top-left-radius: 2px !important;
+  border-top-right-radius: 2px !important;
+  border-bottom-left-radius: 0px !important;
+  border-bottom-right-radius: 0px !important;
+}
+
+html.corner-large .rounded-t {
+  border-top-left-radius: 4px !important;
+  border-top-right-radius: 4px !important;
+  border-bottom-left-radius: 0px !important;
+  border-bottom-right-radius: 0px !important;
+}
+
+html.corner-large .rounded-t-md {
+  border-top-left-radius: 6px !important;
+  border-top-right-radius: 6px !important;
+  border-bottom-left-radius: 0px !important;
+  border-bottom-right-radius: 0px !important;
+}
+
+html.corner-large .rounded-t-lg {
+  border-top-left-radius: 8px !important;
+  border-top-right-radius: 8px !important;
+  border-bottom-left-radius: 0px !important;
+  border-bottom-right-radius: 0px !important;
+}
+
+html.corner-large .rounded-t-xl {
+  border-top-left-radius: 12px !important;
+  border-top-right-radius: 12px !important;
+  border-bottom-left-radius: 0px !important;
+  border-bottom-right-radius: 0px !important;
+}
+
+html.corner-large .rounded-b-lg {
+  border-bottom-left-radius: 8px !important;
+  border-bottom-right-radius: 8px !important;
+  border-top-left-radius: 0px !important;
+  border-top-right-radius: 0px !important;
+}
+
+html.corner-large .rounded-r {
+  border-top-right-radius: 4px !important;
+  border-bottom-right-radius: 4px !important;
+  border-top-left-radius: 0px !important;
+  border-bottom-left-radius: 0px !important;
+}
+
+/* ==========================================================================
+   4. CIRCULAR ELEMENTS (Always preserved across all corner modes)
+   ========================================================================== */
+html.corner-square .rounded-full,
+html.corner-small .rounded-full,
+html.corner-large .rounded-full {
+  border-radius: 9999px !important;
+}
+

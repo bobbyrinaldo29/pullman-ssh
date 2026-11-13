@@ -1,0 +1,48 @@
+export const DARK_TERMINAL_THEME = {
+  background: '#12151D',
+  foreground: '#E2E8F0',
+  cursor: '#22D3EE',
+  cursorAccent: '#12151D',
+  selectionBackground: 'rgba(6, 182, 212, 0.3)',
+  black: '#1E2430',
+  red: '#F43F5E',
+  green: '#10B981',
+  yellow: '#F59E0B',
+  blue: '#3B82F6',
+  magenta: '#A855F7',
+  cyan: '#06B6D4',
+  white: '#E2E8F0',
+  brightBlack: '#64748B',
+  brightRed: '#FB7185',
+  brightGreen: '#34D399',
+  brightYellow: '#FBBF24',
+  brightBlue: '#60A5FA',
+  brightMagenta: '#C084FC',
+  brightCyan: '#22D3EE',
+  brightWhite: '#FFFFFF'
+}
+
+export const LIGHT_TERMINAL_THEME = {
+  background: '#ffffff',
+  foreground: '#1e293b',
+  cursor: '#0284c7',
+  cursorAccent: '#ffffff',
+  selectionBackground: 'rgba(2, 132, 199, 0.25)',
+  black: '#0f172a',
+  red: '#dc2626',
+  green: '#16a34a',
+  yellow: '#d97706',
+  blue: '#2563eb',
+  magenta: '#9333ea',
+  cyan: '#0891b2',
+  white: '#f8fafc',
+  brightBlack: '#64748b',
+  brightRed: '#ef4444',
+  brightGreen: '#22c55e',
+  brightYellow: '#f59e0b',
+  brightBlue: '#3b82f6',
+  brightMagenta: '#a855f7',
+  brightCyan: '#06b6d4',
+  brightWhite: '#ffffff'
+}
+

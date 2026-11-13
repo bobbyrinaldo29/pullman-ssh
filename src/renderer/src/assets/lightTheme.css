@@ -1,0 +1,680 @@
+/* ==========================================================================
+   Pullman SSH - Universal Light Theme Stylesheet
+   Applied when <html class="theme-light"> is active
+   ========================================================================== */
+
+html.theme-light {
+  color-scheme: light;
+  background-color: #f8fafc !important;
+}
+
+html.theme-light body,
+html.theme-light #app {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* --------------------------------------------------------------------------
+   1. Base Canvas, Modals & Main Panels (White Surfaces)
+   -------------------------------------------------------------------------- */
+html.theme-light .bg-\[\#0a0d14\],
+html.theme-light .bg-\[\#0c1017\],
+html.theme-light .bg-\[\#0F1115\],
+html.theme-light .bg-\[\#10141d\],
+html.theme-light .bg-\[\#111318\],
+html.theme-light .bg-\[\#11141A\],
+html.theme-light .bg-\[\#11141C\],
+html.theme-light .bg-\[\#11141c\],
+html.theme-light .bg-\[\#11151f\],
+html.theme-light .bg-\[\#121418\],
+html.theme-light .bg-\[\#121418\]\/95,
+html.theme-light .bg-\[\#12151D\],
+html.theme-light .bg-\[\#14161B\],
+html.theme-light .bg-\[\#14161C\],
+html.theme-light .bg-\[\#141720\],
+html.theme-light .bg-\[\#141822\],
+html.theme-light .bg-\[\#141822\]\/60,
+html.theme-light .bg-\[\#141822\]\/80,
+html.theme-light .bg-\[\#141923\],
+html.theme-light .bg-\[\#141924\],
+html.theme-light .bg-\[\#15171C\],
+html.theme-light .bg-\[\#151a24\],
+html.theme-light .bg-\[\#151a25\],
+html.theme-light .bg-\[\#16181E\],
+html.theme-light .bg-\[\#161821\],
+html.theme-light .bg-\[\#161922\],
+html.theme-light .bg-\[\#161A24\],
+html.theme-light .bg-\[\#161B26\],
+html.theme-light .bg-\[\#161b26\],
+html.theme-light .bg-\[\#161c28\],
+html.theme-light .bg-\[\#171A21\],
+html.theme-light .bg-\[\#171a21\],
+html.theme-light .bg-\[\#171B24\],
+html.theme-light .bg-\[\#171b24\],
+html.theme-light .bg-\[\#171b26\],
+html.theme-light .bg-\[\#171c26\],
+html.theme-light .bg-\[\#171c27\],
+html.theme-light .bg-\[\#181A1F\],
+html.theme-light .bg-\[\#181A20\],
+html.theme-light .bg-\[\#181B24\],
+html.theme-light .bg-\[\#181C26\],
+html.theme-light .bg-\[\#181d28\],
+html.theme-light .bg-\[\#191D28\],
+html.theme-light .bg-\[\#191F2C\],
+html.theme-light .bg-\[\#1A1D23\],
+html.theme-light .bg-\[\#1A1D24\],
+html.theme-light .bg-\[\#1A1F2C\],
+html.theme-light .bg-\[\#1A1F2C\]\/60,
+html.theme-light .bg-\[\#1B1E28\],
+html.theme-light .bg-\[\#1C2027\],
+html.theme-light .bg-\[\#1D212A\],
+html.theme-light .bg-\[\#1D222E\],
+html.theme-light .bg-\[\#1d222e\],
+html.theme-light .bg-\[\#1E1E1E\],
+html.theme-light .bg-\[\#1E222B\],
+html.theme-light .bg-\[\#1a1d24\],
+html.theme-light .bg-\[\#1a1f2e\],
+html.theme-light .bg-\[\#1a202c\],
+html.theme-light .bg-\[\#1a2130\],
+html.theme-light .bg-\[\#1b212e\],
+html.theme-light .bg-\[\#1b222f\],
+html.theme-light .bg-\[\#1b2230\],
+html.theme-light .bg-\[\#1b2230\]\/95,
+html.theme-light .bg-\[\#1e2430\],
+html.theme-light .bg-\[\#1e2534\],
+html.theme-light .bg-\[\#1e2738\],
+html.theme-light .bg-\[\#1f2636\],
+html.theme-light .bg-\[\#1f2736\],
+html.theme-light .bg-\[\#21293a\],
+html.theme-light .bg-\[\#222a3a\],
+html.theme-light .bg-\[\#222a3b\],
+html.theme-light .bg-\[\#243544\],
+html.theme-light .bg-\[\#252A36\],
+html.theme-light .bg-\[\#252a36\],
+html.theme-light .bg-\[\#252d3e\],
+html.theme-light .bg-\[\#252e40\],
+html.theme-light .bg-\[\#252f42\],
+html.theme-light .bg-\[\#2c3f52\],
+html.theme-light .bg-\[\#314457\] {
+  background-color: #ffffff !important;
+}
+
+/* --------------------------------------------------------------------------
+   2. Toolbars, Tab Bars, Neutral Surfaces & Elevated Areas
+   -------------------------------------------------------------------------- */
+html.theme-light .bg-\[\#181D2A\],
+html.theme-light .bg-\[\#181d2a\],
+html.theme-light .bg-\[\#1A1E29\],
+html.theme-light .bg-\[\#1A1F29\],
+html.theme-light .bg-\[\#1A1F2B\],
+html.theme-light .bg-\[\#1A1F2B\]\/60,
+html.theme-light .bg-\[\#1C202B\],
+html.theme-light .bg-\[\#1C212D\],
+html.theme-light .bg-\[\#1C2230\],
+html.theme-light .bg-\[\#1E2330\],
+html.theme-light .bg-\[\#1E2536\],
+html.theme-light .bg-\[\#1e222b\],
+html.theme-light .bg-\[\#1e2533\],
+html.theme-light .bg-\[\#20242D\],
+html.theme-light .bg-\[\#20242F\],
+html.theme-light .bg-\[\#20242f\],
+html.theme-light .bg-\[\#202530\],
+html.theme-light .bg-\[\#202532\],
+html.theme-light .bg-\[\#202533\],
+html.theme-light .bg-\[\#202636\],
+html.theme-light .bg-\[\#202737\],
+html.theme-light .bg-\[\#212735\],
+html.theme-light .bg-\[\#222733\],
+html.theme-light .bg-\[\#222736\],
+html.theme-light .bg-\[\#222836\],
+html.theme-light .bg-\[\#24272E\],
+html.theme-light .bg-\[\#242e42\],
+html.theme-light .bg-\[\#252A36\]\/40,
+html.theme-light .bg-\[\#252A36\]\/60,
+html.theme-light .bg-\[\#282F40\],
+html.theme-light .bg-\[\#2A2A2A\],
+html.theme-light .bg-\[\#2B3245\],
+html.theme-light .bg-\[\#2B3345\],
+html.theme-light .bg-\[\#2B3346\],
+html.theme-light .bg-\[\#2D3547\],
+html.theme-light .bg-\[\#2F3545\],
+html.theme-light .bg-\[\#2F3647\],
+html.theme-light .bg-\[\#2a3040\],
+html.theme-light .bg-\[\#2a3d4d\],
+html.theme-light .bg-\[\#2b3548\],
+html.theme-light .bg-\[\#2b3648\],
+html.theme-light .bg-\[\#2c3547\],
+html.theme-light .bg-\[\#313A50\],
+html.theme-light .bg-\[\#32394A\],
+html.theme-light .bg-\[\#32394C\],
+html.theme-light .bg-\[\#323A4E\],
+html.theme-light .bg-\[\#333D52\],
+html.theme-light .bg-\[\#3E4451\] {
+  background-color: #f1f5f9 !important;
+}
+
+/* Semi-transparent disabled card backgrounds */
+html.theme-light .bg-\[\#161922\]\/50 {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Unread notification flyout item */
+html.theme-light .bg-\[\#1e2738\]\/70 {
+  background-color: #eff6ff !important;
+}
+
+/* --------------------------------------------------------------------------
+   3. Secondary Buttons, Pills & Controls (Apply, Clear, Dismiss, Inactive Badges)
+   -------------------------------------------------------------------------- */
+html.theme-light .bg-\[\#252B3A\],
+html.theme-light .bg-\[\#252b3a\],
+html.theme-light .bg-\[\#252C3D\],
+html.theme-light .bg-\[\#252D3F\],
+html.theme-light .bg-\[\#283145\],
+html.theme-light .bg-\[\#293040\],
+html.theme-light .bg-\[\#293247\],
+html.theme-light .bg-\[\#2C3345\],
+html.theme-light .bg-\[\#2c3345\],
+html.theme-light .bg-\[\#2C3446\],
+html.theme-light .bg-\[\#2F374A\],
+html.theme-light .bg-\[\#2f374a\],
+html.theme-light .bg-\[\#2a3449\],
+html.theme-light .bg-\[\#34415c\] {
+  background-color: #e2e8f0 !important;
+  color: #1e293b !important;
+}
+
+/* Neutral status badges (e.g. Disconnected / Ready hosts pill in HostsView) */
+html.theme-light .bg-slate-800 {
+  background-color: #f1f5f9 !important;
+  color: #475569 !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.theme-light .bg-slate-800 span {
+  color: #475569 !important;
+}
+
+html.theme-light .bg-slate-700 {
+  background-color: #e2e8f0 !important;
+  color: #334155 !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* --------------------------------------------------------------------------
+   4. Universal Hover Backgrounds & Hover Text (Fixes Dark Hover in Light Mode)
+   -------------------------------------------------------------------------- */
+html.theme-light .hover\:bg-\[\#004C85\]:hover,
+html.theme-light .hover\:bg-\[\#1C2027\]:hover,
+html.theme-light .hover\:bg-\[\#1C2230\]:hover,
+html.theme-light .hover\:bg-\[\#1E222B\]:hover,
+html.theme-light .hover\:bg-\[\#1E2330\]:hover,
+html.theme-light .hover\:bg-\[\#1f2636\]:hover,
+html.theme-light .hover\:bg-\[\#1f2736\]:hover,
+html.theme-light .hover\:bg-\[\#202737\]:hover,
+html.theme-light .hover\:bg-\[\#222736\]:hover,
+html.theme-light .hover\:bg-\[\#222a3b\]:hover,
+html.theme-light .hover\:bg-\[\#232938\]:hover,
+html.theme-light .hover\:bg-\[\#242e42\]:hover,
+html.theme-light .hover\:bg-\[\#252A36\]:hover,
+html.theme-light .hover\:bg-\[\#252B3A\]:hover,
+html.theme-light .hover\:bg-\[\#252C3D\]:hover,
+html.theme-light .hover\:bg-\[\#252D3F\]:hover,
+html.theme-light .hover\:bg-\[\#252d3e\]:hover,
+html.theme-light .hover\:bg-\[\#252f42\]:hover,
+html.theme-light .hover\:bg-\[\#282F40\]:hover,
+html.theme-light .hover\:bg-\[\#283145\]:hover,
+html.theme-light .hover\:bg-\[\#293040\]:hover,
+html.theme-light .hover\:bg-\[\#2A2A2A\]:hover,
+html.theme-light .hover\:bg-\[\#2B3345\]:hover,
+html.theme-light .hover\:bg-\[\#2B3548\]:hover,
+html.theme-light .hover\:bg-\[\#2C3345\]:hover,
+html.theme-light .hover\:bg-\[\#2c3345\]:hover,
+html.theme-light .hover\:bg-\[\#2C3446\]:hover,
+html.theme-light .hover\:bg-\[\#2F3545\]:hover,
+html.theme-light .hover\:bg-\[\#2F3647\]:hover,
+html.theme-light .hover\:bg-\[\#2F374A\]:hover,
+html.theme-light .hover\:bg-\[\#2f374a\]:hover,
+html.theme-light .hover\:bg-\[\#2b3548\]:hover,
+html.theme-light .hover\:bg-\[\#301F27\]:hover,
+html.theme-light .hover\:bg-\[\#313A50\]:hover,
+html.theme-light .hover\:bg-\[\#32394C\]:hover,
+html.theme-light .hover\:bg-\[\#323A4E\]:hover,
+html.theme-light .hover\:bg-\[\#34415c\]:hover,
+html.theme-light .hover\:bg-\[\#3b5166\]:hover,
+html.theme-light .hover\:bg-\[\#3b556b\]:hover,
+html.theme-light .hover\:bg-\[\#405c75\]:hover,
+html.theme-light .hover\:bg-slate-700\/50:hover,
+html.theme-light .hover\:bg-slate-700\/60:hover,
+html.theme-light .hover\:bg-slate-800:hover,
+html.theme-light .hover\:bg-white\/10:hover,
+html.theme-light .hover\:bg-black\/40:hover {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* Ensure hover text does not turn invisible white on light backgrounds */
+html.theme-light .hover\:text-white:hover,
+html.theme-light .hover\:text-slate-200:hover,
+html.theme-light .hover\:text-slate-300:hover,
+html.theme-light .hover\:text-\[\#E6EDF3\]:hover {
+  color: #0f172a !important;
+}
+
+/* Active tab surfaces (SFTP, SSH, Settings, Dialog Tabs) */
+html.theme-light .bg-\[\#12151D\],
+html.theme-light .bg-\[\#2B3346\] {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* --------------------------------------------------------------------------
+   5. Production Safeguards Cards & Banners (Clean Rose Styling)
+   -------------------------------------------------------------------------- */
+html.theme-light .bg-\[\#25181E\],
+html.theme-light .bg-\[\#190C11\],
+html.theme-light .bg-\[\#2B141B\],
+html.theme-light .bg-\[\#38232B\],
+html.theme-light .bg-\[\#361922\],
+html.theme-light .bg-\[\#33171F\],
+html.theme-light .bg-\[\#241B20\]\/60,
+html.theme-light .bg-rose-950 {
+  background-color: #fff1f2 !important;
+  border-color: #fecdd3 !important;
+}
+
+html.theme-light .bg-\[\#25181E\] div,
+html.theme-light .bg-\[\#25181E\] span,
+html.theme-light .bg-\[\#25181E\] p,
+html.theme-light .bg-\[\#2B141B\] span {
+  color: #9f1239 !important;
+}
+
+html.theme-light .bg-\[\#190C11\] {
+  background-color: #ffe4e6 !important;
+  color: #881337 !important;
+  border-color: #fca5a5 !important;
+}
+
+/* Bulk Selection Banner */
+html.theme-light .bg-\[\#18233C\] {
+  background-color: #eff6ff !important;
+  border-color: #bfdbfe !important;
+  color: #1e40af !important;
+}
+
+html.theme-light .bg-\[\#18233C\] span {
+  color: #1e40af !important;
+}
+
+/* --------------------------------------------------------------------------
+   6. Redmine Classic Header, TopBar & Sidebar Theming
+   -------------------------------------------------------------------------- */
+html.theme-light .bg-\[\#324b61\] {
+  background-color: #f1f5f9 !important;
+  color: #334155 !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.theme-light .bg-\[\#46657e\] {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* Redmine TopBar text & links */
+html.theme-light .bg-\[\#324b61\] a,
+html.theme-light .bg-\[\#324b61\] button,
+html.theme-light .bg-\[\#324b61\] span {
+  color: #475569 !important;
+}
+
+html.theme-light .bg-\[\#324b61\] button:hover,
+html.theme-light .bg-\[\#324b61\] a:hover {
+  color: #0f172a !important;
+}
+
+html.theme-light .bg-\[\#324b61\] strong,
+html.theme-light .bg-\[\#324b61\] .text-white {
+  color: #0f172a !important;
+}
+
+/* Redmine Header titles & labels */
+html.theme-light .bg-\[\#46657e\] h1,
+html.theme-light .bg-\[\#46657e\] h1 span {
+  color: #0f172a !important;
+}
+
+html.theme-light .bg-\[\#46657e\] p,
+html.theme-light .bg-\[\#46657e\] label,
+html.theme-light .bg-\[\#46657e\] .text-\[\#c0d4e5\],
+html.theme-light .bg-\[\#46657e\] .text-\[\#d6e2ec\] {
+  color: #475569 !important;
+}
+
+/* Inactive tabs in Redmine header */
+html.theme-light .bg-\[\#3b556b\],
+html.theme-light .bg-\[\#405c75\],
+html.theme-light .bg-\[\#283c4e\],
+html.theme-light .bg-\[\#3b5166\],
+html.theme-light .bg-\[\#34415c\] {
+  background-color: #e2e8f0 !important;
+  color: #475569 !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.theme-light .bg-\[\#3b556b\]:hover,
+html.theme-light .bg-\[\#405c75\]:hover {
+  background-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+/* Active tab in Redmine header */
+html.theme-light .bg-\[\#f6f7f9\] {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* Redmine Logo & New Issue Badges */
+html.theme-light .bg-\[\#b32d2e\],
+html.theme-light .bg-\[\#b32d2e\] *,
+html.theme-light .bg-\[\#c93637\],
+html.theme-light .bg-\[\#c93637\] * {
+  background-color: #b32d2e !important;
+  color: #ffffff !important;
+}
+
+/* Redmine Queries Sidebar (Right side) */
+html.theme-light .bg-\[\#171b26\] {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+html.theme-light .bg-\[\#171b26\] h3 {
+  color: #334155 !important;
+}
+
+html.theme-light .bg-\[\#171b26\] button.text-sky-400 {
+  color: #0284c7 !important;
+}
+
+html.theme-light .bg-\[\#171b26\] button.text-sky-400:hover {
+  color: #0369a1 !important;
+}
+
+html.theme-light .bg-\[\#171b26\] button.bg-\[\#90b4d6\] {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+}
+
+/* --------------------------------------------------------------------------
+   7. Table Headers (Thead) across SFTP, Redmine, Hosts & Query Views
+   -------------------------------------------------------------------------- */
+html.theme-light thead,
+html.theme-light thead.bg-\[\#1b222f\],
+html.theme-light thead.bg-\[\#202533\],
+html.theme-light thead.bg-\[\#161922\],
+html.theme-light thead.bg-\[\#141720\],
+html.theme-light thead.bg-\[\#1A1F2B\] {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.theme-light thead th,
+html.theme-light thead th div {
+  color: #334155 !important;
+  font-weight: 700 !important;
+}
+
+html.theme-light thead th .border-r,
+html.theme-light thead th.border-r {
+  border-color: #cbd5e1 !important;
+}
+
+/* Table rows & hover */
+html.theme-light tbody tr:hover,
+html.theme-light tr.hover\:bg-\[\#252C3D\]:hover,
+html.theme-light tr.hover\:bg-\[\#1f2636\]:hover,
+html.theme-light tr.hover\:bg-\[\#1E2330\]:hover,
+html.theme-light tr.hover\:bg-\[\#282F40\]:hover,
+html.theme-light tr.hover\:bg-slate-800\/50:hover {
+  background-color: #f8fafc !important;
+}
+
+html.theme-light table {
+  background-color: #ffffff !important;
+}
+
+html.theme-light tbody tr td {
+  color: #1e293b;
+}
+
+/* --------------------------------------------------------------------------
+   8. Universal Borders & Dividers Across All Dark Hexes
+   -------------------------------------------------------------------------- */
+html.theme-light .border-\[\#1F2636\],
+html.theme-light .border-\[\#20242D\],
+html.theme-light .border-\[\#20242D\]\/40,
+html.theme-light .border-\[\#202737\],
+html.theme-light .border-\[\#202838\],
+html.theme-light .border-\[\#212736\],
+html.theme-light .border-\[\#21293a\],
+html.theme-light .border-\[\#222a39\],
+html.theme-light .border-\[\#222a3a\],
+html.theme-light .border-\[\#222d3d\],
+html.theme-light .border-\[\#232b3a\],
+html.theme-light .border-\[\#232c3c\],
+html.theme-light .border-\[\#232d3d\],
+html.theme-light .border-\[\#241B20\],
+html.theme-light .border-\[\#24272E\],
+html.theme-light .border-\[\#24272E\]\/40,
+html.theme-light .border-\[\#242A38\],
+html.theme-light .border-\[\#242A3A\],
+html.theme-light .border-\[\#242B3B\],
+html.theme-light .border-\[\#242b3a\],
+html.theme-light .border-\[\#242d3d\],
+html.theme-light .border-\[\#242d3e\],
+html.theme-light .border-\[\#242e3f\],
+html.theme-light .border-\[\#242e40\],
+html.theme-light .border-\[\#242f42\],
+html.theme-light .border-\[\#252A38\],
+html.theme-light .border-\[\#252C3D\],
+html.theme-light .border-\[\#252c3d\],
+html.theme-light .border-\[\#252e3f\],
+html.theme-light .border-\[\#252f40\],
+html.theme-light .border-\[\#252f42\],
+html.theme-light .border-\[\#262C3A\],
+html.theme-light .border-\[\#262E3E\],
+html.theme-light .border-\[\#263042\],
+html.theme-light .border-\[\#263044\],
+html.theme-light .border-\[\#272E3E\],
+html.theme-light .border-\[\#272F40\],
+html.theme-light .border-\[\#273244\],
+html.theme-light .border-\[\#273245\],
+html.theme-light .border-\[\#282F3E\],
+html.theme-light .border-\[\#282F40\],
+html.theme-light .border-\[\#283145\],
+html.theme-light .border-\[\#283244\],
+html.theme-light .border-\[\#283447\],
+html.theme-light .border-\[\#283c4e\],
+html.theme-light .border-\[\#293040\],
+html.theme-light .border-\[\#293347\],
+html.theme-light .border-\[\#2A3142\],
+html.theme-light .border-\[\#2A3143\],
+html.theme-light .border-\[\#2B303C\],
+html.theme-light .border-\[\#2B303C\]\/60,
+html.theme-light .border-\[\#2B3242\],
+html.theme-light .border-\[\#2B3243\],
+html.theme-light .border-\[\#2B3244\],
+html.theme-light .border-\[\#2B3245\],
+html.theme-light .border-\[\#2b3245\],
+html.theme-light .border-\[\#2B3345\],
+html.theme-light .border-\[\#2B3549\],
+html.theme-light .border-\[\#2C3446\],
+html.theme-light .border-\[\#2D3342\],
+html.theme-light .border-\[\#2D3446\],
+html.theme-light .border-\[\#2D3547\],
+html.theme-light .border-\[\#2d3547\],
+html.theme-light .border-\[\#2E3340\],
+html.theme-light .border-\[\#2E3648\],
+html.theme-light .border-\[\#2E364A\],
+html.theme-light .border-\[\#2F3543\],
+html.theme-light .border-\[\#2F374A\],
+html.theme-light .border-\[\#2a3449\],
+html.theme-light .border-\[\#2b3548\],
+html.theme-light .border-\[\#2b354a\],
+html.theme-light .border-\[\#2b3648\],
+html.theme-light .border-\[\#2b364a\],
+html.theme-light .border-\[\#2d3748\],
+html.theme-light .border-\[\#2d374a\],
+html.theme-light .border-\[\#2e384d\],
+html.theme-light .border-\[\#2e394d\],
+html.theme-light .border-\[\#2f3b52\],
+html.theme-light .border-\[\#303746\],
+html.theme-light .border-\[\#32394A\],
+html.theme-light .border-\[\#32394C\],
+html.theme-light .border-\[\#323f54\],
+html.theme-light .border-\[\#333e54\],
+html.theme-light .border-\[\#344b5d\],
+html.theme-light .border-\[\#35435c\],
+html.theme-light .border-\[\#374154\],
+html.theme-light .border-\[\#38465d\],
+html.theme-light .border-\[\#394761\],
+html.theme-light .border-\[\#3D4760\],
+html.theme-light .border-\[\#3E4860\],
+html.theme-light .border-\[\#3a4964\],
+html.theme-light .border-\[\#3b556b\],
+html.theme-light .border-\[\#3d4c66\],
+html.theme-light .border-slate-700\/50,
+html.theme-light .border-slate-700\/60,
+html.theme-light .border-\[\#c5d0db\] {
+  border-color: #e2e8f0 !important;
+}
+
+html.theme-light .divide-\[\#202534\] > :not([hidden]) ~ :not([hidden]),
+html.theme-light .divide-\[\#202737\] > :not([hidden]) ~ :not([hidden]),
+html.theme-light .divide-\[\#222736\] > :not([hidden]) ~ :not([hidden]),
+html.theme-light .divide-\[\#222836\] > :not([hidden]) ~ :not([hidden]),
+html.theme-light .divide-\[\#222a3a\] > :not([hidden]) ~ :not([hidden]),
+html.theme-light .divide-\[\#232c3e\] > :not([hidden]) ~ :not([hidden]),
+html.theme-light .divide-\[\#252C3D\] > :not([hidden]) ~ :not([hidden]),
+html.theme-light .divide-\[\#282F3E\] > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e2e8f0 !important;
+}
+
+/* --------------------------------------------------------------------------
+   9. Text Hierarchy & Readability
+   -------------------------------------------------------------------------- */
+html.theme-light .text-white,
+html.theme-light .text-slate-100,
+html.theme-light .text-slate-200,
+html.theme-light .text-slate-300,
+html.theme-light .text-\[\#C2C9D6\],
+html.theme-light .text-\[\#c2c9d6\],
+html.theme-light .text-\[\#CBD5E1\],
+html.theme-light .text-\[\#E6EDF3\],
+html.theme-light .text-\[\#D4D4D4\],
+html.theme-light .text-\[\#C9D1D9\],
+html.theme-light .text-\[\#CCCCCC\],
+html.theme-light .text-\[\#d6e0ea\],
+html.theme-light .text-\[\#d6e2ec\],
+html.theme-light .text-\[\#c0d4e5\],
+html.theme-light .text-\[\#b3c7d8\] {
+  color: #0f172a !important;
+}
+
+/* Sidebar group headers, muted labels, secondary text */
+html.theme-light .text-slate-400,
+html.theme-light .text-\[\#A0ABC0\],
+html.theme-light .text-\[\#9CA5B8\],
+html.theme-light .text-\[\#9ca5b8\],
+html.theme-light .text-\[\#8E99AF\],
+html.theme-light .text-\[\#848D97\],
+html.theme-light .text-\[\#7D8590\],
+html.theme-light .text-\[\#7E8B9F\],
+html.theme-light .text-\[\#717E96\],
+html.theme-light .text-\[\#58647A\],
+html.theme-light .text-\[\#556073\],
+html.theme-light .text-\[\#40495C\],
+html.theme-light .text-\[\#374154\] {
+  color: #334155 !important;
+}
+
+html.theme-light .text-slate-500,
+html.theme-light .text-\[\#64748B\],
+html.theme-light .text-\[\#94A3B8\],
+html.theme-light .text-slate-600 {
+  color: #64748b !important;
+}
+
+html.theme-light .text-amber-300 {
+  color: #b45309 !important;
+}
+
+html.theme-light .text-amber-400 {
+  color: #d97706 !important;
+}
+
+html.theme-light .text-rose-400 {
+  color: #e11d48 !important;
+}
+
+/* --------------------------------------------------------------------------
+   10. Form Inputs, Selects & Textareas
+   -------------------------------------------------------------------------- */
+html.theme-light input:not([type='checkbox']):not([type='radio']),
+html.theme-light select,
+html.theme-light textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.theme-light input[type='checkbox'] {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.theme-light input::placeholder,
+html.theme-light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* --------------------------------------------------------------------------
+   11. Primary Action Buttons & Accents (Preserve Crisp White Text)
+   -------------------------------------------------------------------------- */
+html.theme-light .bg-blue-600,
+html.theme-light .bg-blue-600 *,
+html.theme-light .bg-blue-500,
+html.theme-light .bg-blue-500 *,
+html.theme-light .bg-rose-600,
+html.theme-light .bg-rose-600 *,
+html.theme-light .bg-emerald-600,
+html.theme-light .bg-emerald-600 *,
+html.theme-light .bg-red-600,
+html.theme-light .bg-red-600 * {
+  color: #ffffff !important;
+}
+
+html.theme-light .bg-blue-600 {
+  background-color: #2563eb !important;
+}
+
+/* --------------------------------------------------------------------------
+   12. Scrollbars in Light Mode
+   -------------------------------------------------------------------------- */
+html.theme-light ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+html.theme-light ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+html.theme-light ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

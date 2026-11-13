@@ -12,6 +12,7 @@ import { SftpTab } from '../types'
 import { HostItem } from '../../../types/connection'
 import { getConnectionColor } from '../../../utils/connectionColors'
 import ProdBadge from '../../../components/ProdBadge.vue'
+import { useAppearance } from '../../../composables/useAppearance'
 
 const props = defineProps<{
   tabs: SftpTab[]
@@ -19,6 +20,8 @@ const props = defineProps<{
   showLogs: boolean
   hosts?: HostItem[]
 }>()
+
+const { colorTabsByConnection } = useAppearance()
 
 const emit = defineEmits<{
   (e: 'select-tab', tabId: string): void
@@ -36,6 +39,7 @@ function getHost(hostId: number | null): HostItem | undefined {
 }
 
 function getTabColor(t: SftpTab): string {
+  if (!colorTabsByConnection.value) return '#3b82f6'
   const host = getHost(t.hostId)
   return getConnectionColor(host?.color)
 }
@@ -47,7 +51,7 @@ function isProductionTab(t: SftpTab): boolean {
 </script>
 
 <template>
-  <div class="h-10 bg-[#1C202B] border-b border-[#282F3E] flex items-center justify-between px-2 text-xs shrink-0 select-none">
+  <div class="session-tabs-bar h-10 bg-[#1C202B] border-b border-[#282F3E] flex items-center justify-between px-2 text-xs shrink-0 select-none">
     <!-- Left: Tabs strip (same style as SSH) -->
     <div class="flex items-center space-x-1 overflow-x-auto flex-1 no-scrollbar py-1">
       <button

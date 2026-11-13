@@ -342,7 +342,7 @@ export function useRedmine() {
     }
 
     // In-app interactive toast stack
-    if (settings.inAppToast || options?.forceDeliver) {
+    if (settings.inAppToast) {
       activeToasts.value.unshift(item)
       if (activeToasts.value.length > 4) {
         activeToasts.value = activeToasts.value.slice(0, 4)
@@ -350,10 +350,11 @@ export function useRedmine() {
     }
 
     // Native OS Desktop Notification
-    if (settings.desktopNotification && window.api?.showNotification) {
+    if ((settings.desktopNotification || options?.forceDeliver) && window.api?.showNotification) {
       window.api
         .showNotification({
           title: item.title,
+          subtitle: item.projectName || 'Redmine',
           body: item.summary,
           silent: !settings.soundEnabled,
           tag: 'redmine',
@@ -547,29 +548,28 @@ export function useRedmine() {
   }
 
   function triggerTestNotification(settingsOverride?: RedmineNotificationSettings): void {
+    const activeSettings = settingsOverride || notificationSettings.value
     const sampleIssue = issues.value[0]
-    const testNotif: RedmineChangeNotification = {
-      id: `test-${Date.now()}`,
-      issueId: sampleIssue?.id || 144720,
-      issueSubject:
-        sampleIssue?.subject || 'Simulasi Notifikasi Perubahan Tiket Redmine',
-      projectName: sampleIssue?.project?.name || 'PBB-P2',
-      authorName: 'Tim QA / Redmine',
-      changeType: 'status',
-      title: `Simulasi Update #${sampleIssue?.id || 144720} • Ready to test`,
-      summary: 'Tim QA: Status: In Progress → Ready to test | Komentar: "Siap diuji coba"',
-      detailLines: [
-        'Status: In Progress → Ready to test',
-        'Komentar: "Siap diuji coba pada environment staging"'
-      ],
-      timestamp: new Date().toISOString(),
-      read: false,
-      isSimulated: !sampleIssue
+    const title = `Simulasi Update #${sampleIssue?.id || 144720} • Ready to test`
+    const subtitle = sampleIssue?.project?.name || 'PBB-P2'
+    const body = 'Tim QA: Status: In Progress → Ready to test | Komentar: "Siap diuji coba"'
+
+    if (activeSettings.soundEnabled) {
+      playNotificationChime('default')
     }
-    dispatchChangeNotification(testNotif, {
-      forceDeliver: true,
-      settingsOverride
-    })
+
+    if (window.api?.showNotification) {
+      window.api
+        .showNotification({
+          title,
+          subtitle,
+          body,
+          silent: !activeSettings.soundEnabled,
+          tag: 'redmine-test',
+          issueId: sampleIssue?.id || 144720
+        })
+        .catch(() => {})
+    }
   }
 
   function markNotificationAsRead(id: string): void {
