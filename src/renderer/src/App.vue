@@ -72,7 +72,7 @@ const {
   handleMoveHostToGroup
 } = useAppConnections()
 
-const appVersion = '1.3.1'
+const appVersion = '2.0.0'
 const currentView = ref<'hosts' | 'ssh' | 'query' | 'sftp' | 'redmine' | 'editor' | 'settings'>('hosts')
 const previousView = ref<string>('hosts')
 const visitedViews = ref<Set<string>>(new Set(['hosts']))

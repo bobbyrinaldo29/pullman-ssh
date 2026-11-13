@@ -1,6 +1,6 @@
 {
   "name": "pullman-app",
-  "version": "1.3.1",
+  "version": "2.0.0",
   "description": "DO.MBA Pull Manager v2 - Modern SSH, SFTP, DB & Task Automation",
   "main": "./out/main/index.js",
   "author": "DO.MBA",
