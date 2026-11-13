@@ -17,6 +17,7 @@ export interface SftpFileItem {
 }
 
 import { localFileService, LocalFileItem } from './localFileService'
+import { SftpSearchService } from './sftpSearchService'
 export type { LocalFileItem }
 
 interface SftpSession {
@@ -707,24 +708,35 @@ export class SftpService {
   }
 
   public async gitPull(remotePath: string, sessionId?: string): Promise<{ success: boolean; message: string }> {
-    const cmd = `${this.gitCd(remotePath)} && git -c safe.directory=* pull`
+    const session = this.getSession(sessionId)
+    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
+    const cd = this.gitCd(remotePath)
+    const cmd = `${cd} && BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); REMOTE=$(git -c safe.directory=* remote 2>/dev/null | head -n 1); [ -z "$REMOTE" ] && REMOTE="origin"; git -c safe.directory=* pull "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* pull 2>&1`
     let res = await this.execRemote(cmd, sessionId, false)
-    if (res.code !== 0) {
-      const session = this.getSession(sessionId)
-      if (session?.config?.password) res = await this.execRemote(cmd, sessionId, true)
+    if (res.code !== 0 && session.config?.password) {
+      res = await this.execRemote(cmd, sessionId, true)
     }
-    return { success: res.code === 0, message: res.stdout.trim() || res.stderr.trim() || 'Pulled.' }
+    const output = (res.stdout || res.stderr || '').trim()
+    return {
+      success: res.code === 0,
+      message: res.code === 0 ? (output || 'Pulled from remote successfully.') : (output || 'Pull failed.')
+    }
   }
 
   public async gitPush(remotePath: string, sessionId?: string): Promise<{ success: boolean; message: string }> {
     const session = this.getSession(sessionId)
     if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
-    const cmd = `${this.gitCd(remotePath)} && git -c safe.directory=* push`
+    const cd = this.gitCd(remotePath)
+    const cmd = `${cd} && BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); REMOTE=$(git -c safe.directory=* remote 2>/dev/null | head -n 1); [ -z "$REMOTE" ] && REMOTE="origin"; git -c safe.directory=* push "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* push -u "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* push 2>&1`
     let res = await this.execRemote(cmd, sessionId, false)
     if (res.code !== 0 && session.config?.password) {
       res = await this.execRemote(cmd, sessionId, true)
     }
-    return { success: res.code === 0, message: res.stdout.trim() || res.stderr.trim() || 'Pushed.' }
+    const output = (res.stdout || res.stderr || '').trim()
+    return {
+      success: res.code === 0,
+      message: res.code === 0 ? (output || 'Pushed to origin successfully.') : (output || 'Push failed.')
+    }
   }
 
   public async gitCherryPick(
@@ -732,40 +744,64 @@ export class SftpService {
     hash: string,
     options?: { autoPush?: boolean },
     sessionId?: string
-  ): Promise<{ success: boolean; message: string; isConflict?: boolean }> {
+  ): Promise<{ success: boolean; message: string; isConflict?: boolean; pushFailed?: boolean }> {
     const session = this.getSession(sessionId)
     if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
     const cleanHash = (hash || '').trim().replace(/[^a-f0-9]/gi, '')
     if (!cleanHash) throw new Error('Invalid commit hash.')
 
     const cd = this.gitCd(remotePath)
-    await this.execRemote(`${cd} && git -c safe.directory=* fetch --all 2>/dev/null || true`, sessionId, false)
 
-    const pickCmd = `${cd} && git -c safe.directory=* cherry-pick '${cleanHash}'`
+    // 1. Ensure git knows about the commit hash (fetch from origin if missing)
+    const checkCommitCmd = `${cd} && git -c safe.directory=* cat-file -e '${cleanHash}^{commit}' 2>/dev/null`
+    let checkCommit = await this.execRemote(checkCommitCmd, sessionId, false)
+    if (checkCommit.code !== 0) {
+      const fetchCmd = `${cd} && (git -c safe.directory=* fetch origin '${cleanHash}' 2>&1 || git -c safe.directory=* fetch origin '+refs/heads/*:refs/remotes/origin/*' 2>&1 || git -c safe.directory=* fetch --all 2>&1 || true)`
+      const fetchRes = await this.execRemote(fetchCmd, sessionId, false)
+      if (fetchRes.code !== 0 && session.config?.password) {
+        await this.execRemote(fetchCmd, sessionId, true)
+      }
+      checkCommit = await this.execRemote(checkCommitCmd, sessionId, false)
+    }
+
+    if (checkCommit.code !== 0) {
+      return {
+        success: false,
+        message: `Commit ${cleanHash.slice(0, 7)} not found in this repository or remote origin. Make sure the commit was pushed to origin from the source branch first.`
+      }
+    }
+
+    // 2. Perform cherry-pick with identity fallback
+    const pickCmd = `${cd} && USER_NAME=$(git -c safe.directory=* config user.name 2>/dev/null || echo ""); [ -z "$USER_NAME" ] && USER_NAME="Pullman"; USER_EMAIL=$(git -c safe.directory=* config user.email 2>/dev/null || echo ""); [ -z "$USER_EMAIL" ] && USER_EMAIL="pullman@localhost"; git -c safe.directory=* -c user.name="$USER_NAME" -c user.email="$USER_EMAIL" cherry-pick '${cleanHash}'`
     let res = await this.execRemote(pickCmd, sessionId, false)
     if (res.code !== 0 && session.config?.password) {
       res = await this.execRemote(pickCmd, sessionId, true)
     }
+
     if (res.code !== 0) {
       const errOut = (res.stderr || res.stdout || '').trim()
       const isConflict = errOut.toLowerCase().includes('conflict') || errOut.toLowerCase().includes('could not apply')
       return { success: false, message: errOut || 'Cherry-pick failed.', isConflict }
     }
 
+    // 3. Handle Auto-Push if requested
     let pushMsg = ''
+    let pushFailed = false
     if (options?.autoPush) {
-      const pushCmd = `${cd} && git -c safe.directory=* push`
-      let pushRes = await this.execRemote(pushCmd, sessionId, false)
-      if (pushRes.code !== 0 && session.config?.password) {
-        pushRes = await this.execRemote(pushCmd, sessionId, true)
-      }
-      if (pushRes.code !== 0) {
-        pushMsg = ` (Push warning: ${(pushRes.stderr || pushRes.stdout).trim()})`
+      const pushRes = await this.gitPush(remotePath, sessionId)
+      if (!pushRes.success) {
+        pushFailed = true
+        pushMsg = ` (Push warning: ${pushRes.message})`
       } else {
         pushMsg = ' and pushed to remote.'
       }
     }
-    return { success: true, message: (res.stdout.trim() || `Cherry-picked ${cleanHash} successfully`) + pushMsg }
+
+    return {
+      success: true,
+      message: (res.stdout.trim() || `Cherry-picked ${cleanHash.slice(0, 7)} successfully`) + pushMsg,
+      pushFailed
+    }
   }
 
   public async gitCherryPickAbort(remotePath: string, sessionId?: string): Promise<{ success: boolean; message: string }> {
@@ -797,7 +833,8 @@ export class SftpService {
     const cd = this.gitCd(remotePath)
     const escHash = cleanHash.replace(/'/g, "'\\''")
     const logCmd = `git -c safe.directory=* --no-pager log -1 --no-color --pretty=format:'%H%x09%h%x09%an%x09%ar%x09%s%x09%b___SEP___' --stat --name-status '${escHash}'`
-    const cmd = `${cd} && OUT=$(${logCmd} 2>/dev/null || true); if [ -z "$OUT" ]; then git -c safe.directory=* fetch --all 2>/dev/null || true; OUT=$(${logCmd} 2>/dev/null || true); fi; echo "$OUT"`
+    const fetchCmd = `git -c safe.directory=* fetch origin '${escHash}' 2>/dev/null || git -c safe.directory=* fetch origin '+refs/heads/*:refs/remotes/origin/*' 2>/dev/null || git -c safe.directory=* fetch --all 2>/dev/null || true`
+    const cmd = `${cd} && OUT=$(${logCmd} 2>/dev/null || true); if [ -z "$OUT" ]; then ${fetchCmd}; OUT=$(${logCmd} 2>/dev/null || true); fi; echo "$OUT"`
     let res = await this.execRemote(cmd, sessionId, false)
     if (!res.stdout.trim() && session.config?.password) {
       res = await this.execRemote(cmd, sessionId, true)
@@ -846,58 +883,15 @@ fi`
     }
   }
 
+  private searchService = new SftpSearchService(this)
+
   public async searchRemote(
     query: string,
     rootPath: string,
     sessionId?: string,
     options?: { isCaseSensitive?: boolean; isWholeWord?: boolean; isRegex?: boolean }
   ): Promise<{ file: string; line: number; text: string }[]> {
-    const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) {
-      throw new Error('SFTP client is not connected.')
-    }
-    const trimmed = query.trim()
-    if (!trimmed) return []
-
-    try {
-      const cleanRoot = (rootPath || '/').replace(/\/+/g, '/')
-      const escRoot = cleanRoot.replace(/'/g, "'\\''")
-      const escQuery = trimmed.replace(/'/g, "'\\''")
-
-      // Flag determination: default to -F (Fixed literal strings) so PHP symbols ($var, ->, ()) match accurately
-      let flags = '-rn'
-      if (!options?.isCaseSensitive) flags += 'i'
-      if (options?.isWholeWord) flags += 'w'
-      if (options?.isRegex) {
-        flags += 'E'
-      } else {
-        flags += 'F'
-      }
-
-      const cmd = `cd '${escRoot}' 2>/dev/null && grep ${flags} -I --exclude-dir=.git -m 50 -- '${escQuery}' . 2>/dev/null | head -n 300 || true`
-      const res = await this.execRemote(cmd, sessionId, false)
-      const lines = res.stdout.split('\n').filter(Boolean)
-      const results: { file: string; line: number; text: string }[] = []
-
-      for (const rawLine of lines) {
-        const firstColon = rawLine.indexOf(':')
-        if (firstColon === -1) continue
-        const secondColon = rawLine.indexOf(':', firstColon + 1)
-        if (secondColon === -1) continue
-
-        let relFile = rawLine.substring(0, firstColon)
-        if (relFile.startsWith('./')) relFile = relFile.substring(2)
-        const line = parseInt(rawLine.substring(firstColon + 1, secondColon), 10) || 1
-        const text = rawLine.substring(secondColon + 1).trim()
-        const fullPath = cleanRoot === '/' ? `/${relFile}` : `${cleanRoot}/${relFile}`
-
-        results.push({ file: fullPath, line, text })
-      }
-
-      return results
-    } catch {
-      return []
-    }
+    return this.searchService.searchRemote(query, rootPath, sessionId, options)
   }
 
   public async getGitBlame(
@@ -905,84 +899,7 @@ fi`
     line: number,
     sessionId?: string
   ): Promise<{ author: string; timeAgo: string; summary: string; hash: string; isUncommitted: boolean } | null> {
-    const session = this.getSession(sessionId)
-    if (!session || !session.isConnected || line <= 0) {
-      return null
-    }
-
-    try {
-      const cleanPath = (filePath || '').replace(/\/+/g, '/')
-      const dir = path.posix.dirname(cleanPath)
-      const baseName = path.posix.basename(cleanPath)
-      const escDir = dir.replace(/'/g, "'\\''")
-      const escFile = baseName.replace(/'/g, "'\\''")
-
-      const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* blame -L ${line},${line} --porcelain -- '${escFile}' 2>/dev/null || true`
-      const res = await this.execRemote(cmd, sessionId, false)
-      const output = res.stdout.trim()
-      if (!output) {
-        // Fallback: check if directory is inside git repo to detect uncommitted/new line
-        try {
-          const checkGit = await this.execRemote(
-            `PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escDir}' 2>/dev/null && git -c safe.directory=* rev-parse --is-inside-work-tree 2>/dev/null || true`,
-            sessionId,
-            false
-          )
-          if (checkGit.stdout.trim().includes('true')) {
-            return {
-              author: 'You',
-              timeAgo: 'now',
-              summary: 'Uncommitted changes',
-              hash: 'dirty',
-              isUncommitted: true
-            }
-          }
-        } catch {
-          // ignore
-        }
-        return null
-      }
-
-      const lines = output.split('\n')
-      const firstLine = lines[0] || ''
-      const hash = firstLine.split(' ')[0]?.substring(0, 7) || ''
-
-      let author = 'Not Committed Yet'
-      let authorTime = 0
-      let summary = 'Uncommitted changes'
-
-      for (const l of lines) {
-        if (l.startsWith('author ')) {
-          author = l.substring(7).trim()
-        } else if (l.startsWith('author-time ')) {
-          authorTime = parseInt(l.substring(12).trim(), 10) * 1000
-        } else if (l.startsWith('summary ')) {
-          summary = l.substring(8).trim()
-        }
-      }
-
-      const isUncommitted = hash.startsWith('0000000') || author === 'Not Committed Yet'
-
-      let timeAgo = 'recently'
-      if (!isUncommitted && authorTime > 0) {
-        const m = Math.floor((Date.now() - authorTime) / 60000), h = Math.floor(m / 60), d = Math.floor(h / 24)
-        if (d >= 365) timeAgo = `${Math.floor(d / 365)}y ago`
-        else if (d >= 30) timeAgo = `${Math.floor(d / 30)}mo ago`
-        else if (d > 0) timeAgo = `${d}d ago`
-        else if (h > 0) timeAgo = `${h}h ago`
-        else timeAgo = m > 0 ? `${m}m ago` : 'just now'
-      }
-
-      return {
-        author: isUncommitted ? 'You' : author,
-        timeAgo: isUncommitted ? 'now' : timeAgo,
-        summary: isUncommitted ? 'Uncommitted changes' : summary,
-        hash: isUncommitted ? 'dirty' : hash,
-        isUncommitted
-      }
-    } catch {
-      return null
-    }
+    return this.searchService.getGitBlame(filePath, line, sessionId)
   }
 }
 

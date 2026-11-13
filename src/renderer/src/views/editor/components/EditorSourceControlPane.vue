@@ -3,7 +3,7 @@ import { ref, watch, onMounted, onUnmounted } from 'vue'
 import {
   GitBranch, GitFork, RotateCw, Check, Plus,
   CheckCircle2, ChevronDown, Sparkles,
-  ArrowDownToLine, ArrowUpRight, MoreHorizontal, FolderGit2, Folder,
+  ArrowDownToLine, ArrowUpToLine, ArrowUpRight, MoreHorizontal, FolderGit2, Folder,
   GitMerge, Copy
 } from 'lucide-vue-next'
 import { GitChangeItem } from '../types'
@@ -44,7 +44,7 @@ function handleToggleMenu(e: MouseEvent): void {
 }
 
 const {
-  isLoading, isCommitting, isGenerating, commitMessage, lastCommitHash,
+  isLoading, isCommitting, isGenerating, isPushing, isPulling, commitMessage, lastCommitHash,
   gitStatus, repoName, currentActivePath, stagedFiles, unstagedFiles,
   fetchStatus, handleCommit, handleGenerateCommit, handlePull, handlePush,
   handleCherryPick, handleCherryPickAbort, handleStageAll, handleDiscardAll,
@@ -215,9 +215,21 @@ defineExpose({
             type="button"
             class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors"
             title="Pull Changes"
+            :disabled="isPulling"
             @click="handlePull"
           >
-            <ArrowDownToLine class="w-3.5 h-3.5" />
+            <RotateCw v-if="isPulling" class="w-3.5 h-3.5 animate-spin text-blue-400" />
+            <ArrowDownToLine v-else class="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors"
+            title="Push Changes to Origin"
+            :disabled="isPushing"
+            @click="handlePush"
+          >
+            <RotateCw v-if="isPushing" class="w-3.5 h-3.5 animate-spin text-blue-400" />
+            <ArrowUpToLine v-else class="w-3.5 h-3.5" />
           </button>
           <div
             v-if="gitStatus.branch"

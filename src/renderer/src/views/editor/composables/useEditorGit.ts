@@ -5,6 +5,8 @@ export interface UseEditorGitReturn {
   isLoading: Ref<boolean>
   isCommitting: Ref<boolean>
   isGenerating: Ref<boolean>
+  isPushing: Ref<boolean>
+  isPulling: Ref<boolean>
   commitMessage: Ref<string>
   lastCommitHash: Ref<string>
   gitStatus: Ref<GitStatusResult>
@@ -41,6 +43,8 @@ export function useEditorGit(props: {
   const isLoading = ref(false)
   const isCommitting = ref(false)
   const isGenerating = ref(false)
+  const isPushing = ref(false)
+  const isPulling = ref(false)
   const commitMessage = ref('')
   const lastCommitHash = ref(localStorage.getItem('pullman_last_commit_hash') || '')
   const gitStatus = ref<GitStatusResult>({
@@ -244,29 +248,39 @@ export function useEditorGit(props: {
 
   async function handlePull(): Promise<void> {
     if (!window.api?.sftpGitPull) return
-    isLoading.value = true
+    isPulling.value = true
     try {
       const target = gitStatus.value.root || props.rootPath
-      await window.api.sftpGitPull(target, props.sessionId)
+      const res = await window.api.sftpGitPull(target, props.sessionId)
+      if (res && !res.success) {
+        alert(`Pull failed: ${res.message}`)
+      } else {
+        alert(res?.message || 'Pulled from remote successfully.')
+      }
       await fetchStatus()
     } catch (err) {
       alert(`Pull failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
-      isLoading.value = false
+      isPulling.value = false
     }
   }
 
   async function handlePush(): Promise<void> {
     if (!window.api?.sftpGitPush) return
-    isLoading.value = true
+    isPushing.value = true
     try {
       const target = gitStatus.value.root || props.rootPath
-      await window.api.sftpGitPush(target, props.sessionId)
+      const res = await window.api.sftpGitPush(target, props.sessionId)
+      if (res && !res.success) {
+        alert(`Push failed: ${res.message}`)
+      } else {
+        alert(res?.message || 'Pushed to origin successfully.')
+      }
       await fetchStatus()
     } catch (err) {
       alert(`Push failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
-      isLoading.value = false
+      isPushing.value = false
     }
   }
 
@@ -364,6 +378,8 @@ export function useEditorGit(props: {
     isLoading,
     isCommitting,
     isGenerating,
+    isPushing,
+    isPulling,
     commitMessage,
     lastCommitHash,
     gitStatus,
