@@ -1,27 +1,16 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import {
-  GitBranch,
-  GitFork,
-  RotateCw,
-  Check,
-  Plus,
-  Minus,
-  RotateCcw,
-  FileCode,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  Sparkles,
-  ArrowDownToLine,
-  ArrowUpRight,
-  MoreHorizontal,
-  FolderGit2,
-  Folder
+  GitBranch, GitFork, RotateCw, Check, Plus,
+  CheckCircle2, ChevronDown, Sparkles,
+  ArrowDownToLine, ArrowUpRight, MoreHorizontal, FolderGit2, Folder,
+  GitMerge, Copy
 } from 'lucide-vue-next'
 import { GitChangeItem } from '../types'
 import { useEditorGit } from '../composables/useEditorGit'
 import EditorSourceControlMenu from './EditorSourceControlMenu.vue'
+import EditorCherryPickModal from './EditorCherryPickModal.vue'
+import EditorSourceControlList from './EditorSourceControlList.vue'
 
 const props = defineProps<{
   isConnected: boolean
@@ -38,9 +27,9 @@ const emit = defineEmits<{
 
 const isCommitMenuOpen = ref(false)
 const isMoreMenuOpen = ref(false)
+const isCherryPickOpen = ref(false)
+const isHashCopied = ref(false)
 const menuPos = ref({ top: 40, left: 280 })
-const isStagedExpanded = ref(true)
-const isChangesExpanded = ref(true)
 
 function handleToggleMenu(e: MouseEvent): void {
   const btn = e.currentTarget as HTMLElement
@@ -48,43 +37,35 @@ function handleToggleMenu(e: MouseEvent): void {
     const rect = btn.getBoundingClientRect()
     const left = Math.round(rect.right + 4)
     let top = Math.round(rect.top)
-    if (top + 480 > window.innerHeight) {
-      top = Math.max(10, window.innerHeight - 500)
-    }
+    if (top + 480 > window.innerHeight) top = Math.max(10, window.innerHeight - 500)
     menuPos.value = { top, left }
   }
   isMoreMenuOpen.value = !isMoreMenuOpen.value
 }
 
 const {
-  isLoading,
-  isCommitting,
-  isGenerating,
-  commitMessage,
-  gitStatus,
-  repoName,
-  currentActivePath,
-  stagedFiles,
-  unstagedFiles,
-  fetchStatus,
-  handleCommit,
-  handleGenerateCommit,
-  handlePull,
-  handlePush,
-  handleStageAll,
-  handleDiscardAll,
-  handleStage,
-  handleUnstage,
-  handleDiscard,
-  getFileName,
-  getFileDir,
-  getFileIconColor,
-  getStatusColor
+  isLoading, isCommitting, isGenerating, commitMessage, lastCommitHash,
+  gitStatus, repoName, currentActivePath, stagedFiles, unstagedFiles,
+  fetchStatus, handleCommit, handleGenerateCommit, handlePull, handlePush,
+  handleCherryPick, handleCherryPickAbort, handleStageAll, handleDiscardAll,
+  handleStage, handleUnstage, handleDiscard, getFileName, getFileDir,
+  getFileIconColor, getStatusColor
 } = useEditorGit(props, emit)
 
 function handleOpenFile(file: GitChangeItem): void {
   if (file.isDirectory) return
   emit('open-file', { name: getFileName(file.path), path: file.path, isDirectory: false })
+}
+
+async function copyCommitHash(hash: string): Promise<void> {
+  await navigator.clipboard.writeText(hash)
+  isHashCopied.value = true
+  setTimeout(() => { isHashCopied.value = false }, 1500)
+}
+
+async function onCherryPickSubmit(payload: { hash: string; autoPush: boolean }): Promise<void> {
+  const ok = await handleCherryPick(payload.hash, payload.autoPush)
+  if (ok) isCherryPickOpen.value = false
 }
 
 function handleKeyDown(e: KeyboardEvent): void {
@@ -174,6 +155,7 @@ defineExpose({
       @discard-all="handleDiscardAll"
       @commit="() => handleCommit()"
       @commit-and-push="() => handleCommit(true)"
+      @cherry-pick="isCherryPickOpen = true"
       @view-git-log="emit('open-git-graph')"
       @show-git-output="emit('open-git-graph')"
     />
@@ -272,6 +254,14 @@ defineExpose({
           <button
             type="button"
             class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors"
+            title="Cherry-pick Commit"
+            @click="isCherryPickOpen = true"
+          >
+            <GitMerge class="w-3.5 h-3.5 text-purple-400" />
+          </button>
+          <button
+            type="button"
+            class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors"
             title="More Options"
             @click.stop="handleToggleMenu"
           >
@@ -351,6 +341,37 @@ defineExpose({
             </button>
           </div>
         </div>
+
+        <!-- Recent Commit Pill Banner -->
+        <div
+          v-if="lastCommitHash"
+          class="flex items-center justify-between px-2 py-1 bg-[#14161B] rounded border border-purple-500/30 text-[10px]"
+        >
+          <div class="flex items-center space-x-1 truncate text-slate-400">
+            <span class="text-slate-400">Last:</span>
+            <span class="font-mono text-purple-300 font-bold truncate">{{ lastCommitHash.slice(0, 7) }}</span>
+          </div>
+          <div class="flex items-center space-x-1 shrink-0">
+            <button
+              type="button"
+              class="px-1.5 py-0.5 rounded hover:bg-[#252A36] text-blue-400 hover:text-blue-300 transition-colors flex items-center space-x-0.5"
+              title="Copy Commit Hash"
+              @click="copyCommitHash(lastCommitHash)"
+            >
+              <Check v-if="isHashCopied" class="w-3 h-3 text-emerald-400" />
+              <Copy v-else class="w-3 h-3" />
+              <span>{{ isHashCopied ? 'Copied' : 'Copy' }}</span>
+            </button>
+            <button
+              type="button"
+              class="px-1.5 py-0.5 rounded bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 text-[10px] font-medium transition-colors border border-purple-500/25"
+              title="Cherry-pick this commit to current branch"
+              @click="isCherryPickOpen = true"
+            >
+              Cherry-pick
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- File Changes Lists Container -->
@@ -365,126 +386,33 @@ defineExpose({
           <p class="text-[11px] text-slate-500">Working tree clean</p>
         </div>
 
-        <!-- 1. Staged Changes Section -->
-        <div v-if="stagedFiles.length > 0" class="mb-1">
-          <div
-            class="px-3 py-1.5 flex items-center justify-between text-[11px] font-bold text-slate-300 hover:bg-[#252A36]/40 cursor-pointer"
-            @click="isStagedExpanded = !isStagedExpanded"
-          >
-            <div class="flex items-center space-x-1">
-              <component :is="isStagedExpanded ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400" />
-              <span class="text-xs font-semibold">Staged Changes</span>
-            </div>
-            <span class="min-w-4 h-4 px-1 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center leading-none">
-              {{ stagedFiles.length }}
-            </span>
-          </div>
-
-          <div v-show="isStagedExpanded" class="space-y-0.5">
-            <div
-              v-for="file in stagedFiles"
-              :key="file.path"
-              class="group px-3 py-1 flex items-center justify-between hover:bg-[#252A36] cursor-pointer transition-colors"
-              @click="handleOpenFile(file)"
-            >
-              <div class="flex items-center space-x-2 truncate min-w-0 pr-2">
-                <Folder v-if="file.isDirectory" class="w-3.5 h-3.5 shrink-0 text-amber-400" />
-                <FileCode v-else class="w-3.5 h-3.5 shrink-0" :class="getFileIconColor(file.path)" />
-                <span class="truncate text-slate-200 font-medium">{{ getFileName(file.path) }}</span>
-                <span v-if="getFileDir(file.relPath)" class="truncate text-[10px] text-slate-500">{{ getFileDir(file.relPath) }}</span>
-              </div>
-
-              <div class="flex items-center space-x-1.5 shrink-0">
-                <button
-                  type="button"
-                  class="p-0.5 rounded hover:bg-[#32394C] text-slate-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Unstage Changes"
-                  @click.stop="handleUnstage(file)"
-                >
-                  <Minus class="w-3 h-3" />
-                </button>
-                <span class="font-bold font-mono text-xs" :class="getStatusColor(file.status)">
-                  {{ file.status }}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 2. Changes (Unstaged) Section -->
-        <div v-if="unstagedFiles.length > 0">
-          <div
-            class="px-3 py-1.5 flex items-center justify-between text-[11px] font-bold text-slate-300 hover:bg-[#252A36]/40 cursor-pointer"
-            @click="isChangesExpanded = !isChangesExpanded"
-          >
-            <div class="flex items-center space-x-1">
-              <component :is="isChangesExpanded ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400" />
-              <span class="text-xs font-semibold">Changes</span>
-            </div>
-
-            <!-- Header Action Icons: Discard All, Stage All, Blue Count Badge -->
-            <div class="flex items-center space-x-1">
-              <button
-                type="button"
-                class="p-0.5 rounded hover:bg-[#32394C] text-slate-400 hover:text-white transition-colors"
-                title="Discard All Changes"
-                @click.stop="handleDiscardAll"
-              >
-                <ArrowDownToLine class="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                class="p-0.5 rounded hover:bg-[#32394C] text-slate-400 hover:text-white transition-colors"
-                title="Stage All Changes"
-                @click.stop="handleStageAll"
-              >
-                <Plus class="w-3.5 h-3.5" />
-              </button>
-              <span class="min-w-4 h-4 px-1 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center leading-none">
-                {{ unstagedFiles.length }}
-              </span>
-            </div>
-          </div>
-
-          <div v-show="isChangesExpanded" class="space-y-0.5">
-            <div
-              v-for="file in unstagedFiles"
-              :key="file.path"
-              class="group px-3 py-1 flex items-center justify-between hover:bg-[#252A36] cursor-pointer transition-colors"
-              @click="handleOpenFile(file)"
-            >
-              <div class="flex items-center space-x-2 truncate min-w-0 pr-2">
-                <Folder v-if="file.isDirectory" class="w-3.5 h-3.5 shrink-0 text-amber-400" />
-                <FileCode v-else class="w-3.5 h-3.5 shrink-0" :class="getFileIconColor(file.path)" />
-                <span class="truncate text-slate-200 font-medium">{{ getFileName(file.path) }}</span>
-                <span v-if="getFileDir(file.relPath)" class="truncate text-[10px] text-slate-500">{{ getFileDir(file.relPath) }}</span>
-              </div>
-
-              <div class="flex items-center space-x-1.5 shrink-0">
-                <button
-                  type="button"
-                  class="p-0.5 rounded hover:bg-[#32394C] text-slate-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Discard Changes"
-                  @click.stop="handleDiscard(file)"
-                >
-                  <RotateCcw class="w-3 h-3" />
-                </button>
-                <button
-                  type="button"
-                  class="p-0.5 rounded hover:bg-[#32394C] text-slate-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Stage Changes"
-                  @click.stop="handleStage(file)"
-                >
-                  <Plus class="w-3.5 h-3.5" />
-                </button>
-                <span class="font-bold font-mono text-xs" :class="getStatusColor(file.status)">
-                  {{ file.status }}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
+        <!-- Staged & Unstaged File Lists -->
+        <EditorSourceControlList
+          :staged-files="stagedFiles"
+          :unstaged-files="unstagedFiles"
+          :get-file-icon-color="getFileIconColor"
+          :get-file-name="getFileName"
+          :get-file-dir="getFileDir"
+          :get-status-color="getStatusColor"
+          @open-file="handleOpenFile"
+          @stage="handleStage"
+          @unstage="handleUnstage"
+          @discard="handleDiscard"
+          @stage-all="handleStageAll"
+          @discard-all="handleDiscardAll"
+        />
       </div>
     </div>
+
+    <!-- Cherry-pick Modal -->
+    <EditorCherryPickModal
+      :show="isCherryPickOpen"
+      :current-branch="gitStatus.branch"
+      :default-hash="lastCommitHash"
+      :is-loading="isLoading"
+      @close="isCherryPickOpen = false"
+      @submit="onCherryPickSubmit"
+      @abort="handleCherryPickAbort"
+    />
   </div>
 </template>

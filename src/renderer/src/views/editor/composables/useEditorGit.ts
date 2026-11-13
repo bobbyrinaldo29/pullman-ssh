@@ -6,6 +6,7 @@ export interface UseEditorGitReturn {
   isCommitting: Ref<boolean>
   isGenerating: Ref<boolean>
   commitMessage: Ref<string>
+  lastCommitHash: Ref<string>
   gitStatus: Ref<GitStatusResult>
   repoName: ComputedRef<string>
   currentActivePath: ComputedRef<string>
@@ -16,6 +17,8 @@ export interface UseEditorGitReturn {
   handleGenerateCommit: () => Promise<void>
   handlePull: () => Promise<void>
   handlePush: () => Promise<void>
+  handleCherryPick: (hash: string, autoPush?: boolean) => Promise<boolean>
+  handleCherryPickAbort: () => Promise<void>
   handleStageAll: () => Promise<void>
   handleDiscardAll: () => Promise<void>
   handleStage: (file: GitChangeItem) => Promise<void>
@@ -39,6 +42,7 @@ export function useEditorGit(props: {
   const isCommitting = ref(false)
   const isGenerating = ref(false)
   const commitMessage = ref('')
+  const lastCommitHash = ref(localStorage.getItem('pullman_last_commit_hash') || '')
   const gitStatus = ref<GitStatusResult>({
     isGit: false,
     branch: '',
@@ -96,8 +100,17 @@ export function useEditorGit(props: {
     isCommitting.value = true
     try {
       const target = gitStatus.value.root || props.rootPath
-      await window.api.sftpGitCommit(target, msg, props.sessionId)
+      const res = await window.api.sftpGitCommit(target, msg, props.sessionId)
       commitMessage.value = ''
+      if (res?.commitHash) {
+        lastCommitHash.value = res.commitHash
+        localStorage.setItem('pullman_last_commit_hash', res.commitHash)
+        try {
+          await navigator.clipboard.writeText(res.commitHash)
+        } catch {
+          // ignore
+        }
+      }
       if (andPush && window.api?.sftpGitPush) {
         await window.api.sftpGitPush(target, props.sessionId)
       }
@@ -106,6 +119,44 @@ export function useEditorGit(props: {
       alert(`Commit failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       isCommitting.value = false
+    }
+  }
+
+  async function handleCherryPick(hash: string, autoPush = true): Promise<boolean> {
+    if (!window.api?.sftpGitCherryPick || !gitStatus.value.isGit) return false
+    isLoading.value = true
+    try {
+      const target = gitStatus.value.root || props.rootPath
+      const res = await window.api.sftpGitCherryPick(target, hash, { autoPush }, props.sessionId)
+      if (!res.success) {
+        if (res.isConflict) {
+          alert(`Cherry-pick conflict: ${res.message}\n\nPlease resolve conflicts or click 'Abort Cherry-pick'.`)
+        } else {
+          alert(`Cherry-pick failed: ${res.message}`)
+        }
+        await fetchStatus()
+        return false
+      }
+      alert(`Success: ${res.message}`)
+      await fetchStatus()
+      return true
+    } catch (err) {
+      alert(`Cherry-pick error: ${err instanceof Error ? err.message : String(err)}`)
+      return false
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  async function handleCherryPickAbort(): Promise<void> {
+    if (!window.api?.sftpGitCherryPickAbort || !gitStatus.value.isGit) return
+    try {
+      const target = gitStatus.value.root || props.rootPath
+      const res = await window.api.sftpGitCherryPickAbort(target, props.sessionId)
+      alert(res.message)
+      await fetchStatus()
+    } catch (err) {
+      alert(`Abort error: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -226,6 +277,7 @@ export function useEditorGit(props: {
       await fetchStatus()
     } catch (err) {
       console.error('Failed to stage all:', err)
+      alert(`Stage all failed: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -248,6 +300,7 @@ export function useEditorGit(props: {
       await fetchStatus()
     } catch (err) {
       console.error('Failed to stage file:', err)
+      alert(`Stage failed: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -258,6 +311,7 @@ export function useEditorGit(props: {
       await fetchStatus()
     } catch (err) {
       console.error('Failed to unstage file:', err)
+      alert(`Unstage failed: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -310,6 +364,7 @@ export function useEditorGit(props: {
     isCommitting,
     isGenerating,
     commitMessage,
+    lastCommitHash,
     gitStatus,
     repoName,
     currentActivePath,
@@ -320,6 +375,8 @@ export function useEditorGit(props: {
     handleGenerateCommit,
     handlePull,
     handlePush,
+    handleCherryPick,
+    handleCherryPickAbort,
     handleStageAll,
     handleDiscardAll,
     handleStage,

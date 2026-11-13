@@ -204,7 +204,7 @@ const api = {
     remotePath: string,
     message: string,
     sessionId?: string
-  ): Promise<{ success: boolean; message: string }> =>
+  ): Promise<{ success: boolean; message: string; commitHash?: string; shortHash?: string }> =>
     ipcRenderer.invoke('sftp:git-commit', { remotePath, message, sessionId }),
   sftpGitDiscard: (
     filePath: string,
@@ -231,6 +231,18 @@ const api = {
     sessionId?: string
   ): Promise<{ success: boolean; message: string }> =>
     ipcRenderer.invoke('sftp:git-push', { remotePath, sessionId }),
+  sftpGitCherryPick: (
+    remotePath: string,
+    hash: string,
+    options?: { autoPush?: boolean },
+    sessionId?: string
+  ): Promise<{ success: boolean; message: string; isConflict?: boolean }> =>
+    ipcRenderer.invoke('sftp:git-cherry-pick', { remotePath, hash, options, sessionId }),
+  sftpGitCherryPickAbort: (
+    remotePath: string,
+    sessionId?: string
+  ): Promise<{ success: boolean; message: string }> =>
+    ipcRenderer.invoke('sftp:git-cherry-pick-abort', { remotePath, sessionId }),
   sftpGitLog: (
     remotePath: string,
     sessionId?: string

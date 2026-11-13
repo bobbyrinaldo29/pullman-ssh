@@ -22,6 +22,7 @@ const emit = defineEmits<{
   (e: 'commit-and-push'): void
   (e: 'view-git-log'): void
   (e: 'show-git-output'): void
+  (e: 'cherry-pick'): void
 }>()
 
 const activeSubmenu = ref<string | null>(null)
@@ -201,6 +202,13 @@ function trigger(action: () => void): void {
                 @click="trigger(() => emit('commit-and-push'))"
               >
                 <span>Commit &amp; Push</span>
+              </button>
+              <button
+                type="button"
+                class="w-full px-2.5 py-1 text-left hover:bg-blue-600 hover:text-white rounded"
+                @click="trigger(() => emit('cherry-pick'))"
+              >
+                <span>Cherry-pick Commit...</span>
               </button>
             </div>
           </div>

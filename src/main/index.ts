@@ -798,52 +798,38 @@ app.whenReady().then(() => {
     }
   )
 
-  ipcMain.handle(
-    'sftp:git-discard',
-    (
-      _,
-      { filePath, sessionId }: { filePath: string; sessionId?: string }
-    ) => {
-      return sftpService.gitDiscard(filePath, sessionId)
-    }
+  ipcMain.handle('sftp:git-discard', (_, { filePath, sessionId }: { filePath: string; sessionId?: string }) =>
+    sftpService.gitDiscard(filePath, sessionId)
+  )
+
+  ipcMain.handle('sftp:git-stage', (_, { filePath, staged, sessionId }: { filePath: string; staged: boolean; sessionId?: string }) =>
+    sftpService.gitStage(filePath, staged, sessionId)
+  )
+
+  ipcMain.handle('sftp:git-stage-all', (_, { remotePath, sessionId }: { remotePath: string; sessionId?: string }) =>
+    sftpService.gitStageAll(remotePath, sessionId)
+  )
+
+  ipcMain.handle('sftp:git-discard-all', (_, { remotePath, sessionId }: { remotePath: string; sessionId?: string }) =>
+    sftpService.gitDiscardAll(remotePath, sessionId)
+  )
+
+  ipcMain.handle('sftp:git-pull', (_, { remotePath, sessionId }: { remotePath: string; sessionId?: string }) =>
+    sftpService.gitPull(remotePath, sessionId)
+  )
+
+  ipcMain.handle('sftp:git-push', (_, { remotePath, sessionId }: { remotePath: string; sessionId?: string }) =>
+    sftpService.gitPush(remotePath, sessionId)
   )
 
   ipcMain.handle(
-    'sftp:git-stage',
-    (
-      _,
-      { filePath, staged, sessionId }: { filePath: string; staged: boolean; sessionId?: string }
-    ) => {
-      return sftpService.gitStage(filePath, staged, sessionId)
-    }
+    'sftp:git-cherry-pick',
+    (_, { remotePath, hash, options, sessionId }: { remotePath: string; hash: string; options?: { autoPush?: boolean }; sessionId?: string }) =>
+      sftpService.gitCherryPick(remotePath, hash, options, sessionId)
   )
 
-  ipcMain.handle(
-    'sftp:git-stage-all',
-    (_, { remotePath, sessionId }: { remotePath: string; sessionId?: string }) => {
-      return sftpService.gitStageAll(remotePath, sessionId)
-    }
-  )
-
-  ipcMain.handle(
-    'sftp:git-discard-all',
-    (_, { remotePath, sessionId }: { remotePath: string; sessionId?: string }) => {
-      return sftpService.gitDiscardAll(remotePath, sessionId)
-    }
-  )
-
-  ipcMain.handle(
-    'sftp:git-pull',
-    (_, { remotePath, sessionId }: { remotePath: string; sessionId?: string }) => {
-      return sftpService.gitPull(remotePath, sessionId)
-    }
-  )
-
-  ipcMain.handle(
-    'sftp:git-push',
-    (_, { remotePath, sessionId }: { remotePath: string; sessionId?: string }) => {
-      return sftpService.gitPush(remotePath, sessionId)
-    }
+  ipcMain.handle('sftp:git-cherry-pick-abort', (_, { remotePath, sessionId }: { remotePath: string; sessionId?: string }) =>
+    sftpService.gitCherryPickAbort(remotePath, sessionId)
   )
 
   ipcMain.handle(

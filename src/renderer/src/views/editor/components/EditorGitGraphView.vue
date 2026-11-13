@@ -172,6 +172,7 @@ async function openFileDiff(f: { status: 'M' | 'A' | 'D'; path: string }): Promi
 async function copyHash(hash: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(hash)
+    localStorage.setItem('pullman_last_commit_hash', hash)
     isCopied.value = true
     setTimeout(() => {
       isCopied.value = false

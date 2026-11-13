@@ -122,7 +122,7 @@ declare global {
         remotePath: string,
         message: string,
         sessionId?: string
-      ) => Promise<{ success: boolean; message: string }>
+      ) => Promise<{ success: boolean; message: string; commitHash?: string; shortHash?: string }>
       sftpGitDiscard: (
         filePath: string,
         sessionId?: string
@@ -136,6 +136,16 @@ declare global {
       sftpGitDiscardAll: (remotePath: string, sessionId?: string) => Promise<void>
       sftpGitPull: (remotePath: string, sessionId?: string) => Promise<{ success: boolean; message: string }>
       sftpGitPush: (remotePath: string, sessionId?: string) => Promise<{ success: boolean; message: string }>
+      sftpGitCherryPick: (
+        remotePath: string,
+        hash: string,
+        options?: { autoPush?: boolean },
+        sessionId?: string
+      ) => Promise<{ success: boolean; message: string; isConflict?: boolean }>
+      sftpGitCherryPickAbort: (
+        remotePath: string,
+        sessionId?: string
+      ) => Promise<{ success: boolean; message: string }>
       sftpGitLog: (remotePath: string, sessionId?: string) => Promise<string>
       sftpGitGraphCommits: (remotePath: string, sessionId?: string, limit?: number) => Promise<string>
       sftpGitCommitDetails: (remotePath: string, hash: string, sessionId?: string) => Promise<string>

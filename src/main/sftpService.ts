@@ -1,11 +1,6 @@
 import SftpClient from 'ssh2-sftp-client'
 import { promises as fs } from 'fs'
-import * as os from 'os'
 import * as path from 'path'
-import { exec } from 'child_process'
-import { promisify } from 'util'
-
-const execPromise = promisify(exec)
 
 export interface SftpFileItem {
   name: string
@@ -21,14 +16,8 @@ export interface SftpFileItem {
   type: string
 }
 
-export interface LocalFileItem {
-  name: string
-  path: string
-  isDirectory: boolean
-  size: number
-  modifyTime: number
-  author?: string
-}
+import { localFileService, LocalFileItem } from './localFileService'
+export type { LocalFileItem }
 
 interface SftpSession {
   client: SftpClient
@@ -48,6 +37,12 @@ export class SftpService {
 
   public getSession(sessionId?: string): SftpSession | undefined {
     return this.sessions.get(sessionId || 'default')
+  }
+
+  private requireSession(sessionId?: string): SftpSession {
+    const s = this.getSession(sessionId)
+    if (!s || !s.isConnected) throw new Error('SFTP client is not connected.')
+    return s
   }
 
   public getConnectedStatus(sessionId?: string): boolean {
@@ -410,34 +405,24 @@ export class SftpService {
   }
 
   public async mkdirRemote(remotePath: string, sessionId?: string, asSudo = false): Promise<void> {
-    const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) {
-      throw new Error('SFTP client is not connected.')
-    }
+    const session = this.requireSession(sessionId)
     const target = remotePath.replace(/\/+/g, '/')
-
     if (asSudo) {
       const escTarget = target.replace(/'/g, "'\\''")
       await this.execRemote(`mkdir -p '${escTarget}'`, sessionId, true)
       return
     }
-
     await session.client.mkdir(target, true)
   }
 
   public async deleteRemote(remotePath: string, isDirectory = false, sessionId?: string, asSudo = false): Promise<void> {
-    const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) {
-      throw new Error('SFTP client is not connected.')
-    }
+    const session = this.requireSession(sessionId)
     const target = remotePath.replace(/\/+/g, '/')
-
     if (asSudo) {
       const escTarget = target.replace(/'/g, "'\\''")
       await this.execRemote(`rm -rf '${escTarget}'`, sessionId, true)
       return
     }
-
     if (isDirectory) {
       await session.client.rmdir(target, true)
     } else {
@@ -446,46 +431,33 @@ export class SftpService {
   }
 
   public async renameRemote(oldPath: string, newPath: string, sessionId?: string, asSudo = false): Promise<void> {
-    const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) {
-      throw new Error('SFTP client is not connected.')
-    }
+    const session = this.requireSession(sessionId)
     const cleanOld = oldPath.replace(/\/+/g, '/')
     const cleanNew = newPath.replace(/\/+/g, '/')
-
     if (asSudo) {
       const escOld = cleanOld.replace(/'/g, "'\\''")
       const escNew = cleanNew.replace(/'/g, "'\\''")
       await this.execRemote(`mv '${escOld}' '${escNew}'`, sessionId, true)
       return
     }
-
     await session.client.rename(cleanOld, cleanNew)
   }
 
   public async chmodRemote(remotePath: string, mode: number | string, sessionId?: string, asSudo = false): Promise<void> {
-    const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) {
-      throw new Error('SFTP client is not connected.')
-    }
+    const session = this.requireSession(sessionId)
     const cleanPath = remotePath.replace(/\/+/g, '/')
     const modeStr = String(mode).replace(/^0+/, '') || '0'
-
     if (asSudo) {
       const esc = cleanPath.replace(/'/g, "'\\''")
       await this.execRemote(`chmod ${modeStr} '${esc}'`, sessionId, true)
       return
     }
-
     const numericMode = parseInt(modeStr, 8)
     await session.client.chmod(cleanPath, numericMode)
   }
 
   public async readFile(remotePath: string, sessionId?: string, asSudo = false): Promise<string> {
-    const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) {
-      throw new Error('SFTP client is not connected.')
-    }
+    const session = this.requireSession(sessionId)
     const cleanPath = remotePath.replace(/\/+/g, '/')
     if (asSudo && session.config?.user !== 'root') {
       const esc = cleanPath.replace(/'/g, "'\\''")
@@ -500,10 +472,7 @@ export class SftpService {
   }
 
   public async writeFile(remotePath: string, content: string, sessionId?: string, asSudo = false): Promise<void> {
-    const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) {
-      throw new Error('SFTP client is not connected.')
-    }
+    const session = this.requireSession(sessionId)
     const cleanPath = remotePath.replace(/\/+/g, '/')
     const buffer = Buffer.from(content, 'utf-8')
     if (asSudo && session.config?.user !== 'root') {
@@ -517,78 +486,24 @@ export class SftpService {
     await session.client.put(buffer, cleanPath)
   }
 
-  public async renameLocal(oldPath: string, newPath: string, asSudo = false): Promise<void> {
-    if (asSudo && process.platform === 'darwin') {
-      try {
-        const escOld = oldPath.replace(/"/g, '\\"')
-        const escNew = newPath.replace(/"/g, '\\"')
-        await execPromise(`osascript -e 'do shell script "mv \\"${escOld}\\" \\"${escNew}\\"" with administrator privileges'`)
-        return
-      } catch {
-        // fallback to standard fs rename
-      }
-    }
-    await fs.rename(oldPath, newPath)
+  public renameLocal(oldPath: string, newPath: string, asSudo = false): Promise<void> {
+    return localFileService.renameLocal(oldPath, newPath, asSudo)
   }
 
-  public async mkdirLocal(dirPath: string, asSudo = false): Promise<void> {
-    if (asSudo && process.platform === 'darwin') {
-      try {
-        const esc = dirPath.replace(/"/g, '\\"')
-        await execPromise(`osascript -e 'do shell script "mkdir -p \\"${esc}\\"" with administrator privileges'`)
-        return
-      } catch {
-        // fallback to standard fs mkdir
-      }
-    }
-    await fs.mkdir(dirPath, { recursive: true })
+  public mkdirLocal(dirPath: string, asSudo = false): Promise<void> {
+    return localFileService.mkdirLocal(dirPath, asSudo)
   }
 
-  public async deleteLocal(filePath: string, asSudo = false): Promise<void> {
-    if (asSudo && process.platform === 'darwin') {
-      try {
-        const esc = filePath.replace(/"/g, '\\"')
-        await execPromise(`osascript -e 'do shell script "rm -rf \\"${esc}\\"" with administrator privileges'`)
-        return
-      } catch {
-        // fallback to standard fs rm
-      }
-    }
-    await fs.rm(filePath, { recursive: true, force: true })
+  public deleteLocal(filePath: string, asSudo = false): Promise<void> {
+    return localFileService.deleteLocal(filePath, asSudo)
   }
 
-  // Local filesystem operations
   public getLocalHome(): string {
-    return os.homedir()
+    return localFileService.getLocalHome()
   }
 
-  public async listLocal(dirPath: string): Promise<LocalFileItem[]> {
-    const targetDir = dirPath || os.homedir()
-    const entries = await fs.readdir(targetDir, { withFileTypes: true })
-    const items: LocalFileItem[] = []
-
-    for (const e of entries) {
-      try {
-        const full = path.join(targetDir, e.name)
-        const stat = await fs.stat(full)
-        items.push({
-          name: e.name,
-          path: full,
-          isDirectory: e.isDirectory(),
-          size: stat.size,
-          modifyTime: stat.mtimeMs,
-          author: os.userInfo?.()?.username || ''
-        })
-      } catch {
-        // ignore unreadable
-      }
-    }
-
-    return items.sort((a, b) => {
-      if (a.isDirectory && !b.isDirectory) return -1
-      if (!a.isDirectory && b.isDirectory) return 1
-      return a.name.localeCompare(b.name)
-    })
+  public listLocal(dirPath: string): Promise<LocalFileItem[]> {
+    return localFileService.listLocal(dirPath)
   }
 
   private gitCd(remotePath: string): string {
@@ -664,7 +579,7 @@ export class SftpService {
       const branch = infoLines[1]
       const escGitRoot = gitRoot.replace(/'/g, "'\\''")
 
-      const statusCmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escGitRoot}' 2>/dev/null && git -c safe.directory=* status --porcelain=v1 2>/dev/null || true`
+      const statusCmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escGitRoot}' 2>/dev/null && git -c safe.directory=* -c status.showUntrackedFiles=normal status --porcelain=v1 -unormal 2>/dev/null || true`
       const statusRes = await this.execRemote(statusCmd, sessionId, false)
       const rawLines = statusRes.stdout.split('\n').filter(Boolean)
 
@@ -716,16 +631,23 @@ export class SftpService {
     remotePath: string,
     message: string,
     sessionId?: string
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<{ success: boolean; message: string; commitHash?: string; shortHash?: string }> {
     const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) {
-      throw new Error('SFTP client is not connected.')
-    }
+    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
     const cd = this.gitCd(remotePath)
     const escMsg = message.replace(/'/g, "'\\''")
-    const cmd = `${cd} && git -c safe.directory=* add -A && git -c safe.directory=* commit -m '${escMsg}'`
-    const res = await this.execRemote(cmd, sessionId, false)
-    return { success: true, message: res.stdout.trim() || 'Committed successfully.' }
+    const cmd = `${cd} && git -c safe.directory=* add -A && git -c safe.directory=* commit -m '${escMsg}' && git -c safe.directory=* rev-parse HEAD`
+    let res = await this.execRemote(cmd, sessionId, false)
+    if (res.code !== 0 && session.config?.password) {
+      res = await this.execRemote(cmd, sessionId, true)
+    }
+    if (res.code !== 0) {
+      throw new Error(res.stderr.trim() || res.stdout.trim() || 'Failed to commit.')
+    }
+    const lines = res.stdout.trim().split('\n').map((l) => l.trim()).filter(Boolean)
+    const commitHash = lines[lines.length - 1] || ''
+    const shortHash = commitHash.slice(0, 7)
+    return { success: true, message: lines.slice(0, -1).join('\n') || 'Committed successfully.', commitHash, shortHash }
   }
 
   public async gitDiscard(
@@ -733,15 +655,13 @@ export class SftpService {
     sessionId?: string
   ): Promise<void> {
     const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) {
-      throw new Error('SFTP client is not connected.')
-    }
+    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
     const cleanPath = (filePath || '').replace(/^diff:/, '').replace(/\/+/g, '/').replace(/\/+$/, '')
     const dir = path.posix.dirname(cleanPath)
     const base = path.posix.basename(cleanPath)
     const escBase = base.replace(/'/g, "'\\''")
-
-    const cmd = `${this.gitCd(dir)} && (git -c safe.directory=* restore -- '${escBase}' 2>/dev/null || git -c safe.directory=* checkout -- '${escBase}' 2>/dev/null || git -c safe.directory=* clean -fd -- '${escBase}' 2>/dev/null || rm -rf '${escBase}')`
+    const escClean = cleanPath.replace(/'/g, "'\\''")
+    const cmd = `${this.gitCd(dir)} && (git -c safe.directory=* restore -- '${escClean}' 2>/dev/null || git -c safe.directory=* restore -- '${escBase}' 2>/dev/null || git -c safe.directory=* checkout -- '${escClean}' 2>/dev/null || git -c safe.directory=* checkout -- '${escBase}' 2>/dev/null || git -c safe.directory=* clean -fd -- '${escClean}' 2>/dev/null || git -c safe.directory=* clean -fd -- '${escBase}' 2>/dev/null || rm -rf '${escClean}')`
     await this.execRemote(cmd, sessionId, false)
   }
 
@@ -751,24 +671,38 @@ export class SftpService {
     sessionId?: string
   ): Promise<void> {
     const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) {
-      throw new Error('SFTP client is not connected.')
-    }
+    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
     const cleanPath = (filePath || '').replace(/^diff:/, '').replace(/\/+/g, '/').replace(/\/+$/, '')
     const dir = path.posix.dirname(cleanPath)
     const base = path.posix.basename(cleanPath)
     const escBase = base.replace(/'/g, "'\\''")
+    const escClean = cleanPath.replace(/'/g, "'\\''")
 
     const action = staged
-      ? `git -c safe.directory=* add -A -- '${escBase}'`
-      : `git -c safe.directory=* restore --staged -- '${escBase}' 2>/dev/null || git -c safe.directory=* reset HEAD -- '${escBase}' 2>/dev/null || git -c safe.directory=* rm --cached -r -f -- '${escBase}' 2>/dev/null`
+      ? `git -c safe.directory=* add -A -- '${escBase}' 2>/dev/null || git -c safe.directory=* add -A -- '${escClean}'`
+      : `git -c safe.directory=* restore --staged -- '${escBase}' 2>/dev/null || git -c safe.directory=* restore --staged -- '${escClean}' 2>/dev/null || git -c safe.directory=* reset HEAD -- '${escBase}' 2>/dev/null || git -c safe.directory=* reset HEAD -- '${escClean}' 2>/dev/null || git -c safe.directory=* rm --cached -r -f -- '${escBase}' 2>/dev/null || git -c safe.directory=* rm --cached -r -f -- '${escClean}' 2>/dev/null`
 
     const cmd = `${this.gitCd(dir)} && ${action}`
-    await this.execRemote(cmd, sessionId, false)
+    let res = await this.execRemote(cmd, sessionId, false)
+    if (res.code !== 0 && session.config?.password) {
+      res = await this.execRemote(cmd, sessionId, true)
+    }
+    if (res.code !== 0) {
+      throw new Error(res.stderr.trim() || res.stdout.trim() || `Failed to ${staged ? 'stage' : 'unstage'} file.`)
+    }
   }
 
   public async gitStageAll(remotePath: string, sessionId?: string): Promise<void> {
-    await this.execRemote(`${this.gitCd(remotePath)} && git -c safe.directory=* add -A`, sessionId, false)
+    const session = this.getSession(sessionId)
+    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
+    const cmd = `${this.gitCd(remotePath)} && git -c safe.directory=* add -A`
+    let res = await this.execRemote(cmd, sessionId, false)
+    if (res.code !== 0 && session.config?.password) {
+      res = await this.execRemote(cmd, sessionId, true)
+    }
+    if (res.code !== 0) {
+      throw new Error(res.stderr.trim() || res.stdout.trim() || 'Failed to stage all changes.')
+    }
   }
 
   public async gitDiscardAll(remotePath: string, sessionId?: string): Promise<void> {
@@ -781,8 +715,62 @@ export class SftpService {
   }
 
   public async gitPush(remotePath: string, sessionId?: string): Promise<{ success: boolean; message: string }> {
-    const res = await this.execRemote(`${this.gitCd(remotePath)} && git -c safe.directory=* push`, sessionId, false)
-    return { success: true, message: res.stdout.trim() || res.stderr.trim() || 'Pushed.' }
+    const session = this.getSession(sessionId)
+    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
+    const cmd = `${this.gitCd(remotePath)} && git -c safe.directory=* push`
+    let res = await this.execRemote(cmd, sessionId, false)
+    if (res.code !== 0 && session.config?.password) {
+      res = await this.execRemote(cmd, sessionId, true)
+    }
+    return { success: res.code === 0, message: res.stdout.trim() || res.stderr.trim() || 'Pushed.' }
+  }
+
+  public async gitCherryPick(
+    remotePath: string,
+    hash: string,
+    options?: { autoPush?: boolean },
+    sessionId?: string
+  ): Promise<{ success: boolean; message: string; isConflict?: boolean }> {
+    const session = this.getSession(sessionId)
+    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
+    const cleanHash = (hash || '').trim().replace(/[^a-f0-9]/gi, '')
+    if (!cleanHash) throw new Error('Invalid commit hash.')
+
+    const cd = this.gitCd(remotePath)
+    await this.execRemote(`${cd} && git -c safe.directory=* fetch --all 2>/dev/null || true`, sessionId, false)
+
+    const pickCmd = `${cd} && git -c safe.directory=* cherry-pick '${cleanHash}'`
+    let res = await this.execRemote(pickCmd, sessionId, false)
+    if (res.code !== 0 && session.config?.password) {
+      res = await this.execRemote(pickCmd, sessionId, true)
+    }
+    if (res.code !== 0) {
+      const errOut = (res.stderr || res.stdout || '').trim()
+      const isConflict = errOut.toLowerCase().includes('conflict') || errOut.toLowerCase().includes('could not apply')
+      return { success: false, message: errOut || 'Cherry-pick failed.', isConflict }
+    }
+
+    let pushMsg = ''
+    if (options?.autoPush) {
+      const pushCmd = `${cd} && git -c safe.directory=* push`
+      let pushRes = await this.execRemote(pushCmd, sessionId, false)
+      if (pushRes.code !== 0 && session.config?.password) {
+        pushRes = await this.execRemote(pushCmd, sessionId, true)
+      }
+      if (pushRes.code !== 0) {
+        pushMsg = ` (Push warning: ${(pushRes.stderr || pushRes.stdout).trim()})`
+      } else {
+        pushMsg = ' and pushed to remote.'
+      }
+    }
+    return { success: true, message: (res.stdout.trim() || `Cherry-picked ${cleanHash} successfully`) + pushMsg }
+  }
+
+  public async gitCherryPickAbort(remotePath: string, sessionId?: string): Promise<{ success: boolean; message: string }> {
+    const session = this.getSession(sessionId)
+    if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
+    const res = await this.execRemote(`${this.gitCd(remotePath)} && git -c safe.directory=* cherry-pick --abort`, sessionId, false)
+    return { success: res.code === 0, message: res.stdout.trim() || res.stderr.trim() || 'Aborted.' }
   }
 
   public async gitLog(remotePath: string, sessionId?: string): Promise<string> {
