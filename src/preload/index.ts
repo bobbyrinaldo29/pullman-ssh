@@ -197,7 +197,7 @@ const api = {
     isGit: boolean
     branch: string
     root: string
-    files: { path: string; relPath: string; status: 'M' | 'A' | 'D' | 'U'; staged: boolean }[]
+    files: { path: string; relPath: string; status: 'M' | 'A' | 'D' | 'U'; staged: boolean; isDirectory?: boolean }[]
   }> =>
     ipcRenderer.invoke('sftp:get-git-status', { remotePath, sessionId }),
   sftpGitCommit: (

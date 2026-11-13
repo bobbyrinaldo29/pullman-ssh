@@ -116,7 +116,7 @@ declare global {
         isGit: boolean
         branch: string
         root: string
-        files: { path: string; relPath: string; status: 'M' | 'A' | 'D' | 'U'; staged: boolean }[]
+        files: { path: string; relPath: string; status: 'M' | 'A' | 'D' | 'U'; staged: boolean; isDirectory?: boolean }[]
       }>
       sftpGitCommit: (
         remotePath: string,

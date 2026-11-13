@@ -1,5 +1,31 @@
-import { ref, computed } from 'vue'
+import { ref, computed, type Ref, type ComputedRef } from 'vue'
 import { GitChangeItem, GitStatusResult } from '../types'
+
+export interface UseEditorGitReturn {
+  isLoading: Ref<boolean>
+  isCommitting: Ref<boolean>
+  isGenerating: Ref<boolean>
+  commitMessage: Ref<string>
+  gitStatus: Ref<GitStatusResult>
+  repoName: ComputedRef<string>
+  currentActivePath: ComputedRef<string>
+  stagedFiles: ComputedRef<GitChangeItem[]>
+  unstagedFiles: ComputedRef<GitChangeItem[]>
+  fetchStatus: (customPath?: string) => Promise<void>
+  handleCommit: (andPush?: boolean) => Promise<void>
+  handleGenerateCommit: () => Promise<void>
+  handlePull: () => Promise<void>
+  handlePush: () => Promise<void>
+  handleStageAll: () => Promise<void>
+  handleDiscardAll: () => Promise<void>
+  handleStage: (file: GitChangeItem) => Promise<void>
+  handleUnstage: (file: GitChangeItem) => Promise<void>
+  handleDiscard: (file: GitChangeItem) => Promise<void>
+  getFileName: (filePath: string) => string
+  getFileDir: (filePath: string) => string
+  getFileIconColor: (name: string) => string
+  getStatusColor: (status: 'M' | 'A' | 'D' | 'U') => string
+}
 
 export function useEditorGit(props: {
   isConnected: boolean
@@ -8,7 +34,7 @@ export function useEditorGit(props: {
   activeFilePath?: string
 }, emit: {
   (e: 'refresh-git'): void
-}) {
+}): UseEditorGitReturn {
   const isLoading = ref(false)
   const isCommitting = ref(false)
   const isGenerating = ref(false)
@@ -94,7 +120,7 @@ export function useEditorGit(props: {
     const rawModel = localStorage.getItem('antigravity_gemini_model')
     const model = (!rawModel || rawModel === 'gemini-2.0-flash') ? 'gemini-3.8-flash' : rawModel
     const files = gitStatus.value.files
-    const fileList = files.map((f) => `${f.status} ${f.relPath}`).join('\n')
+    const fileList = files.map((f) => `${f.status} ${f.relPath}${f.isDirectory ? '/' : ''}`).join('\n')
 
     const isOAuth = authType === 'oauth_token' && !!oauthToken
     const hasAuth = isOAuth || !!apiKey
@@ -115,7 +141,7 @@ export function useEditorGit(props: {
         const bodyStr = JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
 
         let ok = false
-        let data: any = null
+        let data: { candidates?: { content?: { parts?: { text?: string }[] } }[] } | null = null
 
         if (window.api?.callGeminiApi) {
           const res = await window.api.callGeminiApi({ url, headers, body: bodyStr })
@@ -237,7 +263,10 @@ export function useEditorGit(props: {
 
   async function handleDiscard(file: GitChangeItem): Promise<void> {
     if (!window.api?.sftpGitDiscard) return
-    const confirmed = confirm(`Are you sure you want to discard changes in ${getFileName(file.path)}?`)
+    const targetLabel = file.isDirectory
+      ? `folder "${getFileName(file.path)}"`
+      : `file "${getFileName(file.path)}"`
+    const confirmed = confirm(`Are you sure you want to discard changes in ${targetLabel}?`)
     if (!confirmed) return
     try {
       await window.api.sftpGitDiscard(file.path, props.sessionId)
@@ -248,11 +277,13 @@ export function useEditorGit(props: {
   }
 
   function getFileName(filePath: string): string {
-    return filePath.split('/').pop() || filePath
+    const clean = filePath.replace(/\/+$/, '')
+    return clean.split('/').pop() || clean
   }
 
   function getFileDir(filePath: string): string {
-    const parts = filePath.split('/')
+    const clean = filePath.replace(/\/+$/, '')
+    const parts = clean.split('/')
     parts.pop()
     return parts.join('/')
   }

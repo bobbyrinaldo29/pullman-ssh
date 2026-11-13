@@ -83,11 +83,8 @@ const {
 } = useEditorGit(props, emit)
 
 function handleOpenFile(file: GitChangeItem): void {
-  emit('open-file', {
-    name: getFileName(file.path),
-    path: file.path,
-    isDirectory: false
-  })
+  if (file.isDirectory) return
+  emit('open-file', { name: getFileName(file.path), path: file.path, isDirectory: false })
 }
 
 function handleKeyDown(e: KeyboardEvent): void {
@@ -391,9 +388,10 @@ defineExpose({
               @click="handleOpenFile(file)"
             >
               <div class="flex items-center space-x-2 truncate min-w-0 pr-2">
-                <FileCode class="w-3.5 h-3.5 shrink-0" :class="getFileIconColor(file.path)" />
+                <Folder v-if="file.isDirectory" class="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                <FileCode v-else class="w-3.5 h-3.5 shrink-0" :class="getFileIconColor(file.path)" />
                 <span class="truncate text-slate-200 font-medium">{{ getFileName(file.path) }}</span>
-                <span class="truncate text-[10px] text-slate-500">{{ getFileDir(file.relPath) }}</span>
+                <span v-if="getFileDir(file.relPath)" class="truncate text-[10px] text-slate-500">{{ getFileDir(file.relPath) }}</span>
               </div>
 
               <div class="flex items-center space-x-1.5 shrink-0">
@@ -456,9 +454,10 @@ defineExpose({
               @click="handleOpenFile(file)"
             >
               <div class="flex items-center space-x-2 truncate min-w-0 pr-2">
-                <FileCode class="w-3.5 h-3.5 shrink-0" :class="getFileIconColor(file.path)" />
+                <Folder v-if="file.isDirectory" class="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                <FileCode v-else class="w-3.5 h-3.5 shrink-0" :class="getFileIconColor(file.path)" />
                 <span class="truncate text-slate-200 font-medium">{{ getFileName(file.path) }}</span>
-                <span class="truncate text-[10px] text-slate-500">{{ getFileDir(file.relPath) }}</span>
+                <span v-if="getFileDir(file.relPath)" class="truncate text-[10px] text-slate-500">{{ getFileDir(file.relPath) }}</span>
               </div>
 
               <div class="flex items-center space-x-1.5 shrink-0">

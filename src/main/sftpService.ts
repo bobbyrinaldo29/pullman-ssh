@@ -644,7 +644,7 @@ export class SftpService {
     isGit: boolean
     branch: string
     root: string
-    files: { path: string; relPath: string; status: 'M' | 'A' | 'D' | 'U'; staged: boolean }[]
+    files: { path: string; relPath: string; status: 'M' | 'A' | 'D' | 'U'; staged: boolean; isDirectory?: boolean }[]
   }> {
     const session = this.getSession(sessionId)
     if (!session || !session.isConnected) {
@@ -664,11 +664,11 @@ export class SftpService {
       const branch = infoLines[1]
       const escGitRoot = gitRoot.replace(/'/g, "'\\''")
 
-      const statusCmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escGitRoot}' 2>/dev/null && git -c safe.directory=* status --porcelain=v1 -uall 2>/dev/null || true`
+      const statusCmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escGitRoot}' 2>/dev/null && git -c safe.directory=* status --porcelain=v1 2>/dev/null || true`
       const statusRes = await this.execRemote(statusCmd, sessionId, false)
       const rawLines = statusRes.stdout.split('\n').filter(Boolean)
 
-      const files: { path: string; relPath: string; status: 'M' | 'A' | 'D' | 'U'; staged: boolean }[] = []
+      const files: { path: string; relPath: string; status: 'M' | 'A' | 'D' | 'U'; staged: boolean; isDirectory?: boolean }[] = []
 
       for (const line of rawLines) {
         if (line.length < 3) continue
@@ -681,6 +681,9 @@ export class SftpService {
         if (relPath.includes(' -> ')) {
           relPath = relPath.split(' -> ')[1].trim()
         }
+
+        const isDirectory = relPath.endsWith('/')
+        const cleanRelPath = relPath.replace(/\/+$/, '')
 
         let status: 'M' | 'A' | 'D' | 'U' = 'M'
         let staged = false
@@ -699,8 +702,8 @@ export class SftpService {
           staged = true
         }
 
-        const fullPath = `${gitRoot}/${relPath}`.replace(/\/+/g, '/')
-        files.push({ path: fullPath, relPath, status, staged })
+        const fullPath = `${gitRoot}/${cleanRelPath}`.replace(/\/+/g, '/')
+        files.push({ path: fullPath, relPath: cleanRelPath, status, staged, isDirectory })
       }
 
       return { isGit: true, branch, root: gitRoot, files }
@@ -733,12 +736,12 @@ export class SftpService {
     if (!session || !session.isConnected) {
       throw new Error('SFTP client is not connected.')
     }
-    const cleanPath = (filePath || '').replace(/^diff:/, '').replace(/\/+/g, '/')
+    const cleanPath = (filePath || '').replace(/^diff:/, '').replace(/\/+/g, '/').replace(/\/+$/, '')
     const dir = path.posix.dirname(cleanPath)
     const base = path.posix.basename(cleanPath)
     const escBase = base.replace(/'/g, "'\\''")
 
-    const cmd = `${this.gitCd(dir)} && (git -c safe.directory=* restore -- '${escBase}' 2>/dev/null || git -c safe.directory=* checkout -- '${escBase}' 2>/dev/null || rm -f '${escBase}')`
+    const cmd = `${this.gitCd(dir)} && (git -c safe.directory=* restore -- '${escBase}' 2>/dev/null || git -c safe.directory=* checkout -- '${escBase}' 2>/dev/null || git -c safe.directory=* clean -fd -- '${escBase}' 2>/dev/null || rm -rf '${escBase}')`
     await this.execRemote(cmd, sessionId, false)
   }
 
@@ -751,14 +754,14 @@ export class SftpService {
     if (!session || !session.isConnected) {
       throw new Error('SFTP client is not connected.')
     }
-    const cleanPath = (filePath || '').replace(/^diff:/, '').replace(/\/+/g, '/')
+    const cleanPath = (filePath || '').replace(/^diff:/, '').replace(/\/+/g, '/').replace(/\/+$/, '')
     const dir = path.posix.dirname(cleanPath)
     const base = path.posix.basename(cleanPath)
     const escBase = base.replace(/'/g, "'\\''")
 
     const action = staged
       ? `git -c safe.directory=* add -A -- '${escBase}'`
-      : `git -c safe.directory=* restore --staged -- '${escBase}' 2>/dev/null || git -c safe.directory=* reset HEAD -- '${escBase}' 2>/dev/null || git -c safe.directory=* rm --cached -f -- '${escBase}' 2>/dev/null`
+      : `git -c safe.directory=* restore --staged -- '${escBase}' 2>/dev/null || git -c safe.directory=* reset HEAD -- '${escBase}' 2>/dev/null || git -c safe.directory=* rm --cached -r -f -- '${escBase}' 2>/dev/null`
 
     const cmd = `${this.gitCd(dir)} && ${action}`
     await this.execRemote(cmd, sessionId, false)

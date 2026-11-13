@@ -63,6 +63,7 @@ export interface GitChangeItem {
   relPath: string
   status: 'M' | 'A' | 'D' | 'U'
   staged: boolean
+  isDirectory?: boolean
 }
 
 export interface GitStatusResult {
