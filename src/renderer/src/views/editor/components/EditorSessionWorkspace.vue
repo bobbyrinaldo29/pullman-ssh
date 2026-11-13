@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { HostItem } from '../../../types/connection'
-import { EditorCursorPos, GitBlameInfo } from '../types'
+import { EditorCursorPos, GitBlameInfo, EditorFileNode } from '../types'
 import { useEditorSsh } from '../composables/useEditorSsh'
 import { useEditorSettings } from '../../../composables/useEditorSettings'
 
@@ -28,29 +28,19 @@ const emit = defineEmits<{
 }>()
 
 const activeView = ref<'explorer' | 'search' | 'git' | 'antigravity'>('explorer')
-const isSidebarOpen = ref(true)
-const sidebarWidth = ref(250)
+const isSidebarOpen = ref(true), sidebarWidth = ref(250)
 const cursorPos = ref<EditorCursorPos>({ line: 1, col: 1 })
 const syntaxDiagnostics = ref<string[]>([])
 const primaryCodeAreaRef = ref<InstanceType<typeof EditorCodeArea> | null>(null)
-const isAiGenOpen = ref(false)
-
-// Git Blame State
-const currentBlame = ref<GitBlameInfo | null>(null)
-const blameCache = new Map<string, GitBlameInfo | null>()
+const isAiGenOpen = ref(false), isSplit = ref(false), splitActiveTabId = ref<string>('')
+const isResizingSidebar = ref(false), activeGitGraphPath = ref('')
+const currentBlame = ref<GitBlameInfo | null>(null), blameCache = new Map<string, GitBlameInfo | null>()
 let blameTimeout: ReturnType<typeof setTimeout> | null = null
-
-// Split Editor State
-const isSplit = ref(false)
-const splitActiveTabId = ref<string>('')
-const isResizingSidebar = ref(false)
-const activeGitGraphPath = ref('')
 
 function startSidebarResize(e: MouseEvent): void {
   e.preventDefault()
   isResizingSidebar.value = true
-  const startX = e.clientX
-  const startWidth = sidebarWidth.value
+  const startX = e.clientX, startWidth = sidebarWidth.value
   const onMouseMove = (me: MouseEvent): void => {
     sidebarWidth.value = Math.max(160, Math.min(700, startWidth + me.clientX - startX))
   }
@@ -79,21 +69,12 @@ const splitActiveTab = computed(() => {
   return openTabs.value.find((t) => t.id === splitActiveTabId.value) || activeTab.value
 })
 
-watch(
-  [isConnecting, isConnected, connectionError],
-  () => {
-    if (isConnecting.value) {
-      emit('update-status', 'connecting')
-    } else if (isConnected.value) {
-      emit('update-status', 'connected')
-    } else if (connectionError.value) {
-      emit('update-status', 'error')
-    } else {
-      emit('update-status', 'disconnected')
-    }
-  },
-  { immediate: true }
-)
+watch([isConnecting, isConnected, connectionError], () => {
+  if (isConnecting.value) emit('update-status', 'connecting')
+  else if (isConnected.value) emit('update-status', 'connected')
+  else if (connectionError.value) emit('update-status', 'error')
+  else emit('update-status', 'disconnected')
+}, { immediate: true })
 
 function updateGitBlame(): void {
   if (blameTimeout) {
@@ -117,18 +98,9 @@ function updateGitBlame(): void {
   blameTimeout = setTimeout(async () => {
     try {
       if (window.api?.sftpGetGitBlame) {
-        const res = await window.api.sftpGetGitBlame(
-          curTab.path,
-          targetLine,
-          sessionId.value
-        )
-        if (res) {
-          currentBlame.value = res
-          blameCache.set(cacheKey, res)
-        } else {
-          currentBlame.value = null
-          blameCache.set(cacheKey, null)
-        }
+        const res = await window.api.sftpGetGitBlame(curTab.path, targetLine, sessionId.value)
+        currentBlame.value = res || null
+        blameCache.set(cacheKey, res || null)
       }
     } catch {
       currentBlame.value = null
@@ -161,14 +133,8 @@ function handleToggleView(view: 'explorer' | 'search' | 'git' | 'antigravity'): 
 }
 
 function handleOpenFileAt(file: { name: string; path: string; line: number }): void {
-  openFile({
-    name: file.name,
-    path: file.path,
-    isDirectory: false
-  }).then(() => {
-    nextTick(() => {
-      cursorPos.value = { line: file.line, col: 1 }
-    })
+  openFile({ name: file.name, path: file.path, isDirectory: false }).then(() => {
+    nextTick(() => { cursorPos.value = { line: file.line, col: 1 } })
   })
 }
 
@@ -180,17 +146,13 @@ function handleToggleSplit(): void {
 }
 
 function handleInsertCode(code: string): void {
-  if (primaryCodeAreaRef.value?.insertSnippet) {
-    primaryCodeAreaRef.value.insertSnippet(code)
-  }
+  if (primaryCodeAreaRef.value?.insertSnippet) primaryCodeAreaRef.value.insertSnippet(code)
 }
 
 function handleGitPathUpdate(path: string): void {
   activeGitGraphPath.value = path
   const graphTab = openTabs.value.find((t) => t.id === 'git-graph-tab')
-  if (graphTab) {
-    graphTab.path = path
-  }
+  if (graphTab) graphTab.path = path
 }
 
 function openGitGraphTab(): void {
@@ -213,20 +175,16 @@ async function openDiffTab(filePath: string, hash?: string): Promise<void> {
   if (window.api?.sftpGitFileDiff) {
     const target = activeGitGraphPath.value || rootPath.value || '/'
     const res = await window.api.sftpGitFileDiff(target, hash || 'HEAD', filePath, sessionId.value)
-    if (typeof res === 'string') {
-      diffContent = res
-    } else if (res) {
+    if (typeof res === 'string') diffContent = res
+    else if (res) {
       diffContent = res.diff || ''
       diffOriginal = res.original || ''
       diffModified = res.modified || ''
     }
   }
 
-  // If the file is open and has unsaved edits in an active editor tab, use that content for modified
   const openCodeTab = openTabs.value.find((t) => t.path === filePath && t.viewType !== 'diff')
-  if (openCodeTab && openCodeTab.content && openCodeTab.isDirty) {
-    diffModified = openCodeTab.content
-  }
+  if (openCodeTab?.content && openCodeTab.isDirty) diffModified = openCodeTab.content
 
   openTabs.value.push({
     id: tabId, name: `${fileName} (Diff)`, path: filePath, content: '', originalContent: '',
@@ -242,7 +200,9 @@ async function handleSaveActiveTab(asSudo = false): Promise<boolean> {
   if (editorSettings.formatOnSave.value) {
     try {
       await primaryCodeAreaRef.value?.formatDocument?.()
-    } catch {}
+    } catch {
+      // ignore format error
+    }
   }
   return saveActiveTab(asSudo)
 }
@@ -259,15 +219,57 @@ function handleKeyDown(e: KeyboardEvent): void {
   }
 }
 
+async function handleOpenExternal(nodeOrTab: { path: string }): Promise<void> {
+  const targetPath = nodeOrTab?.path
+  if (!targetPath) return
+  const openTab = openTabs.value.find((t) => t.path === targetPath)
+  try {
+    if (window.api?.openInExternalEditor) {
+      await window.api.openInExternalEditor({
+        sessionId: sessionId.value,
+        remotePath: targetPath,
+        content: openTab?.content,
+        editorType: editorSettings.externalEditorType.value,
+        customPath: editorSettings.customEditorPath.value,
+        customArgs: editorSettings.customEditorArgs.value,
+        autoSync: editorSettings.autoSyncExternal.value
+      })
+    }
+  } catch (err) {
+    alert(`Failed to open in external editor: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+function handleFileTreeOpen(node: EditorFileNode): void {
+  if (node.isDirectory) { toggleFolder(node); return }
+  if (editorSettings.openExternalByDefault.value && editorSettings.externalEditorType.value !== 'internal') {
+    handleOpenExternal(node)
+    return
+  }
+  openFile(node)
+}
+
+let unlistenExternalSync: (() => void) | null = null
+
 onMounted(() => {
   window.addEventListener('keydown', handleKeyDown)
-  if (props.host) {
-    connectToHost(props.host)
+  if (props.host) connectToHost(props.host)
+  if (window.api?.onExternalFileSynced) {
+    unlistenExternalSync = window.api.onExternalFileSynced((data) => {
+      if (data.sessionId && data.sessionId !== sessionId.value) return
+      const tab = openTabs.value.find((t) => t.path === data.remotePath)
+      if (tab) {
+        tab.content = data.content
+        tab.originalContent = data.content
+        tab.isDirty = false
+      }
+    })
   }
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
+  if (unlistenExternalSync) unlistenExternalSync()
   if (blameTimeout) clearTimeout(blameTimeout)
   disconnect()
 })
@@ -317,7 +319,8 @@ defineExpose({
           :git-info="gitInfo"
           @retry-connect="props.host ? connectToHost(props.host) : undefined"
           @disconnect="disconnect"
-          @open-file="openFile"
+          @open-file="handleFileTreeOpen"
+          @open-external="handleOpenExternal"
           @toggle-folder="toggleFolder"
           @refresh-tree="loadRootDirectory"
           @set-root="setRootFolder"
@@ -398,6 +401,7 @@ defineExpose({
             @save-as-sudo="saveActiveTab(true)"
             @open-git-graph="openGitGraphTab"
             @toggle-ai-gen="isAiGenOpen = !isAiGenOpen"
+            @open-external="handleOpenExternal"
           />
 
           <!-- Antigravity Inline AI Gen Floating Widget -->

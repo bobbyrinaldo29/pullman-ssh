@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { X, ChevronRight, FileCode, FileText, File, Columns2, ShieldAlert, GitBranch, GitCompare, Sparkles } from 'lucide-vue-next'
+import type { Component } from 'vue'
+import { X, ChevronRight, FileCode, FileText, File, Columns2, ShieldAlert, GitBranch, GitCompare, Sparkles, ExternalLink } from 'lucide-vue-next'
 import { EditorTab } from '../types'
 
 defineProps<{
@@ -17,9 +18,10 @@ const emit = defineEmits<{
   (e: 'save-as-sudo'): void
   (e: 'open-git-graph'): void
   (e: 'toggle-ai-gen'): void
+  (e: 'open-external', tab: EditorTab): void
 }>()
 
-function getIcon(tab: EditorTab): any {
+function getIcon(tab: EditorTab): Component {
   if (tab.viewType === 'git-graph' || tab.name === 'Git Graph') return GitBranch
   if (tab.viewType === 'diff') return GitCompare
   const ext = tab.name.split('.').pop()?.toLowerCase() || ''
@@ -100,6 +102,15 @@ function getIconColor(tab: EditorTab): string {
           @click="emit('open-git-graph')"
         >
           <GitBranch class="w-4 h-4 text-blue-400" />
+        </button>
+        <button
+          v-if="activeTab && activeTab.viewType !== 'git-graph'"
+          type="button"
+          class="p-1 rounded text-slate-400 hover:text-white hover:bg-[#252A36] transition-colors flex items-center space-x-1"
+          title="Open in External Editor"
+          @click="emit('open-external', activeTab)"
+        >
+          <ExternalLink class="w-4 h-4 text-purple-400" />
         </button>
         <button
           v-if="activeTab && activeTab.viewType !== 'git-graph'"

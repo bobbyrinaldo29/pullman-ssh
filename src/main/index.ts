@@ -9,6 +9,7 @@ import icon from '../../resources/icon.png?asset'
 import { dbService, ConnectionInput } from './database'
 import { sftpService } from './sftpService'
 import { SshShellService } from './sshShellService'
+import { ExternalEditorService } from './externalEditorService'
 import { googleAuthService } from './googleAuthService'
 import { redmineService } from './redmineService'
 import { notificationService } from './notificationService'
@@ -616,6 +617,7 @@ app.whenReady().then(() => {
   })
 
   new SshShellService(sftpService).registerIpcHandlers()
+  new ExternalEditorService(sftpService).registerIpcHandlers()
 
   ipcMain.handle('sftp:status', (_, sessionId?: string) => {
     return sftpService.getConnectedStatus(sessionId)

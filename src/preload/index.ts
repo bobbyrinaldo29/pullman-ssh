@@ -346,7 +346,50 @@ const api = {
     statusText?: string
     data?: any
     error?: string
-  }> => ipcRenderer.invoke('redmine:request', payload)
+  }> => ipcRenderer.invoke('redmine:request', payload),
+  // External Editor APIs
+  detectExternalEditors: (): Promise<
+    Array<{
+      id: string
+      name: string
+      command: string
+      detected: boolean
+      executablePath?: string
+    }>
+  > => ipcRenderer.invoke('editor:detect-external-editors'),
+  openInExternalEditor: (payload: {
+    sessionId?: string
+    remotePath: string
+    content?: string
+    editorType?: string
+    customPath?: string
+    customArgs?: string
+    asSudo?: boolean
+    line?: number
+    autoSync?: boolean
+  }): Promise<{ success: boolean; localPath: string; message?: string }> =>
+    ipcRenderer.invoke('editor:open-in-external', payload),
+  testExternalEditorLaunch: (payload: {
+    editorType: string
+    customPath?: string
+    customArgs?: string
+  }): Promise<{ success: boolean; message: string }> =>
+    ipcRenderer.invoke('editor:test-external-launch', payload),
+  onExternalFileSynced: (
+    callback: (payload: {
+      remotePath: string
+      sessionId?: string
+      content: string
+      timestamp: number
+    }) => void
+  ): (() => void) => {
+    const listener = (
+      _: Electron.IpcRendererEvent,
+      data: { remotePath: string; sessionId?: string; content: string; timestamp: number }
+    ): void => callback(data)
+    ipcRenderer.on('editor:external-sync-complete', listener)
+    return () => ipcRenderer.removeListener('editor:external-sync-complete', listener)
+  }
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

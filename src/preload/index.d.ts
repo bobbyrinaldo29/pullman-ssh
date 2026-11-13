@@ -215,6 +215,39 @@ declare global {
         data?: any
         error?: string
       }>
+      detectExternalEditors: () => Promise<
+        Array<{
+          id: string
+          name: string
+          command: string
+          detected: boolean
+          executablePath?: string
+        }>
+      >
+      openInExternalEditor: (payload: {
+        sessionId?: string
+        remotePath: string
+        content?: string
+        editorType?: string
+        customPath?: string
+        customArgs?: string
+        asSudo?: boolean
+        line?: number
+        autoSync?: boolean
+      }) => Promise<{ success: boolean; localPath: string; message?: string }>
+      testExternalEditorLaunch: (payload: {
+        editorType: string
+        customPath?: string
+        customArgs?: string
+      }) => Promise<{ success: boolean; message: string }>
+      onExternalFileSynced: (
+        callback: (payload: {
+          remotePath: string
+          sessionId?: string
+          content: string
+          timestamp: number
+        }) => void
+      ) => () => void
     }
   }
 }

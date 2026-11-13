@@ -16,7 +16,8 @@ import {
   File,
   Copy,
   Trash2,
-  CornerDownRight
+  CornerDownRight,
+  ExternalLink
 } from 'lucide-vue-next'
 import { HostItem } from '../../../types/connection'
 import { EditorFileNode, EditorGitInfo } from '../types'
@@ -42,6 +43,7 @@ const emit = defineEmits<{
   (e: 'disconnect'): void
   (e: 'retry-connect'): void
   (e: 'open-file', node: EditorFileNode): void
+  (e: 'open-external', node: EditorFileNode): void
   (e: 'toggle-folder', node: EditorFileNode): void
   (e: 'refresh-tree'): void
   (e: 'set-root', path: string): void
@@ -119,38 +121,23 @@ function handleCopyPath(): void {
 }
 
 // Modal State for New File / New Folder
-const modalState = ref<{ show: boolean; type: 'file' | 'folder'; targetDir: string }>({
-  show: false,
-  type: 'file',
-  targetDir: '/'
-})
+const modalState = ref<{ show: boolean; type: 'file' | 'folder'; targetDir: string }>({ show: false, type: 'file', targetDir: '/' })
 
 function openNewItemModal(type: 'file' | 'folder', targetDir?: string): void {
   modalState.value = { show: true, type, targetDir: targetDir || props.rootPath || '/' }
 }
 
 function handleCreateItem(name: string): void {
-  if (modalState.value.type === 'file') {
-    emit('create-file', modalState.value.targetDir, name)
-  } else {
-    emit('create-folder', modalState.value.targetDir, name)
-  }
+  if (modalState.value.type === 'file') emit('create-file', modalState.value.targetDir, name)
+  else emit('create-folder', modalState.value.targetDir, name)
   modalState.value.show = false
 }
 
 // Modal State for Delete File / Folder
-const deleteModalState = ref<{ show: boolean; node: EditorFileNode | null; isDeleting: boolean }>({
-  show: false,
-  node: null,
-  isDeleting: false
-})
+const deleteModalState = ref<{ show: boolean; node: EditorFileNode | null; isDeleting: boolean }>({ show: false, node: null, isDeleting: false })
 
 function openDeleteModal(node: EditorFileNode): void {
-  deleteModalState.value = {
-    show: true,
-    node,
-    isDeleting: false
-  }
+  deleteModalState.value = { show: true, node, isDeleting: false }
 }
 
 function handleConfirmDelete(node: EditorFileNode): void {
@@ -165,9 +152,7 @@ function collapseAll(): void {
     for (const node of nodes) {
       if (node.isDirectory) {
         node.isExpanded = false
-        if (node.children && node.children.length > 0) {
-          collapse(node.children)
-        }
+        if (node.children?.length) collapse(node.children)
       }
     }
   }
@@ -436,6 +421,14 @@ onUnmounted(() => {
           >
             <FileCode class="w-4 h-4 text-blue-400 shrink-0" />
             <span>Open in Editor</span>
+          </button>
+          <button
+            type="button"
+            class="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-purple-600/20 hover:text-purple-300 text-slate-200 transition-colors text-left font-medium"
+            @click="emit('open-external', contextMenu.node!); closeContextMenu()"
+          >
+            <ExternalLink class="w-4 h-4 text-purple-400 shrink-0" />
+            <span>Open in External Editor</span>
           </button>
         </template>
 
