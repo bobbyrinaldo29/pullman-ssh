@@ -1,5 +1,5 @@
 import { BrowserWindow, ipcMain } from 'electron'
-import { spawn, spawnSync } from 'child_process'
+import { spawn, spawnSync, ChildProcess } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -167,7 +167,7 @@ export class ExternalEditorService {
       return { executable: exec, isShellScript: /\.cmd$|\.bat$/i.test(exec) }
     }
 
-    if (customPath && customPath.trim() && fs.existsSync(customPath.trim())) {
+    if (customPath && customPath.trim()) {
       const exec = customPath.trim()
       return { executable: exec, isShellScript: /\.cmd$|\.bat$/i.test(exec) }
     }
@@ -246,12 +246,25 @@ export class ExternalEditorService {
     const args = this.buildLaunchArgs(editorType, localFilePath, line, customArgs)
 
     try {
-      const child = spawn(executable, args, {
-        detached: true,
-        stdio: 'ignore',
-        shell: isShellScript || process.platform === 'win32'
+      const child = this.spawnEditorProcess(executable, args, isShellScript)
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          child.unref()
+          resolve()
+        }, 200)
+
+        child.once('error', (err) => {
+          clearTimeout(timer)
+          reject(err)
+        })
+
+        child.once('exit', (code) => {
+          if (code !== null && code !== 0) {
+            clearTimeout(timer)
+            reject(new Error(`Editor process exited immediately with error code ${code}`))
+          }
+        })
       })
-      child.unref()
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
       throw new Error(`Failed to launch editor "${executable}": ${errMsg}`, { cause: err })
@@ -324,7 +337,10 @@ export class ExternalEditorService {
           try {
             if (!fs.existsSync(localPath)) return
             const updatedContent = fs.readFileSync(localPath, 'utf8')
-            const currentHash = crypto.createHash('md5').update(updatedContent, 'utf8').digest('hex')
+            const currentHash = crypto
+              .createHash('md5')
+              .update(updatedContent, 'utf8')
+              .digest('hex')
 
             if (currentHash === record.lastHash) return
             record.lastHash = currentHash
@@ -360,6 +376,34 @@ export class ExternalEditorService {
     }
   }
 
+  private spawnEditorProcess(
+    executable: string,
+    args: string[],
+    isShellScript: boolean
+  ): ChildProcess {
+    const isWin = process.platform === 'win32'
+    if (isWin) {
+      const isCmdOrBat = /\.cmd$|\.bat$/i.test(executable)
+      const hasPathSep = executable.includes('\\') || executable.includes('/')
+      const isBareCommand = !hasPathSep && !/\.exe$/i.test(executable)
+
+      if (isShellScript || isCmdOrBat || isBareCommand) {
+        const target = executable.includes(' ') ? `"${executable}"` : executable
+        return spawn('cmd.exe', ['/c', target, ...args], {
+          detached: true,
+          stdio: 'ignore',
+          windowsVerbatimArguments: true
+        })
+      }
+    }
+
+    return spawn(executable, args, {
+      detached: true,
+      stdio: 'ignore',
+      shell: false
+    })
+  }
+
   public async testExternalLaunch(
     editorType: ExternalEditorType,
     customPath?: string,
@@ -375,17 +419,44 @@ export class ExternalEditorService {
       )
 
       const args = this.buildLaunchArgs(editorType, tempTestFile, 1, customArgs)
-      const child = spawn(executable, args, {
-        detached: true,
-        stdio: 'ignore',
-        shell: isShellScript || process.platform === 'win32'
-      })
-      child.unref()
+      const child = this.spawnEditorProcess(executable, args, isShellScript)
 
-      return {
-        success: true,
-        message: `Successfully launched ${editorType.toUpperCase()} (${path.basename(executable)})!`
-      }
+      return await new Promise<{ success: boolean; message: string }>((resolve) => {
+        let finished = false
+
+        const timer = setTimeout(() => {
+          if (!finished) {
+            finished = true
+            child.unref()
+            resolve({
+              success: true,
+              message: `Successfully launched ${editorType.toUpperCase()} (${path.basename(executable)})!`
+            })
+          }
+        }, 600)
+
+        child.once('error', (err) => {
+          if (!finished) {
+            finished = true
+            clearTimeout(timer)
+            resolve({
+              success: false,
+              message: `Failed to launch ${editorType.toUpperCase()}: ${err.message}`
+            })
+          }
+        })
+
+        child.once('exit', (code) => {
+          if (!finished && code !== null && code !== 0) {
+            finished = true
+            clearTimeout(timer)
+            resolve({
+              success: false,
+              message: `Editor process exited with code ${code}. Please verify executable path and arguments.`
+            })
+          }
+        })
+      })
     } catch (err) {
       return {
         success: false,
