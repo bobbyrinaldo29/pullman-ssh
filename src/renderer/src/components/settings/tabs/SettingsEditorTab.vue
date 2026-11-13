@@ -1,23 +1,18 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import ToggleSwitch from '../../ToggleSwitch.vue'
+import { useEditorSettings } from '../../../composables/useEditorSettings'
 
-const fontSize = ref(13)
-const tabSize = ref(4)
-const wordWrap = ref(true)
-const minimap = ref(true)
-const lineNumbers = ref(true)
-const fontLigatures = ref(true)
-const formatOnSave = ref(false)
-const fontFamily = ref(`'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace`)
-
-const fontFamilies = [
-  { label: 'JetBrains Mono', value: `'JetBrains Mono', monospace` },
-  { label: 'Fira Code', value: `'Fira Code', monospace` },
-  { label: 'Cascadia Code', value: `'Cascadia Code', monospace` },
-  { label: 'Consolas', value: `Consolas, monospace` },
-  { label: 'System Monospace', value: `monospace` }
-]
+const {
+  fontFamily,
+  fontSize,
+  tabSize,
+  fontLigatures,
+  minimap,
+  lineNumbers,
+  wordWrap,
+  formatOnSave,
+  fontFamilies
+} = useEditorSettings()
 </script>
 
 <template>

@@ -4,6 +4,8 @@ import { Code } from 'lucide-vue-next'
 import { EditorTab, EditorCursorPos, GitBlameInfo } from '../types'
 import { monaco, getMonacoLanguage } from '../monaco/monacoSetup'
 import { getEnclosingSymbolsAtPosition, getDocumentOutlineSymbols, BreadcrumbSymbol, DocumentOutlineSymbol } from '../services/treeSitterService'
+import { useEditorSettings } from '../../../composables/useEditorSettings'
+import { createGitBlameWidget } from '../services/editorBlameWidget'
 import EditorBreadcrumbBar from './EditorBreadcrumbBar.vue'
 import EditorSymbolOutlineModal from './EditorSymbolOutlineModal.vue'
 import '../monaco/editorMonaco.css'
@@ -27,6 +29,7 @@ const emit = defineEmits<{
 const containerRef = ref<HTMLDivElement | null>(null)
 let editor: monaco.editor.IStandaloneCodeEditor | null = null
 let resizeObserver: ResizeObserver | null = null
+const editorSettings = useEditorSettings()
 
 const activeSymbols = ref<BreadcrumbSymbol[]>([])
 const outlineSymbols = ref<DocumentOutlineSymbol[]>([])
@@ -70,53 +73,10 @@ const viewStateMap = new Map<string, monaco.editor.ICodeEditorViewState>()
 let currentTabId: string | null = null
 let isSwitchingTab = false
 
-// Git Blame Content Widget DOM Node
-const blameWidgetNode = document.createElement('div')
-blameWidgetNode.className = 'monaco-git-blame-inline'
-blameWidgetNode.style.display = 'none'
-
-const escapeHtml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-
-function updateBlameContentWidget(): void {
-  if (!editor) return
-  const blame = props.blame
-  const pos = editor.getPosition()
-  const model = editor.getModel()
-  if (!blame?.author || !pos || !model || !model.getLineContent(pos.lineNumber).trim()) {
-    blameWidgetNode.style.display = 'none'
-    blameWidgetNode.innerHTML = ''
-    editor.layoutContentWidget(gitBlameContentWidget)
-    return
-  }
-
-  const isCleanCommit = Boolean(blame.hash && !blame.isUncommitted && !blame.hash.startsWith('0000000') && blame.hash !== 'dirty')
-  const displayHash = isCleanCommit ? (blame.hash || '').substring(0, 7) : 'Uncommitted'
-
-  blameWidgetNode.style.display = 'inline-flex'
-  blameWidgetNode.innerHTML = `<div class="git-blame-badge" title="GitLens Blame: ${escapeHtml(blame.author)}, ${escapeHtml(blame.timeAgo || '')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="git-blame-icon"><circle cx="12" cy="12" r="3"></circle><line x1="3" y1="12" x2="9" y2="12"></line><line x1="15" y1="12" x2="21" y2="12"></line></svg><span class="git-blame-author">${escapeHtml(blame.author)}</span><span class="git-blame-time">${escapeHtml(blame.timeAgo || '')}</span><span class="git-blame-sep">•</span><span class="git-blame-summary">${escapeHtml(blame.summary || '')}</span></div><div class="git-blame-popover"><div class="git-blame-popover-header"><div class="git-blame-popover-hash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;color:#38bdf8;"><circle cx="12" cy="12" r="3"></circle><line x1="3" y1="12" x2="9" y2="12"></line><line x1="15" y1="12" x2="21" y2="12"></line></svg><span>${displayHash}</span></div><div class="git-blame-popover-actions">${isCleanCommit ? `<button type="button" class="git-blame-action-btn" data-blame-action="copy">Copy SHA</button>` : ''}<button type="button" class="git-blame-action-btn git-blame-action-graph" data-blame-action="graph">Git Graph</button></div></div><div class="git-blame-popover-body"><div class="git-blame-popover-author"><strong>${escapeHtml(blame.author)}</strong> <span style="color:#64748b;">committed ${escapeHtml(blame.timeAgo || '')}</span></div><div class="git-blame-popover-msg">${escapeHtml(blame.summary || '')}</div></div></div>`
-
-  editor.layoutContentWidget(gitBlameContentWidget)
-}
-
-const gitBlameContentWidget: monaco.editor.IContentWidget = {
-  getId: () => 'pullman.editor.gitBlameWidget',
-  getDomNode: () => blameWidgetNode,
-  getPosition: () => {
-    if (!props.blame || !props.blame.author || !editor) return null
-    const pos = editor.getPosition()
-    const model = editor.getModel()
-    if (!pos || !model) return null
-
-    const lineContent = model.getLineContent(pos.lineNumber)
-    if (!lineContent.trim()) return null
-
-    const maxCol = model.getLineMaxColumn(pos.lineNumber)
-    return {
-      position: { lineNumber: pos.lineNumber, column: maxCol },
-      preference: [monaco.editor.ContentWidgetPositionPreference.EXACT]
-    }
-  }
-}
+const blameWidget = createGitBlameWidget(
+  () => editor,
+  () => props.blame
+)
 
 function getOrCreateModel(tab: EditorTab): monaco.editor.ITextModel {
   const existing = modelMap.get(tab.id)
@@ -130,6 +90,7 @@ function getOrCreateModel(tab: EditorTab): monaco.editor.ITextModel {
   const lang = getMonacoLanguage(tab.name || tab.path || tab.language)
   const uri = monaco.Uri.parse(`inmemory://pullman/${tab.id}/${encodeURIComponent(tab.name || 'untitled')}`)
   const model = monaco.editor.createModel(tab.content, lang, uri)
+  model.updateOptions({ tabSize: editorSettings.tabSize.value })
 
   model.onDidChangeContent(() => {
     if (props.activeTab && props.activeTab.id === tab.id) {
@@ -145,11 +106,7 @@ function getOrCreateModel(tab: EditorTab): monaco.editor.ITextModel {
 const defaultEditorOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
   theme: 'pullman-dark',
   automaticLayout: true,
-  fontSize: 13,
-  fontFamily: "'Fira Code', Menlo, Monaco, 'Courier New', monospace",
   lineHeight: 22,
-  tabSize: 2,
-  minimap: { enabled: true, maxColumn: 80, scale: 1 },
   scrollBeyondLastLine: false,
   renderLineHighlight: 'all',
   cursorBlinking: 'smooth',
@@ -160,8 +117,42 @@ const defaultEditorOptions: monaco.editor.IStandaloneEditorConstructionOptions =
   padding: { top: 10, bottom: 10 },
   roundedSelection: true,
   fixedOverflowWidgets: true,
-  formatOnPaste: true
+  formatOnPaste: true,
+  ...editorSettings.getMonacoOptions()
 }
+
+async function handleSaveTrigger(asSudo = false): Promise<void> {
+  if (editorSettings.formatOnSave.value && editor) {
+    try {
+      await editor.getAction('editor.action.formatDocument')?.run()
+    } catch (e) {
+      console.warn('Format on save failed:', e)
+    }
+  }
+  if (asSudo) {
+    emit('save-as-sudo')
+  } else {
+    emit('save')
+  }
+}
+
+watch(
+  () => [
+    editorSettings.fontFamily.value,
+    editorSettings.fontSize.value,
+    editorSettings.tabSize.value,
+    editorSettings.fontLigatures.value,
+    editorSettings.minimap.value,
+    editorSettings.lineNumbers.value,
+    editorSettings.wordWrap.value
+  ],
+  () => {
+    if (editor) {
+      editor.updateOptions(editorSettings.getMonacoOptions())
+      editor.getModel()?.updateOptions({ tabSize: editorSettings.tabSize.value })
+    }
+  }
+)
 
 function initMonaco(): void {
   if (!containerRef.value || editor) return
@@ -174,12 +165,12 @@ function initMonaco(): void {
   }
 
   // Add Git Blame content widget
-  editor.addContentWidget(gitBlameContentWidget)
+  editor.addContentWidget(blameWidget.contentWidget)
 
   // Track cursor position & cache view state
   editor.onDidChangeCursorPosition((e) => {
     emit('cursor-change', { line: e.position.lineNumber, col: e.position.column })
-    updateBlameContentWidget()
+    blameWidget.update()
     updateActiveSymbols(e.position.lineNumber, e.position.column)
     if (!isSwitchingTab && currentTabId && editor) {
       const state = editor.saveViewState()
@@ -189,7 +180,7 @@ function initMonaco(): void {
 
   // Track scroll position to keep blame widget aligned & cache view state
   editor.onDidScrollChange(() => {
-    updateBlameContentWidget()
+    blameWidget.update()
     if (!isSwitchingTab && currentTabId && editor) {
       const state = editor.saveViewState()
       if (state) viewStateMap.set(currentTabId, state)
@@ -197,13 +188,8 @@ function initMonaco(): void {
   })
 
   // Keyboard Shortcuts: Save, Save as Sudo, AI Gen, Wrap Log
-  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-    emit('save')
-  })
-
-  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyS, () => {
-    emit('save-as-sudo')
-  })
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => handleSaveTrigger(false))
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyS, () => handleSaveTrigger(true))
 
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () => {
     emit('toggle-ai-gen')
@@ -225,7 +211,7 @@ function initMonaco(): void {
     currentTabId = props.activeTab.id
     const savedState = viewStateMap.get(props.activeTab.id)
     if (savedState) editor.restoreViewState(savedState)
-    updateBlameContentWidget()
+    blameWidget.update()
     updateOutlineSymbols()
   }
 
@@ -234,7 +220,7 @@ function initMonaco(): void {
   // Setup ResizeObserver for layout
   resizeObserver = new ResizeObserver(() => {
     editor?.layout()
-    updateBlameContentWidget()
+    blameWidget.update()
   })
   resizeObserver.observe(containerRef.value)
 }
@@ -275,7 +261,7 @@ function switchTabModel(): void {
       monaco.editor.setModelLanguage(model, lang)
     }
     editor.focus()
-    updateBlameContentWidget()
+    blameWidget.update()
     updateOutlineSymbols()
     nextTick(() => {
       editor?.layout()
@@ -292,7 +278,7 @@ function switchTabModel(): void {
     activeSymbols.value = []
     outlineSymbols.value = []
     editor.setModel(null)
-    updateBlameContentWidget()
+    blameWidget.update()
   }
 }
 
@@ -323,7 +309,7 @@ watch(
 watch(
   () => props.blame,
   () => {
-    updateBlameContentWidget()
+    blameWidget.update()
   },
   { deep: true }
 )
@@ -334,7 +320,7 @@ function goToLine(lineNumber: number): void {
   editor.revealLineInCenter(lineNumber)
   editor.setPosition({ lineNumber, column: 1 })
   editor.focus()
-  updateBlameContentWidget()
+  blameWidget.update()
 }
 
 function insertSnippet(code: string): void {
@@ -394,11 +380,14 @@ function handleWrapLog(): void {
 defineExpose({
   goToLine,
   handleWrapLog,
-  insertSnippet
+  insertSnippet,
+  formatDocument: async () => {
+    await editor?.getAction('editor.action.formatDocument')?.run()
+  }
 })
 
 onMounted(() => {
-  blameWidgetNode.onclick = (e: MouseEvent) => {
+  blameWidget.domNode.onclick = (e: MouseEvent) => {
     e.stopPropagation()
     const target = e.target as HTMLElement
     const copyBtn = target.closest('[data-blame-action="copy"]') as HTMLElement | null
@@ -425,7 +414,7 @@ onMounted(() => {
 onUnmounted(() => {
   resizeObserver?.disconnect()
   try {
-    editor?.removeContentWidget(gitBlameContentWidget)
+    editor?.removeContentWidget(blameWidget.contentWidget)
   } catch {}
   for (const m of modelMap.values()) {
     if (!m.isDisposed()) m.dispose()

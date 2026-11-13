@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { Columns2, AlignJustify, ChevronUp, ChevronDown, FileCode } from 'lucide-vue-next'
 import { monaco, getMonacoLanguage } from '../monaco/monacoSetup'
 import { parseUnifiedDiff } from '../utils/diffParser'
+import { useEditorSettings } from '../../../composables/useEditorSettings'
 
 const props = withDefaults(
   defineProps<{
@@ -29,6 +30,7 @@ const diffContainerRef = ref<HTMLDivElement | null>(null)
 let diffEditor: monaco.editor.IStandaloneDiffEditor | null = null
 let originalModel: monaco.editor.ITextModel | null = null
 let modifiedModel: monaco.editor.ITextModel | null = null
+const editorSettings = useEditorSettings()
 
 const isInline = ref(false)
 const changesCount = ref(0)
@@ -83,13 +85,14 @@ function initDiffEditor(): void {
       readOnly: props.readOnly,
       renderSideBySide: !isInline.value,
       originalEditable: false,
-      fontSize: 12,
-      fontFamily: "'Fira Code', Menlo, Monaco, 'Courier New', monospace",
+      fontSize: editorSettings.fontSize.value,
+      fontFamily: editorSettings.fontFamily.value,
+      fontLigatures: editorSettings.fontLigatures.value,
       lineHeight: 20,
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
-      diffWordWrap: 'on',
-      wordWrap: 'on',
+      diffWordWrap: editorSettings.wordWrap.value ? 'on' : 'off',
+      wordWrap: editorSettings.wordWrap.value ? 'on' : 'off',
       renderIndicators: true,
       smoothScrolling: true,
       ignoreTrimWhitespace: false,
@@ -145,6 +148,28 @@ watch(
     nextTick(() => {
       if (diffEditor) updateModels()
     })
+  }
+)
+
+watch(
+  () => [
+    editorSettings.fontFamily.value,
+    editorSettings.fontSize.value,
+    editorSettings.fontLigatures.value,
+    editorSettings.lineNumbers.value,
+    editorSettings.wordWrap.value
+  ],
+  () => {
+    if (diffEditor) {
+      diffEditor.updateOptions({
+        fontFamily: editorSettings.fontFamily.value,
+        fontSize: editorSettings.fontSize.value,
+        fontLigatures: editorSettings.fontLigatures.value,
+        lineNumbers: editorSettings.lineNumbers.value ? 'on' : 'off',
+        diffWordWrap: editorSettings.wordWrap.value ? 'on' : 'off',
+        wordWrap: editorSettings.wordWrap.value ? 'on' : 'off'
+      })
+    }
   }
 )
 

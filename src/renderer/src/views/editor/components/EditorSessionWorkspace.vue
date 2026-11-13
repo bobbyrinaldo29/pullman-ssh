@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { HostItem } from '../../../types/connection'
 import { EditorCursorPos, GitBlameInfo } from '../types'
 import { useEditorSsh } from '../composables/useEditorSsh'
+import { useEditorSettings } from '../../../composables/useEditorSettings'
 
 import EditorActivityBar from './EditorActivityBar.vue'
 import EditorFileTree from './EditorFileTree.vue'
@@ -235,11 +236,22 @@ async function openDiffTab(filePath: string, hash?: string): Promise<void> {
   activeTabId.value = tabId
 }
 
+const editorSettings = useEditorSettings()
+
+async function handleSaveActiveTab(asSudo = false): Promise<boolean> {
+  if (editorSettings.formatOnSave.value) {
+    try {
+      await primaryCodeAreaRef.value?.formatDocument?.()
+    } catch {}
+  }
+  return saveActiveTab(asSudo)
+}
+
 function handleKeyDown(e: KeyboardEvent): void {
   if (!props.isActive) return
   const isCmd = e.metaKey || e.ctrlKey
   if (isCmd && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); isAiGenOpen.value = !isAiGenOpen.value }
-  else if (isCmd && e.altKey && (e.key === 's' || e.key === 'S')) { e.preventDefault(); saveActiveTab(true) }
+  else if (isCmd && e.altKey && (e.key === 's' || e.key === 'S')) { e.preventDefault(); handleSaveActiveTab(true) }
   else if (isCmd && e.key === '\\') { e.preventDefault(); handleToggleSplit() }
   else if (isCmd && e.shiftKey && (e.key === 'g' || e.key === 'G')) { e.preventDefault(); handleToggleView('git') }
   else if (e.altKey && (e.key === 'l' || e.key === 'L' || e.code === 'KeyL' || e.key === '¬')) {
@@ -429,8 +441,8 @@ defineExpose({
             :host-name="currentHost?.name"
             @cursor-change="(pos) => (cursorPos = pos)"
             @diagnostics-change="(errors) => (syntaxDiagnostics = errors)"
-            @save="saveActiveTab(false)"
-            @save-as-sudo="saveActiveTab(true)"
+            @save="handleSaveActiveTab(false)"
+            @save-as-sudo="handleSaveActiveTab(true)"
             @toggle-ai-gen="isAiGenOpen = !isAiGenOpen"
             @open-git-graph="openGitGraphTab"
           />
@@ -452,8 +464,8 @@ defineExpose({
             v-else
             :active-tab="splitActiveTab"
             :host-name="currentHost?.name"
-            @save="saveActiveTab(false)"
-            @save-as-sudo="saveActiveTab(true)"
+            @save="handleSaveActiveTab(false)"
+            @save-as-sudo="handleSaveActiveTab(true)"
             @open-git-graph="openGitGraphTab"
           />
         </template>
