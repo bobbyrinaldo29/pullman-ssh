@@ -409,6 +409,8 @@ defineExpose({
       :show="isCherryPickOpen"
       :current-branch="gitStatus.branch"
       :default-hash="lastCommitHash"
+      :root-path="gitStatus.root || rootPath"
+      :session-id="sessionId"
       :is-loading="isLoading"
       @close="isCherryPickOpen = false"
       @submit="onCherryPickSubmit"

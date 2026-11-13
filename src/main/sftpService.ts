@@ -792,8 +792,10 @@ export class SftpService {
   public async getCommitDetails(remotePath: string, hash: string, sessionId?: string): Promise<string> {
     const session = this.getSession(sessionId)
     if (!session || !session.isConnected) return ''
-    const escDir = (remotePath || '').replace(/\/+/g, '/').replace(/'/g, "'\\''"), escCwd = (session.cwd || '').replace(/'/g, "'\\''"), escHash = hash.replace(/'/g, "'\\''")
-    const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; for P in '${escDir}' '${escCwd}'; do [ -z "$P" ] && continue; T="$P"; [ -f "$T" ] && T=$(dirname "$T"); [ ! -d "$T" ] && continue; cd "$T" 2>/dev/null || continue; R=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null); if [ -n "$R" ]; then cd "$R" 2>/dev/null && git -c safe.directory=* show --stat --name-status -n 1 '${escHash}' 2>/dev/null; exit 0; fi; done`
+    const cleanHash = (hash || '').trim().replace(/[^a-f0-9]/gi, '')
+    if (!cleanHash) return ''
+    const escDir = (remotePath || '').replace(/\/+/g, '/').replace(/'/g, "'\\''"), escCwd = (session.cwd || '').replace(/'/g, "'\\''"), escHash = cleanHash.replace(/'/g, "'\\''")
+    const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; for P in '${escDir}' '${escCwd}'; do [ -z "$P" ] && continue; T="$P"; [ -f "$T" ] && T=$(dirname "$T"); [ ! -d "$T" ] && continue; cd "$T" 2>/dev/null || continue; R=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null); if [ -n "$R" ]; then cd "$R" 2>/dev/null; OUT=$(git -c safe.directory=* show --stat --name-status -n 1 '${escHash}' 2>/dev/null || true); if [ -z "$OUT" ]; then git -c safe.directory=* fetch --all 2>/dev/null || true; OUT=$(git -c safe.directory=* show --stat --name-status -n 1 '${escHash}' 2>/dev/null || true); fi; echo "$OUT"; exit 0; fi; done`
     const res = await this.execRemote(cmd, sessionId, false)
     return res.stdout.trim()
   }
