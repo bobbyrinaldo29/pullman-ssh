@@ -274,11 +274,12 @@ export class SftpService {
     let feedStdin = false
 
     if (asSudo && !isRoot) {
+      const esc = command.replace(/'/g, "'\\''")
       if (password) {
-        cmdToRun = `sudo -S -p '' -- ${command}`
+        cmdToRun = `sudo -S -p '' -- sh -c '${esc}'`
         feedStdin = true
       } else {
-        cmdToRun = `sudo -n -- ${command}`
+        cmdToRun = `sudo -n -- sh -c '${esc}'`
       }
     }
 
@@ -489,22 +490,10 @@ export class SftpService {
   public renameLocal(oldPath: string, newPath: string, asSudo = false): Promise<void> {
     return localFileService.renameLocal(oldPath, newPath, asSudo)
   }
-
-  public mkdirLocal(dirPath: string, asSudo = false): Promise<void> {
-    return localFileService.mkdirLocal(dirPath, asSudo)
-  }
-
-  public deleteLocal(filePath: string, asSudo = false): Promise<void> {
-    return localFileService.deleteLocal(filePath, asSudo)
-  }
-
-  public getLocalHome(): string {
-    return localFileService.getLocalHome()
-  }
-
-  public listLocal(dirPath: string): Promise<LocalFileItem[]> {
-    return localFileService.listLocal(dirPath)
-  }
+  public mkdirLocal(dirPath: string, asSudo = false): Promise<void> { return localFileService.mkdirLocal(dirPath, asSudo) }
+  public deleteLocal(filePath: string, asSudo = false): Promise<void> { return localFileService.deleteLocal(filePath, asSudo) }
+  public getLocalHome(): string { return localFileService.getLocalHome() }
+  public listLocal(dirPath: string): Promise<LocalFileItem[]> { return localFileService.listLocal(dirPath) }
 
   private gitCd(remotePath: string): string {
     const clean = (remotePath || '/').replace(/^diff:/, '').replace(/\/+/g, '/')
@@ -662,7 +651,10 @@ export class SftpService {
     const escBase = base.replace(/'/g, "'\\''")
     const escClean = cleanPath.replace(/'/g, "'\\''")
     const cmd = `${this.gitCd(dir)} && (git -c safe.directory=* restore -- '${escClean}' 2>/dev/null || git -c safe.directory=* restore -- '${escBase}' 2>/dev/null || git -c safe.directory=* checkout -- '${escClean}' 2>/dev/null || git -c safe.directory=* checkout -- '${escBase}' 2>/dev/null || git -c safe.directory=* clean -fd -- '${escClean}' 2>/dev/null || git -c safe.directory=* clean -fd -- '${escBase}' 2>/dev/null || rm -rf '${escClean}')`
-    await this.execRemote(cmd, sessionId, false)
+    const res = await this.execRemote(cmd, sessionId, false)
+    if (res.code !== 0 && session.config?.password) {
+      await this.execRemote(cmd, sessionId, true)
+    }
   }
 
   public async gitStage(
@@ -706,12 +698,22 @@ export class SftpService {
   }
 
   public async gitDiscardAll(remotePath: string, sessionId?: string): Promise<void> {
-    await this.execRemote(`${this.gitCd(remotePath)} && git -c safe.directory=* checkout -- . && git -c safe.directory=* clean -fd`, sessionId, false)
+    const cmd = `${this.gitCd(remotePath)} && git -c safe.directory=* checkout -- . && git -c safe.directory=* clean -fd`
+    const res = await this.execRemote(cmd, sessionId, false)
+    if (res.code !== 0) {
+      const session = this.getSession(sessionId)
+      if (session?.config?.password) await this.execRemote(cmd, sessionId, true)
+    }
   }
 
   public async gitPull(remotePath: string, sessionId?: string): Promise<{ success: boolean; message: string }> {
-    const res = await this.execRemote(`${this.gitCd(remotePath)} && git -c safe.directory=* pull`, sessionId, false)
-    return { success: true, message: res.stdout.trim() || res.stderr.trim() || 'Pulled.' }
+    const cmd = `${this.gitCd(remotePath)} && git -c safe.directory=* pull`
+    let res = await this.execRemote(cmd, sessionId, false)
+    if (res.code !== 0) {
+      const session = this.getSession(sessionId)
+      if (session?.config?.password) res = await this.execRemote(cmd, sessionId, true)
+    }
+    return { success: res.code === 0, message: res.stdout.trim() || res.stderr.trim() || 'Pulled.' }
   }
 
   public async gitPush(remotePath: string, sessionId?: string): Promise<{ success: boolean; message: string }> {
