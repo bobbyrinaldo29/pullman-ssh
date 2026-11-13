@@ -3,7 +3,7 @@ import { Server, Shield, Heart } from 'lucide-vue-next'
 
 const appInfo = {
   name: 'Pullman SSH Client & Database Workbench',
-  version: '1.3.1',
+  version: '2.0.0',
   electron: '30.0.0',
   chromium: '124.0.6367.243',
   node: '20.12.2',

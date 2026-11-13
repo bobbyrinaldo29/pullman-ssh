@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
-import { join } from 'path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { join, dirname } from 'path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'fs'
 import { randomBytes, createCipheriv, createDecipheriv } from 'crypto'
 
 export interface ConnectionRecord {
@@ -65,6 +65,9 @@ class DatabaseService {
       mkdirSync(userDataPath, { recursive: true })
     }
 
+    // Auto-migrate database & key from previous app paths if current path is empty
+    this.migrateFromLegacyIfEmpty(userDataPath)
+
     // 1. Initialize Encryption Key (.master.key)
     this.initEncryptionKey(userDataPath)
 
@@ -75,6 +78,69 @@ class DatabaseService {
 
     // 3. Create Schema
     this.createTables()
+  }
+
+  private migrateFromLegacyIfEmpty(userDataPath: string): void {
+    const dbPath = join(userDataPath, 'pullman.db')
+    const keyPath = join(userDataPath, '.master.key')
+
+    if (existsSync(dbPath)) {
+      try {
+        const currentDb = new Database(dbPath, { readonly: true })
+        const hasTable = currentDb
+          .prepare("SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='connections'")
+          .get() as { count: number } | undefined
+        if (hasTable && hasTable.count > 0) {
+          const connCount = currentDb.prepare('SELECT count(*) as count FROM connections').get() as
+            | { count: number }
+            | undefined
+          currentDb.close()
+          if (connCount && connCount.count > 0) {
+            return
+          }
+        } else {
+          currentDb.close()
+        }
+      } catch {
+        // Continue to check legacy candidates
+      }
+    }
+
+    const parentDir = dirname(userDataPath)
+    const candidates = ['pullman-app', 'Pullman', 'DO.MBA Pull Manager', 'domba-pull-manager']
+
+    for (const name of candidates) {
+      const candidateDir = join(parentDir, name)
+      if (candidateDir === userDataPath || !existsSync(candidateDir)) continue
+
+      const candidateDbPath = join(candidateDir, 'pullman.db')
+      const candidateKeyPath = join(candidateDir, '.master.key')
+
+      if (existsSync(candidateDbPath) && existsSync(candidateKeyPath)) {
+        try {
+          const testDb = new Database(candidateDbPath, { readonly: true })
+          const hasTable = testDb
+            .prepare("SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='connections'")
+            .get() as { count: number } | undefined
+          if (hasTable && hasTable.count > 0) {
+            const count = testDb.prepare('SELECT count(*) as count FROM connections').get() as
+              | { count: number }
+              | undefined
+            testDb.close()
+            if (count && count.count > 0) {
+              console.log(`[DatabaseService] Migrating ${count.count} connections from ${candidateDir}`)
+              copyFileSync(candidateKeyPath, keyPath)
+              copyFileSync(candidateDbPath, dbPath)
+              return
+            }
+          } else {
+            testDb.close()
+          }
+        } catch (e) {
+          console.warn('[DatabaseService] Failed to check candidate legacy db:', e)
+        }
+      }
+    }
   }
 
   private initEncryptionKey(userDataPath: string): void {

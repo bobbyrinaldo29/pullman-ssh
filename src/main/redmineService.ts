@@ -43,7 +43,7 @@ export const redmineService = {
     return new Promise((resolve) => {
       const headers: Record<string, string> = {
         Accept: payload.responseType === 'dataUrl' ? 'image/*, */*' : 'application/json, text/plain, */*',
-        'User-Agent': 'Pullman-SSH/1.3.1 (RedmineClient)',
+        'User-Agent': 'Pullman-SSH/2.0.0 (RedmineClient)',
         ...(payload.headers || {})
       }
 
