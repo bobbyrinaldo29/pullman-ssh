@@ -625,7 +625,7 @@ export class SftpService {
     if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
     const cd = this.gitCd(remotePath)
     const escMsg = message.replace(/'/g, "'\\''")
-    const cmd = `${cd} && git -c safe.directory=* add -A && git -c safe.directory=* commit -m '${escMsg}' && git -c safe.directory=* rev-parse HEAD`
+    const cmd = `${cd} && if git -c safe.directory=* status --porcelain=v1 | grep -E '^[MADRC]' >/dev/null 2>&1; then :; else git -c safe.directory=* add -A; fi && git -c safe.directory=* commit -m '${escMsg}' && git -c safe.directory=* rev-parse HEAD`
     let res = await this.execRemote(cmd, sessionId, false)
     if (res.code !== 0 && session.config?.password) {
       res = await this.execRemote(cmd, sessionId, true)
