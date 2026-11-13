@@ -41,6 +41,7 @@ const commitHash = ref('')
 const autoPush = ref(true)
 const isCopied = ref(false)
 const recentHash = ref('')
+const recentMsg = ref('')
 const commitInfo = ref<CommitInfo | null>(null)
 const isLoadingDetails = ref(false)
 const detailsError = ref('')
@@ -51,6 +52,46 @@ const isValidHash = computed(() => cleanedHash.value.length >= 4)
 let fetchTimer: ReturnType<typeof setTimeout> | null = null
 
 function parseShowOutput(raw: string, queryHash: string): CommitInfo {
+  const fallbackMsg = localStorage.getItem('pullman_last_commit_msg') || 'No commit message'
+
+  if (raw.includes('___SEP___')) {
+    const [metaSection, filesSection = ''] = raw.split('___SEP___')
+    const metaLine = metaSection.split('\n')[0] || ''
+    const metaParts = metaLine.split('\t')
+
+    const hash = metaParts[0]?.trim() || queryHash
+    const shortHash = metaParts[1]?.trim() || hash.slice(0, 7)
+    const author = metaParts[2]?.trim() || ''
+    const date = metaParts[3]?.trim() || ''
+    const subject = metaParts[4]?.trim() || fallbackMsg
+    const body = metaParts[5]?.trim() || ''
+
+    const lines = filesSection.split('\n')
+    const files: { status: string; path: string }[] = []
+    let stat = ''
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (trimmed.match(/^[MADRC]\t/)) {
+        const [st, p] = trimmed.split('\t')
+        if (p) files.push({ status: st, path: p })
+      } else if (trimmed.includes('changed') && (trimmed.includes('insertion') || trimmed.includes('deletion'))) {
+        stat = trimmed
+      }
+    }
+
+    return {
+      hash,
+      shortHash,
+      author,
+      date,
+      subject,
+      body,
+      stat,
+      files
+    }
+  }
+
   const lines = raw.split('\n')
   let hash = queryHash
   let author = ''
@@ -61,27 +102,29 @@ function parseShowOutput(raw: string, queryHash: string): CommitInfo {
 
   let inMessage = false
   for (const line of lines) {
-    if (line.startsWith('commit ')) {
-      hash = line.replace('commit ', '').trim()
-    } else if (line.startsWith('Author:')) {
-      author = line.replace('Author:', '').trim()
-    } else if (line.startsWith('Date:')) {
-      date = line.replace('Date:', '').trim()
+    const trimmed = line.trim()
+    if (trimmed.startsWith('commit ')) {
+      hash = trimmed.replace('commit ', '').trim()
+    } else if (trimmed.startsWith('Author:') || trimmed.startsWith('Penulis:')) {
+      author = trimmed.split(':')[1]?.trim() || ''
+    } else if (trimmed.startsWith('Date:') || trimmed.startsWith('Tanggal:')) {
+      date = trimmed.split(':').slice(1).join(':').trim()
       inMessage = true
-    } else if (line.match(/^[MADRC]\t/)) {
+    } else if (trimmed.match(/^[MADRC]\t/)) {
       inMessage = false
-      const [st, p] = line.split('\t')
+      const [st, p] = trimmed.split('\t')
       if (p) files.push({ status: st, path: p })
-    } else if (line.includes('changed') && (line.includes('insertion') || line.includes('deletion'))) {
-      stat = line.trim()
+    } else if (trimmed.includes('changed') && (trimmed.includes('insertion') || trimmed.includes('deletion'))) {
+      inMessage = false
+      stat = trimmed
     } else if (inMessage) {
-      if (line.trim()) {
-        msgLines.push(line.trim())
+      if (trimmed && !trimmed.includes('|') && !trimmed.match(/^\d+\s+files?/)) {
+        msgLines.push(trimmed)
       }
     }
   }
 
-  const subject = msgLines[0] || 'No commit message'
+  const subject = msgLines[0] || fallbackMsg
   const body = msgLines.slice(1).join('\n')
 
   return {
@@ -98,21 +141,42 @@ function parseShowOutput(raw: string, queryHash: string): CommitInfo {
 
 async function loadCommitDetails(): Promise<void> {
   const hash = cleanedHash.value
+  const storedHash = localStorage.getItem('pullman_last_commit_hash') || ''
+  const storedMsg = localStorage.getItem('pullman_last_commit_msg') || ''
+
   if (hash.length < 4 || !props.rootPath || !window.api?.sftpGitCommitDetails) {
     commitInfo.value = null
     detailsError.value = ''
     return
   }
+
   isLoadingDetails.value = true
   detailsError.value = ''
   try {
     const raw = await window.api.sftpGitCommitDetails(props.rootPath, hash, props.sessionId)
     if (!raw) {
+      if (hash.startsWith(storedHash.slice(0, 7)) && storedMsg) {
+        commitInfo.value = {
+          hash,
+          shortHash: hash.slice(0, 7),
+          author: '',
+          date: '',
+          subject: storedMsg,
+          body: '',
+          stat: '',
+          files: []
+        }
+        return
+      }
       commitInfo.value = null
       detailsError.value = 'Commit not found in repository (or remote).'
       return
     }
-    commitInfo.value = parseShowOutput(raw, hash)
+    const info = parseShowOutput(raw, hash)
+    if ((!info.subject || info.subject === 'No commit message') && hash.startsWith(storedHash.slice(0, 7)) && storedMsg) {
+      info.subject = storedMsg
+    }
+    commitInfo.value = info
   } catch (err) {
     commitInfo.value = null
     detailsError.value = err instanceof Error ? err.message : String(err)
@@ -125,7 +189,7 @@ watch(cleanedHash, () => {
   if (fetchTimer) clearTimeout(fetchTimer)
   fetchTimer = setTimeout(() => {
     loadCommitDetails()
-  }, 300)
+  }, 250)
 })
 
 watch(
@@ -133,7 +197,9 @@ watch(
   (val) => {
     if (val) {
       const stored = localStorage.getItem('pullman_last_commit_hash') || ''
+      const storedMsg = localStorage.getItem('pullman_last_commit_msg') || ''
       recentHash.value = stored
+      recentMsg.value = storedMsg
       commitHash.value = props.defaultHash || stored || ''
       setTimeout(() => loadCommitDetails(), 60)
     } else {
@@ -252,16 +318,19 @@ function handleSubmit(): void {
             v-if="recentHash"
             class="flex items-center justify-between p-2 rounded-lg bg-purple-950/20 border border-purple-500/20 text-[11px]"
           >
-            <div class="flex items-center space-x-1.5 truncate">
-              <span class="text-slate-400">Last Commit:</span>
+            <div class="flex items-center space-x-1.5 truncate pr-2">
+              <span class="text-slate-400 shrink-0">Last:</span>
               <button
                 type="button"
-                class="font-mono text-purple-300 hover:underline cursor-pointer"
+                class="font-mono text-purple-300 font-bold hover:underline cursor-pointer shrink-0"
                 title="Click to insert"
                 @click="handleUseRecent"
               >
-                {{ recentHash.slice(0, 10) }}...
+                {{ recentHash.slice(0, 7) }}
               </button>
+              <span v-if="recentMsg" class="text-slate-300 truncate" :title="recentMsg">
+                — {{ recentMsg }}
+              </span>
             </div>
             <div class="flex items-center space-x-1 shrink-0">
               <button
@@ -283,7 +352,7 @@ function handleSubmit(): void {
             </div>
           </div>
 
-          <!-- Commit Details / Information Card (Catatan Commit) -->
+          <!-- Commit Details / Information Card (Catatan Commit & Description) -->
           <div
             v-if="isLoadingDetails"
             class="p-2.5 rounded-lg bg-[#141720] border border-[#272D3E] flex items-center space-x-2 text-slate-400"
@@ -296,21 +365,26 @@ function handleSubmit(): void {
             v-else-if="commitInfo"
             class="p-3 rounded-lg bg-[#141720] border border-purple-500/30 space-y-2 text-xs"
           >
-            <!-- Commit Subject / Catatan Commit -->
+            <!-- Commit Subject / Description -->
             <div class="space-y-1">
-              <div class="flex items-center space-x-1.5">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] text-purple-300 font-semibold uppercase tracking-wider flex items-center space-x-1">
+                  <span>Description</span>
+                </span>
                 <span class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30">
                   {{ commitInfo.shortHash }}
                 </span>
-                <span class="font-bold text-slate-100 text-xs truncate">{{ commitInfo.subject }}</span>
               </div>
-              <p v-if="commitInfo.body" class="text-[11px] text-slate-400 line-clamp-2 pl-0.5 whitespace-pre-line">
+              <div class="font-bold text-slate-100 text-sm leading-snug break-words">
+                {{ commitInfo.subject }}
+              </div>
+              <p v-if="commitInfo.body" class="text-[11px] text-slate-400 whitespace-pre-line bg-[#10121A] p-2 rounded border border-[#232734]">
                 {{ commitInfo.body }}
               </p>
             </div>
 
             <!-- Meta: Author & Date -->
-            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400 border-t border-[#232734] pt-1.5">
+            <div v-if="commitInfo.author || commitInfo.date || commitInfo.stat" class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400 border-t border-[#232734] pt-1.5">
               <span v-if="commitInfo.author" class="truncate max-w-[200px]">
                 <span class="text-slate-500">Author:</span>
                 <span class="text-slate-300 ml-1 font-medium">{{ commitInfo.author }}</span>

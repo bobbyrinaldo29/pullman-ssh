@@ -794,9 +794,14 @@ export class SftpService {
     if (!session || !session.isConnected) return ''
     const cleanHash = (hash || '').trim().replace(/[^a-f0-9]/gi, '')
     if (!cleanHash) return ''
-    const escDir = (remotePath || '').replace(/\/+/g, '/').replace(/'/g, "'\\''"), escCwd = (session.cwd || '').replace(/'/g, "'\\''"), escHash = cleanHash.replace(/'/g, "'\\''")
-    const cmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; for P in '${escDir}' '${escCwd}'; do [ -z "$P" ] && continue; T="$P"; [ -f "$T" ] && T=$(dirname "$T"); [ ! -d "$T" ] && continue; cd "$T" 2>/dev/null || continue; R=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null); if [ -n "$R" ]; then cd "$R" 2>/dev/null; OUT=$(git -c safe.directory=* show --stat --name-status -n 1 '${escHash}' 2>/dev/null || true); if [ -z "$OUT" ]; then git -c safe.directory=* fetch --all 2>/dev/null || true; OUT=$(git -c safe.directory=* show --stat --name-status -n 1 '${escHash}' 2>/dev/null || true); fi; echo "$OUT"; exit 0; fi; done`
-    const res = await this.execRemote(cmd, sessionId, false)
+    const cd = this.gitCd(remotePath)
+    const escHash = cleanHash.replace(/'/g, "'\\''")
+    const logCmd = `git -c safe.directory=* --no-pager log -1 --no-color --pretty=format:'%H%x09%h%x09%an%x09%ar%x09%s%x09%b___SEP___' --stat --name-status '${escHash}'`
+    const cmd = `${cd} && OUT=$(${logCmd} 2>/dev/null || true); if [ -z "$OUT" ]; then git -c safe.directory=* fetch --all 2>/dev/null || true; OUT=$(${logCmd} 2>/dev/null || true); fi; echo "$OUT"`
+    let res = await this.execRemote(cmd, sessionId, false)
+    if (!res.stdout.trim() && session.config?.password) {
+      res = await this.execRemote(cmd, sessionId, true)
+    }
     return res.stdout.trim()
   }
 

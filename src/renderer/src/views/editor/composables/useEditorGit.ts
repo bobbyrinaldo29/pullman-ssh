@@ -105,6 +105,7 @@ export function useEditorGit(props: {
       if (res?.commitHash) {
         lastCommitHash.value = res.commitHash
         localStorage.setItem('pullman_last_commit_hash', res.commitHash)
+        localStorage.setItem('pullman_last_commit_msg', msg)
         try {
           await navigator.clipboard.writeText(res.commitHash)
         } catch {
