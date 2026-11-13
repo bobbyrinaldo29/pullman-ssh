@@ -23,13 +23,7 @@ interface SftpSession {
   client: SftpClient
   isConnected: boolean
   cwd?: string
-  config?: {
-    host: string
-    port: number
-    user: string
-    password?: string
-    timeoutMs?: number
-  }
+  config?: { host: string; port: number; user: string; password?: string; timeoutMs?: number }
 }
 
 export class SftpService {
@@ -88,8 +82,7 @@ export class SftpService {
         // @ts-ignore
         tryKeyboard: Boolean(config.password),
         readyTimeout: config.timeoutMs || 10000,
-        keepaliveInterval: 10000,
-        keepaliveCountMax: 3,
+        keepaliveInterval: 0,
         // @ts-ignore
         hostVerifier: () => true
       })
@@ -417,28 +410,19 @@ export class SftpService {
   }
 
   public async deleteRemote(remotePath: string, isDirectory = false, sessionId?: string, asSudo = false): Promise<void> {
-    const session = this.requireSession(sessionId)
-    const target = remotePath.replace(/\/+/g, '/')
+    const session = this.requireSession(sessionId), target = remotePath.replace(/\/+/g, '/')
     if (asSudo) {
-      const escTarget = target.replace(/'/g, "'\\''")
-      await this.execRemote(`rm -rf '${escTarget}'`, sessionId, true)
+      await this.execRemote(`rm -rf '${target.replace(/'/g, "'\\''")}'`, sessionId, true)
       return
     }
-    if (isDirectory) {
-      await session.client.rmdir(target, true)
-    } else {
-      await session.client.delete(target)
-    }
+    if (isDirectory) await session.client.rmdir(target, true)
+    else await session.client.delete(target)
   }
 
   public async renameRemote(oldPath: string, newPath: string, sessionId?: string, asSudo = false): Promise<void> {
-    const session = this.requireSession(sessionId)
-    const cleanOld = oldPath.replace(/\/+/g, '/')
-    const cleanNew = newPath.replace(/\/+/g, '/')
+    const session = this.requireSession(sessionId), cleanOld = oldPath.replace(/\/+/g, '/'), cleanNew = newPath.replace(/\/+/g, '/')
     if (asSudo) {
-      const escOld = cleanOld.replace(/'/g, "'\\''")
-      const escNew = cleanNew.replace(/'/g, "'\\''")
-      await this.execRemote(`mv '${escOld}' '${escNew}'`, sessionId, true)
+      await this.execRemote(`mv '${cleanOld.replace(/'/g, "'\\''")}' '${cleanNew.replace(/'/g, "'\\''")}'`, sessionId, true)
       return
     }
     await session.client.rename(cleanOld, cleanNew)
@@ -458,38 +442,62 @@ export class SftpService {
   }
 
   public async readFile(remotePath: string, sessionId?: string, asSudo = false): Promise<string> {
-    const session = this.requireSession(sessionId)
+    let session = this.requireSession(sessionId)
     const cleanPath = remotePath.replace(/\/+/g, '/')
     if (asSudo && session.config?.user !== 'root') {
-      const esc = cleanPath.replace(/'/g, "'\\''")
-      const res = await this.execRemote(`cat '${esc}'`, sessionId, true)
+      const res = await this.execRemote(`cat '${cleanPath.replace(/'/g, "'\\''")}'`, sessionId, true)
       return res.stdout
     }
-    const res = await session.client.get(cleanPath)
-    if (Buffer.isBuffer(res)) {
-      return res.toString('utf-8')
+    try {
+      const res = await session.client.get(cleanPath)
+      return Buffer.isBuffer(res) ? res.toString('utf-8') : String(res)
+    } catch (err) {
+      if (session.config) {
+        try {
+          await this.connect(session.config)
+          session = this.requireSession(sessionId)
+          const retry = await session.client.get(cleanPath)
+          return Buffer.isBuffer(retry) ? retry.toString('utf-8') : String(retry)
+        } catch {
+          // fallback to exec cat
+        }
+      }
+      try {
+        const catRes = await this.execRemote(`cat '${cleanPath.replace(/'/g, "'\\''")}'`, sessionId, asSudo)
+        if (catRes.code === 0) return catRes.stdout
+      } catch {
+        // ignore fallback error
+      }
+      throw err
     }
-    return String(res)
   }
 
   public async writeFile(remotePath: string, content: string, sessionId?: string, asSudo = false): Promise<void> {
-    const session = this.requireSession(sessionId)
-    const cleanPath = remotePath.replace(/\/+/g, '/')
-    const buffer = Buffer.from(content, 'utf-8')
-    if (asSudo && session.config?.user !== 'root') {
-      const tmpRemote = `/tmp/pullman_edit_${Date.now()}`
-      await session.client.put(buffer, tmpRemote)
-      const escTmp = tmpRemote.replace(/'/g, "'\\''")
-      const escTarget = cleanPath.replace(/'/g, "'\\''")
-      await this.execRemote(`cp -f '${escTmp}' '${escTarget}' && rm -f '${escTmp}'`, sessionId, true)
-      return
+    let session = this.requireSession(sessionId)
+    const cleanPath = remotePath.replace(/\/+/g, '/'), buffer = Buffer.from(content, 'utf-8')
+    const doWrite = async (s: SftpSession): Promise<void> => {
+      if (asSudo && s.config?.user !== 'root') {
+        const tmpRemote = `/tmp/pullman_edit_${Date.now()}`
+        await s.client.put(buffer, tmpRemote)
+        await this.execRemote(`cp -f '${tmpRemote}' '${cleanPath.replace(/'/g, "'\\''")}' && rm -f '${tmpRemote}'`, sessionId, true)
+        return
+      }
+      await s.client.put(buffer, cleanPath)
     }
-    await session.client.put(buffer, cleanPath)
+    try {
+      await doWrite(session)
+    } catch (err) {
+      if (session.config) {
+        await this.connect(session.config)
+        session = this.requireSession(sessionId)
+        await doWrite(session)
+        return
+      }
+      throw err
+    }
   }
 
-  public renameLocal(oldPath: string, newPath: string, asSudo = false): Promise<void> {
-    return localFileService.renameLocal(oldPath, newPath, asSudo)
-  }
+  public renameLocal(oldPath: string, newPath: string, asSudo = false): Promise<void> { return localFileService.renameLocal(oldPath, newPath, asSudo) }
   public mkdirLocal(dirPath: string, asSudo = false): Promise<void> { return localFileService.mkdirLocal(dirPath, asSudo) }
   public deleteLocal(filePath: string, asSudo = false): Promise<void> { return localFileService.deleteLocal(filePath, asSudo) }
   public getLocalHome(): string { return localFileService.getLocalHome() }
@@ -506,22 +514,14 @@ export class SftpService {
     sessionId?: string
   ): Promise<{ isGit: boolean; branch: string; isDirty: boolean }> {
     const session = this.getSession(sessionId)
-    if (!session || !session.isConnected) {
-      return { isGit: false, branch: '', isDirty: false }
-    }
+    if (!session?.isConnected) return { isGit: false, branch: '', isDirty: false }
     try {
       const cd = this.gitCd(remotePath)
-      const cmd = `${cd} && git -c safe.directory=* rev-parse --is-inside-work-tree 2>/dev/null && git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null || true`
-      const res = await this.execRemote(cmd, sessionId, false)
+      const res = await this.execRemote(`${cd} && git -c safe.directory=* rev-parse --is-inside-work-tree 2>/dev/null && git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null || true`, sessionId, false)
       const lines = res.stdout.trim().split('\n').map((l) => l.trim()).filter(Boolean)
-      if (lines.length === 0) {
-        return { isGit: false, branch: '', isDirty: false }
-      }
-      const isInside = lines.includes('true')
-      const branch = lines.find((l) => l !== 'true') || ''
-      if (!isInside && !branch) {
-        return { isGit: false, branch: '', isDirty: false }
-      }
+      if (lines.length === 0) return { isGit: false, branch: '', isDirty: false }
+      const isInside = lines.includes('true'), branch = lines.find((l) => l !== 'true') || ''
+      if (!isInside && !branch) return { isGit: false, branch: '', isDirty: false }
 
       let isDirty = false
       try {
