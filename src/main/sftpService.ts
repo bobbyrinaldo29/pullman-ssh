@@ -29,6 +29,17 @@ interface SftpSession {
 
 export class SftpService {
   private sessions = new Map<string, SftpSession>()
+  private dirCache = new Map<string, { items: SftpFileItem[]; timestamp: number }>()
+
+  public clearDirCache(sessionId?: string): void {
+    if (sessionId) {
+      for (const k of this.dirCache.keys()) {
+        if (k.startsWith(`${sessionId}:`)) this.dirCache.delete(k)
+      }
+    } else {
+      this.dirCache.clear()
+    }
+  }
 
   public getSession(sessionId?: string): SftpSession | undefined {
     return this.sessions.get(sessionId || 'default')
@@ -83,7 +94,7 @@ export class SftpService {
         // @ts-ignore
         tryKeyboard: Boolean(config.password),
         readyTimeout: config.timeoutMs || 10000,
-        keepaliveInterval: 0,
+        keepaliveInterval: 15000,
         // @ts-ignore
         hostVerifier: () => true
       })
@@ -146,6 +157,13 @@ export class SftpService {
     const cleanInputPath = (remotePath || '/').trim()
     let targetPath = cleanInputPath.startsWith('/') ? cleanInputPath : `/${cleanInputPath}`
     targetPath = targetPath.replace(/\/+/g, '/')
+
+    const sid = sessionId || 'default'
+    const cacheKey = `${sid}:${targetPath}`
+    const cached = this.dirCache.get(cacheKey)
+    if (cached && Date.now() - cached.timestamp < 3500) {
+      return cached.items
+    }
 
     let rawList: any[] = []
     try {
@@ -238,11 +256,14 @@ export class SftpService {
       }
     })
 
-    return items.sort((a, b) => {
+    const sorted = items.sort((a, b) => {
       if (a.isDirectory && !b.isDirectory) return -1
       if (!a.isDirectory && b.isDirectory) return 1
       return a.name.localeCompare(b.name)
     })
+
+    this.dirCache.set(cacheKey, { items: sorted, timestamp: Date.now() })
+    return sorted
   }
 
   public async execRemote(
@@ -270,7 +291,8 @@ export class SftpService {
     if (asSudo && !isRoot) {
       const esc = command.replace(/'/g, "'\\''")
       if (password) {
-        cmdToRun = `sudo -S -p '' -- sh -c '${esc}'`
+        const escPass = password.replace(/'/g, "'\\''")
+        cmdToRun = `printf '%s\\n' '${escPass}' | sudo -S -p '' -- sh -c '${esc}'`
         feedStdin = true
       } else {
         cmdToRun = `sudo -n -- sh -c '${esc}'`
@@ -464,7 +486,10 @@ export class SftpService {
         }
       }
       try {
-        const catRes = await this.execRemote(`cat '${cleanPath.replace(/'/g, "'\\''")}'`, sessionId, asSudo)
+        let catRes = await this.execRemote(`cat '${cleanPath.replace(/'/g, "'\\''")}'`, sessionId, asSudo)
+        if (catRes.code !== 0 && (session.config?.password || session.config?.user !== 'root')) {
+          catRes = await this.execRemote(`cat '${cleanPath.replace(/'/g, "'\\''")}'`, sessionId, true)
+        }
         if (catRes.code === 0) return catRes.stdout
       } catch {
         // ignore fallback error
@@ -507,7 +532,7 @@ export class SftpService {
   private gitCd(remotePath: string): string {
     const clean = (remotePath || '/').replace(/^diff:/, '').replace(/\/+/g, '/')
     const esc = clean.replace(/'/g, "'\\''")
-    return `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; P='${esc}'; if [ -d "$P" ]; then cd "$P" 2>/dev/null; else cd "$(dirname "$P")" 2>/dev/null; fi`
+    return `export PATH="$PATH:/usr/local/bin:/usr/bin:/bin"; P='${esc}'; if [ -d "$P" ]; then cd "$P" 2>/dev/null; else cd "$(dirname "$P")" 2>/dev/null; fi`
   }
 
   public async getGitInfo(
@@ -518,25 +543,13 @@ export class SftpService {
     if (!session?.isConnected) return { isGit: false, branch: '', isDirty: false }
     try {
       const cd = this.gitCd(remotePath)
-      const res = await this.execRemote(`${cd} && git -c safe.directory=* rev-parse --is-inside-work-tree 2>/dev/null && git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null || true`, sessionId, false)
-      const lines = res.stdout.trim().split('\n').map((l) => l.trim()).filter(Boolean)
-      if (lines.length === 0) return { isGit: false, branch: '', isDirty: false }
-      const isInside = lines.includes('true'), branch = lines.find((l) => l !== 'true') || ''
-      if (!isInside && !branch) return { isGit: false, branch: '', isDirty: false }
-
-      let isDirty = false
-      try {
-        const statusRes = await this.execRemote(
-          `${cd} && git -c safe.directory=* status --porcelain 2>/dev/null | head -n 1 || true`,
-          sessionId,
-          false
-        )
-        isDirty = statusRes.stdout.trim().length > 0
-      } catch {
-        // ignore
-      }
-
-      return { isGit: true, branch: branch || 'HEAD', isDirty }
+      const cmd = `${cd} && if [ "$(git -c safe.directory=* rev-parse --is-inside-work-tree 2>/dev/null)" = "true" ]; then echo "GIT_YES"; git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD"; git -c safe.directory=* status --porcelain 2>/dev/null | head -n 1; else echo "GIT_NO"; fi`
+      const res = await this.execRemote(cmd, sessionId, false)
+      const lines = res.stdout.trim().split('\n').map((l) => l.trim())
+      if (lines[0] !== 'GIT_YES') return { isGit: false, branch: '', isDirty: false }
+      const branch = lines[1] || 'HEAD'
+      const isDirty = Boolean(lines[2] && lines[2].length > 0)
+      return { isGit: true, branch, isDirty }
     } catch {
       return { isGit: false, branch: '', isDirty: false }
     }
@@ -558,21 +571,25 @@ export class SftpService {
 
     try {
       const cd = this.gitCd(remotePath)
-      const infoCmd = `${cd} && git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null && git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null || true`
-      const infoRes = await this.execRemote(infoCmd, sessionId, false)
-      const infoLines = infoRes.stdout.trim().split('\n').map((l) => l.trim()).filter(Boolean)
-      if (infoLines.length < 2) {
+      const combinedCmd = `${cd} && ROOT=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null); if [ -n "$ROOT" ]; then echo "PULLMAN_ROOT:$ROOT"; echo "PULLMAN_BRANCH:$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"; echo "___STATUS_BEGIN___"; cd "$ROOT" 2>/dev/null && git -c safe.directory=* -c status.showUntrackedFiles=normal status --porcelain=v1 -unormal 2>/dev/null || true; else echo "PULLMAN_NOT_GIT"; fi`
+      const res = await this.execRemote(combinedCmd, sessionId, false)
+      const out = res.stdout
+      if (out.includes('PULLMAN_NOT_GIT') || !out.includes('___STATUS_BEGIN___')) {
         return { isGit: false, branch: '', root: '', files: [] }
       }
 
-      const gitRoot = infoLines[0]
-      const branch = infoLines[1]
-      const escGitRoot = gitRoot.replace(/'/g, "'\\''")
+      const [headerPart, statusPart = ''] = out.split('___STATUS_BEGIN___')
+      const headerLines = headerPart.trim().split('\n')
+      let gitRoot = ''
+      let branch = 'HEAD'
+      for (const line of headerLines) {
+        if (line.startsWith('PULLMAN_ROOT:')) gitRoot = line.substring(13).trim()
+        else if (line.startsWith('PULLMAN_BRANCH:')) branch = line.substring(15).trim()
+      }
 
-      const statusCmd = `PATH=$PATH:/usr/local/bin:/usr/bin:/bin cd '${escGitRoot}' 2>/dev/null && git -c safe.directory=* -c status.showUntrackedFiles=normal status --porcelain=v1 -unormal 2>/dev/null || true`
-      const statusRes = await this.execRemote(statusCmd, sessionId, false)
-      const rawLines = statusRes.stdout.split('\n').filter(Boolean)
+      if (!gitRoot) return { isGit: false, branch: '', root: '', files: [] }
 
+      const rawLines = statusPart.split('\n').filter(Boolean)
       const files: { path: string; relPath: string; status: 'M' | 'A' | 'D' | 'U'; staged: boolean; isDirectory?: boolean }[] = []
 
       for (const line of rawLines) {
@@ -677,7 +694,7 @@ export class SftpService {
 
     const cmd = `${this.gitCd(dir)} && ${action}`
     let res = await this.execRemote(cmd, sessionId, false)
-    if (res.code !== 0 && session.config?.password) {
+    if (res.code !== 0 && (session.config?.password || session.config?.user !== 'root')) {
       res = await this.execRemote(cmd, sessionId, true)
     }
     if (res.code !== 0) {
@@ -690,7 +707,7 @@ export class SftpService {
     if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
     const cmd = `${this.gitCd(remotePath)} && git -c safe.directory=* add -A`
     let res = await this.execRemote(cmd, sessionId, false)
-    if (res.code !== 0 && session.config?.password) {
+    if (res.code !== 0 && (session.config?.password || session.config?.user !== 'root')) {
       res = await this.execRemote(cmd, sessionId, true)
     }
     if (res.code !== 0) {
@@ -703,7 +720,7 @@ export class SftpService {
     const res = await this.execRemote(cmd, sessionId, false)
     if (res.code !== 0) {
       const session = this.getSession(sessionId)
-      if (session?.config?.password) await this.execRemote(cmd, sessionId, true)
+      if (session?.config?.password || session?.config?.user !== 'root') await this.execRemote(cmd, sessionId, true)
     }
   }
 
@@ -713,7 +730,7 @@ export class SftpService {
     const cd = this.gitCd(remotePath)
     const cmd = `${cd} && BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); REMOTE=$(git -c safe.directory=* remote 2>/dev/null | head -n 1); [ -z "$REMOTE" ] && REMOTE="origin"; git -c safe.directory=* pull "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* pull 2>&1`
     let res = await this.execRemote(cmd, sessionId, false)
-    if (res.code !== 0 && session.config?.password) {
+    if (res.code !== 0 && (session.config?.password || session.config?.user !== 'root')) {
       res = await this.execRemote(cmd, sessionId, true)
     }
     const output = (res.stdout || res.stderr || '').trim()
@@ -729,7 +746,7 @@ export class SftpService {
     const cd = this.gitCd(remotePath)
     const cmd = `${cd} && BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); REMOTE=$(git -c safe.directory=* remote 2>/dev/null | head -n 1); [ -z "$REMOTE" ] && REMOTE="origin"; git -c safe.directory=* push "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* push -u "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* push 2>&1`
     let res = await this.execRemote(cmd, sessionId, false)
-    if (res.code !== 0 && session.config?.password) {
+    if (res.code !== 0 && (session.config?.password || session.config?.user !== 'root')) {
       res = await this.execRemote(cmd, sessionId, true)
     }
     const output = (res.stdout || res.stderr || '').trim()
@@ -755,13 +772,19 @@ export class SftpService {
     // 1. Ensure git knows about the commit hash (fetch from origin if missing)
     const checkCommitCmd = `${cd} && git -c safe.directory=* cat-file -e '${cleanHash}^{commit}' 2>/dev/null`
     let checkCommit = await this.execRemote(checkCommitCmd, sessionId, false)
+    if (checkCommit.code !== 0 && (session.config?.password || session.config?.user !== 'root')) {
+      checkCommit = await this.execRemote(checkCommitCmd, sessionId, true)
+    }
     if (checkCommit.code !== 0) {
-      const fetchCmd = `${cd} && (git -c safe.directory=* fetch origin '${cleanHash}' 2>&1 || git -c safe.directory=* fetch origin '+refs/heads/*:refs/remotes/origin/*' 2>&1 || git -c safe.directory=* fetch --all 2>&1 || true)`
+      const fetchCmd = `${cd} && (git -c safe.directory=* fetch origin '${cleanHash}' 2>&1 || git -c safe.directory=* fetch origin '+refs/heads/*:refs/remotes/origin/*' 2>&1 || git -c safe.directory=* fetch --all 2>&1)`
       const fetchRes = await this.execRemote(fetchCmd, sessionId, false)
-      if (fetchRes.code !== 0 && session.config?.password) {
+      if (fetchRes.code !== 0 && (session.config?.password || session.config?.user !== 'root')) {
         await this.execRemote(fetchCmd, sessionId, true)
       }
       checkCommit = await this.execRemote(checkCommitCmd, sessionId, false)
+      if (checkCommit.code !== 0 && (session.config?.password || session.config?.user !== 'root')) {
+        checkCommit = await this.execRemote(checkCommitCmd, sessionId, true)
+      }
     }
 
     if (checkCommit.code !== 0) {
@@ -774,7 +797,7 @@ export class SftpService {
     // 2. Perform cherry-pick with identity fallback
     const pickCmd = `${cd} && USER_NAME=$(git -c safe.directory=* config user.name 2>/dev/null || echo ""); [ -z "$USER_NAME" ] && USER_NAME="Pullman"; USER_EMAIL=$(git -c safe.directory=* config user.email 2>/dev/null || echo ""); [ -z "$USER_EMAIL" ] && USER_EMAIL="pullman@localhost"; git -c safe.directory=* -c user.name="$USER_NAME" -c user.email="$USER_EMAIL" cherry-pick '${cleanHash}'`
     let res = await this.execRemote(pickCmd, sessionId, false)
-    if (res.code !== 0 && session.config?.password) {
+    if (res.code !== 0 && (session.config?.password || session.config?.user !== 'root')) {
       res = await this.execRemote(pickCmd, sessionId, true)
     }
 
@@ -832,11 +855,11 @@ export class SftpService {
     if (!cleanHash) return ''
     const cd = this.gitCd(remotePath)
     const escHash = cleanHash.replace(/'/g, "'\\''")
-    const logCmd = `git -c safe.directory=* --no-pager log -1 --no-color --pretty=format:'%H%x09%h%x09%an%x09%ar%x09%s%x09%b___SEP___' --stat --name-status '${escHash}'`
+    const logCmd = `git -c safe.directory=* --no-pager log -1 --no-color --pretty=format:'PULLMAN_META_START%n%H%n%h%n%an%n%ar%n%s%n%b%nPULLMAN_META_END' --stat --name-status '${escHash}'`
     const fetchCmd = `git -c safe.directory=* fetch origin '${escHash}' 2>/dev/null || git -c safe.directory=* fetch origin '+refs/heads/*:refs/remotes/origin/*' 2>/dev/null || git -c safe.directory=* fetch --all 2>/dev/null || true`
     const cmd = `${cd} && OUT=$(${logCmd} 2>/dev/null || true); if [ -z "$OUT" ]; then ${fetchCmd}; OUT=$(${logCmd} 2>/dev/null || true); fi; echo "$OUT"`
     let res = await this.execRemote(cmd, sessionId, false)
-    if (!res.stdout.trim() && session.config?.password) {
+    if (!res.stdout.trim() && (session.config?.password || session.config?.user !== 'root')) {
       res = await this.execRemote(cmd, sessionId, true)
     }
     return res.stdout.trim()

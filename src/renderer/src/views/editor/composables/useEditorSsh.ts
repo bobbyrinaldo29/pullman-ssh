@@ -273,22 +273,24 @@ export function useEditorSsh(): UseEditorSshReturn {
         const newTree = mapRemoteNodes(items || [])
 
         async function restoreSubtree(nodes: EditorFileNode[]): Promise<void> {
-          for (const node of nodes) {
-            if (node.isDirectory && expandedPaths.has(node.path)) {
-              node.isExpanded = true
-              try {
-                let subClean = (node.path || '/').trim().replace(/\/+/g, '/')
-                if (!subClean.startsWith('/')) subClean = `/${subClean}`
-                const children = await window.api.sftpListRemote(subClean, sessionId.value)
-                node.children = mapRemoteNodes(children || [])
-                if (node.children && node.children.length > 0) {
-                  await restoreSubtree(node.children)
+          await Promise.all(
+            nodes.map(async (node) => {
+              if (node.isDirectory && expandedPaths.has(node.path)) {
+                node.isExpanded = true
+                try {
+                  let subClean = (node.path || '/').trim().replace(/\/+/g, '/')
+                  if (!subClean.startsWith('/')) subClean = `/${subClean}`
+                  const children = await window.api.sftpListRemote(subClean, sessionId.value)
+                  node.children = mapRemoteNodes(children || [])
+                  if (node.children && node.children.length > 0) {
+                    await restoreSubtree(node.children)
+                  }
+                } catch {
+                  node.children = []
                 }
-              } catch {
-                node.children = []
               }
-            }
-          }
+            })
+          )
         }
 
         if (expandedPaths.size > 0) {

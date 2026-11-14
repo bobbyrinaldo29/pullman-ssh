@@ -217,8 +217,18 @@ export class ExternalEditorService {
 
     // 1. Fetch remote content if not provided
     let content = payload.content
+    let effectiveSudo = asSudo
     if (typeof content !== 'string') {
-      content = await this.sftpService.readFile(remotePath, sessionId, asSudo)
+      try {
+        content = await this.sftpService.readFile(remotePath, sessionId, effectiveSudo)
+      } catch (err) {
+        if (!effectiveSudo) {
+          content = await this.sftpService.readFile(remotePath, sessionId, true)
+          effectiveSudo = true
+        } else {
+          throw err
+        }
+      }
     }
 
     // 2. Prepare local cache path
@@ -238,7 +248,7 @@ export class ExternalEditorService {
 
     // 4. Setup auto-sync watcher
     if (autoSync) {
-      this.setupFileWatcher(localFilePath, remotePath, sessionId, asSudo, initialHash)
+      this.setupFileWatcher(localFilePath, remotePath, sessionId, effectiveSudo, initialHash)
     }
 
     // 5. Launch external editor

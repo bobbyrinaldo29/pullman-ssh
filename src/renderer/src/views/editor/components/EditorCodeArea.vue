@@ -92,10 +92,17 @@ function getOrCreateModel(tab: EditorTab): monaco.editor.ITextModel {
   const model = monaco.editor.createModel(tab.content, lang, uri)
   model.updateOptions({ tabSize: editorSettings.tabSize.value })
 
+  let changeDebounce: ReturnType<typeof setTimeout> | null = null
   model.onDidChangeContent(() => {
     if (props.activeTab && props.activeTab.id === tab.id) {
-      props.activeTab.content = model.getValue()
-      props.activeTab.isDirty = props.activeTab.content !== props.activeTab.originalContent
+      props.activeTab.isDirty = true
+      if (changeDebounce) clearTimeout(changeDebounce)
+      changeDebounce = setTimeout(() => {
+        if (props.activeTab && props.activeTab.id === tab.id) {
+          props.activeTab.content = model.getValue()
+          props.activeTab.isDirty = props.activeTab.content !== props.activeTab.originalContent
+        }
+      }, 150)
     }
   })
 
@@ -122,6 +129,10 @@ const defaultEditorOptions: monaco.editor.IStandaloneEditorConstructionOptions =
 }
 
 async function handleSaveTrigger(asSudo = false): Promise<void> {
+  if (props.activeTab && editor) {
+    const m = editor.getModel()
+    if (m) props.activeTab.content = m.getValue()
+  }
   if (editorSettings.formatOnSave.value && editor) {
     try {
       await editor.getAction('editor.action.formatDocument')?.run()
@@ -167,11 +178,15 @@ function initMonaco(): void {
   // Add Git Blame content widget
   editor.addContentWidget(blameWidget.contentWidget)
 
-  // Track cursor position & cache view state
+  // Track cursor position & cache view state (debounced AST symbol update)
+  let cursorSymbolDebounce: ReturnType<typeof setTimeout> | null = null
   editor.onDidChangeCursorPosition((e) => {
     emit('cursor-change', { line: e.position.lineNumber, col: e.position.column })
     blameWidget.update()
-    updateActiveSymbols(e.position.lineNumber, e.position.column)
+    if (cursorSymbolDebounce) clearTimeout(cursorSymbolDebounce)
+    cursorSymbolDebounce = setTimeout(() => {
+      updateActiveSymbols(e.position.lineNumber, e.position.column)
+    }, 120)
     if (!isSwitchingTab && currentTabId && editor) {
       const state = editor.saveViewState()
       if (state) viewStateMap.set(currentTabId, state)
@@ -479,7 +494,3 @@ onUnmounted(() => {
     ></div>
   </div>
 </template>
-
-<style scoped>
-/* Scoped styles kept minimal; Monaco and GitLens styles are maintained in ../monaco/editorMonaco.css */
-</style>

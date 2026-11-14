@@ -97,6 +97,23 @@ export function parseCommitDetails(raw: string): {
 } {
   if (!raw.trim()) return { body: '', files: [] }
 
+  if (raw.includes('PULLMAN_META_START')) {
+    const s = raw.indexOf('PULLMAN_META_START'), e = raw.indexOf('PULLMAN_META_END')
+    if (e > s) {
+      const meta = raw.substring(s + 18, e).trim().split('\n')
+      const body = meta.slice(5).join('\n').trim() || meta[4]?.trim() || ''
+      const files: { status: 'M' | 'A' | 'D'; path: string }[] = []
+      for (const line of raw.substring(e + 16).split('\n')) {
+        const trimmed = line.trim()
+        if (trimmed.match(/^[MADRC]\t/)) {
+          const [status, filePath] = trimmed.split('\t')
+          if (filePath) files.push({ status: (status[0] as 'M' | 'A' | 'D') || 'M', path: filePath })
+        }
+      }
+      return { body, files }
+    }
+  }
+
   const lines = raw.trim().split('\n')
   const files: { status: 'M' | 'A' | 'D'; path: string }[] = []
   const bodyLines: string[] = []

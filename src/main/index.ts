@@ -336,7 +336,9 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      backgroundThrottling: false,
+      spellcheck: false
     }
   })
 
@@ -370,6 +372,11 @@ app.name = 'Pullman'
 if (process.platform === 'darwin') {
   app.setName('Pullman')
 }
+
+// Performance & GPU Acceleration switches
+app.commandLine.appendSwitch('enable-gpu-rasterization')
+app.commandLine.appendSwitch('enable-zero-copy')
+app.commandLine.appendSwitch('ignore-gpu-blocklist')
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.

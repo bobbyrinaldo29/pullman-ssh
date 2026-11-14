@@ -54,41 +54,28 @@ let fetchTimer: ReturnType<typeof setTimeout> | null = null
 function parseShowOutput(raw: string, queryHash: string): CommitInfo {
   const fallbackMsg = localStorage.getItem('pullman_last_commit_msg') || 'No commit message'
 
-  if (raw.includes('___SEP___')) {
-    const [metaSection, filesSection = ''] = raw.split('___SEP___')
-    const metaLine = metaSection.split('\n')[0] || ''
-    const metaParts = metaLine.split('\t')
-
-    const hash = metaParts[0]?.trim() || queryHash
-    const shortHash = metaParts[1]?.trim() || hash.slice(0, 7)
-    const author = metaParts[2]?.trim() || ''
-    const date = metaParts[3]?.trim() || ''
-    const subject = metaParts[4]?.trim() || fallbackMsg
-    const body = metaParts[5]?.trim() || ''
-
-    const lines = filesSection.split('\n')
-    const files: { status: string; path: string }[] = []
-    let stat = ''
-
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (trimmed.match(/^[MADRC]\t/)) {
-        const [st, p] = trimmed.split('\t')
-        if (p) files.push({ status: st, path: p })
-      } else if (trimmed.includes('changed') && (trimmed.includes('insertion') || trimmed.includes('deletion'))) {
-        stat = trimmed
+  if (raw.includes('PULLMAN_META_START')) {
+    const s = raw.indexOf('PULLMAN_META_START'), e = raw.indexOf('PULLMAN_META_END')
+    if (e > s) {
+      const meta = raw.substring(s + 18, e).trim().split('\n')
+      const hash = meta[0]?.trim() || queryHash
+      const shortHash = meta[1]?.trim() || hash.slice(0, 7)
+      const author = meta[2]?.trim() || ''
+      const date = meta[3]?.trim() || ''
+      const subject = meta[4]?.trim() || fallbackMsg
+      const body = meta.slice(5).join('\n').trim()
+      const files: { status: string; path: string }[] = []
+      let stat = ''
+      for (const line of raw.substring(e + 16).split('\n')) {
+        const trimmed = line.trim()
+        if (trimmed.match(/^[MADRC]\t/)) {
+          const [st, p] = trimmed.split('\t')
+          if (p) files.push({ status: st, path: p })
+        } else if (trimmed.includes('changed') && (trimmed.includes('insertion') || trimmed.includes('deletion'))) {
+          stat = trimmed
+        }
       }
-    }
-
-    return {
-      hash,
-      shortHash,
-      author,
-      date,
-      subject,
-      body,
-      stat,
-      files
+      return { hash, shortHash, author, date, subject, body, stat, files }
     }
   }
 
