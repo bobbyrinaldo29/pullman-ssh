@@ -294,11 +294,51 @@ export class ExternalEditorService {
     customArgs?: string
   ): string[] {
     if (customArgs && customArgs.trim()) {
-      return customArgs
-        .replace('{file}', localPath)
-        .replace('{line}', String(line || 1))
-        .split(' ')
-        .filter(Boolean)
+      const trimmed = customArgs.trim()
+
+      // If user typed only a number (e.g. "33"), treat it as line number jump
+      if (/^\d+$/.test(trimmed)) {
+        const lineNum = parseInt(trimmed, 10)
+        switch (type) {
+          case 'vscode':
+          case 'cursor':
+            return ['-g', `${localPath}:${lineNum}`]
+          case 'sublime':
+            return [`${localPath}:${lineNum}`]
+          case 'notepad++':
+            return [localPath, `-n${lineNum}`]
+          default:
+            return [localPath]
+        }
+      }
+
+      // Tokenize customArgs safely preserving quoted substrings
+      const rawTokens = trimmed.match(/[^\s"']+|"([^"]*)"|'([^']*)'/g) || []
+      const tokens = rawTokens.map((t) => t.replace(/^["']|["']$/g, ''))
+      const hasFilePlaceholder = tokens.some((t) => t.includes('{file}'))
+
+      const resolvedTokens = tokens.map((t) => {
+        return t
+          .replace('{file}', localPath)
+          .replace('{line}', String(line || 1))
+      })
+
+      if (hasFilePlaceholder) {
+        return resolvedTokens
+      }
+
+      // If {file} wasn't explicitly placed, append localPath according to editor standard
+      switch (type) {
+        case 'vscode':
+        case 'cursor':
+          return line ? [...resolvedTokens, '-g', `${localPath}:${line}`] : [...resolvedTokens, localPath]
+        case 'sublime':
+          return line ? [...resolvedTokens, `${localPath}:${line}`] : [...resolvedTokens, localPath]
+        case 'notepad++':
+          return line ? [...resolvedTokens, localPath, `-n${line}`] : [...resolvedTokens, localPath]
+        default:
+          return [...resolvedTokens, localPath]
+      }
     }
 
     switch (type) {

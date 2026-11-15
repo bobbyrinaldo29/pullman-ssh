@@ -217,11 +217,22 @@ onMounted(() => {
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div class="space-y-1.5">
-              <label class="font-medium text-slate-300">Custom Arguments (Optional)</label>
+              <div class="flex items-center justify-between">
+                <label class="font-medium text-slate-300">Custom Arguments (Optional)</label>
+                <button
+                  v-if="customEditorArgs"
+                  type="button"
+                  class="text-[10px] text-slate-400 hover:text-rose-400 transition-colors"
+                  title="Reset to default arguments"
+                  @click="customEditorArgs = ''"
+                >
+                  Clear (Reset)
+                </button>
+              </div>
               <input
                 v-model="customEditorArgs"
                 type="text"
-                placeholder="Default: {file} (or -g {file}:{line})"
+                placeholder="Leave blank for default (or e.g. -r {file})"
                 class="w-full px-2.5 py-1.5 bg-[#161B26] border border-[#2B3245] rounded-lg text-xs text-white font-mono focus:outline-none focus:border-blue-500"
               />
             </div>
