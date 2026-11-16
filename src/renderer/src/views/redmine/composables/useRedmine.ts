@@ -469,23 +469,47 @@ export function useRedmine() {
     }
   }
 
-  async function openIssueTab(issue: RedmineIssue): Promise<void> {
-    const existingIdx = openIssueTabs.value.findIndex((t) => t.id === issue.id)
+  async function openIssueById(
+    issueId: number,
+    fallback?: Partial<RedmineIssue>
+  ): Promise<void> {
+    const existingIdx = openIssueTabs.value.findIndex((t) => t.id === issueId)
     if (existingIdx !== -1) {
-      activeTab.value = `issue-${issue.id}`
+      activeTab.value = `issue-${issueId}`
       selectedIssue.value = openIssueTabs.value[existingIdx].issue
+      await fetchIssueDetail(issueId)
       return
     }
 
+    const foundInList = issues.value.find((i) => i.id === issueId)
+    const initialIssue: RedmineIssue = foundInList || {
+      id: issueId,
+      subject: fallback?.subject || `Memuat tiket #${issueId}...`,
+      description: fallback?.description || '',
+      created_on: fallback?.created_on || new Date().toISOString(),
+      updated_on: fallback?.updated_on || new Date().toISOString(),
+      project: fallback?.project || { id: 0, name: 'Redmine' },
+      tracker: fallback?.tracker || { id: 1, name: 'Issue' },
+      status: fallback?.status || { id: 1, name: 'New' },
+      priority: fallback?.priority || { id: 2, name: 'Normal' },
+      author: fallback?.author || { id: 0, name: '-' },
+      assigned_to: fallback?.assigned_to,
+      done_ratio: fallback?.done_ratio ?? 0
+    }
+
     const newTab: OpenIssueTab = {
-      id: issue.id,
-      issue
+      id: issueId,
+      issue: initialIssue
     }
     openIssueTabs.value.push(newTab)
-    activeTab.value = `issue-${issue.id}`
-    selectedIssue.value = issue
+    activeTab.value = `issue-${issueId}`
+    selectedIssue.value = initialIssue
 
-    await fetchIssueDetail(issue.id)
+    await fetchIssueDetail(issueId)
+  }
+
+  async function openIssueTab(issue: RedmineIssue): Promise<void> {
+    await openIssueById(issue.id, issue)
   }
 
   function closeIssueTab(issueId: number): void {
@@ -508,7 +532,14 @@ export function useRedmine() {
 
   async function fetchIssueDetail(issueId: number): Promise<void> {
     try {
-      const res = await apiCall(`/issues/${issueId}.json?include=journals,attachments`)
+      isLoading.value = true
+      let res = await apiCall(`/issues/${issueId}.json?include=journals,attachments`)
+      if (!res.ok) {
+        res = await apiCall(`/issues/${issueId}.json?include=journals`)
+        if (!res.ok) {
+          res = await apiCall(`/issues/${issueId}.json`)
+        }
+      }
       if (res.ok && res.data?.issue) {
         const detailed = res.data.issue
         registerKnownUsersFromIssues([detailed])
@@ -520,7 +551,10 @@ export function useRedmine() {
           selectedIssue.value = detailed
         }
       }
-    } catch {}
+    } catch {
+    } finally {
+      isLoading.value = false
+    }
   }
 
   async function createIssue(data: {
@@ -802,6 +836,7 @@ export function useRedmine() {
     activeTab,
     openIssueTabs,
     openIssueTab,
+    openIssueById,
     closeIssueTab,
     filters,
     showLoginModal,

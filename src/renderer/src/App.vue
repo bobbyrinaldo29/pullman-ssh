@@ -40,7 +40,7 @@ const {
   lastCheckedAt,
   lastCheckError,
   isMonitoringActive,
-  fetchIssueDetail,
+  openIssueById,
   saveNotificationSettings,
   resetNotificationSettings,
   checkForUpdates,
@@ -131,18 +131,27 @@ async function handleConnectionsImported(): Promise<void> {
 
 let cleanupNotificationListener: (() => void) | null = null
 
-function openRedmineIssueFromNotification(issueId?: number): void {
+function openRedmineIssueFromNotification(
+  issueId?: number,
+  fallback?: { subject?: string; projectName?: string }
+): void {
   visitedViews.value.add('redmine')
   currentView.value = 'redmine'
   if (issueId) {
-    fetchIssueDetail(issueId)
+    openIssueById(issueId, {
+      subject: fallback?.subject,
+      project: fallback?.projectName ? { id: 0, name: fallback.projectName } : undefined
+    })
   }
 }
 
 function handleOpenToastIssue(item: RedmineChangeNotification): void {
   markNotificationAsRead(item.id)
   dismissToast(item.id)
-  openRedmineIssueFromNotification(item.isSimulated ? undefined : item.issueId)
+  openRedmineIssueFromNotification(item.isSimulated ? undefined : item.issueId, {
+    subject: item.issueSubject,
+    projectName: item.projectName
+  })
 }
 
 function handleRedirectToRedmineLogin(): void {

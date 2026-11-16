@@ -24,8 +24,17 @@ function formatDateTime(dateStr: string): string {
   }
 }
 
-function handleIssueClick(issue: RedmineIssue): void {
-  if (window.getSelection()?.toString().trim()) return
+let mouseStartX = 0
+let mouseStartY = 0
+
+function handleMouseDown(e: MouseEvent): void {
+  mouseStartX = e.clientX
+  mouseStartY = e.clientY
+}
+
+function handleIssueClick(e: MouseEvent, issue: RedmineIssue): void {
+  const dist = Math.hypot(e.clientX - mouseStartX, e.clientY - mouseStartY)
+  if (dist > 6) return
   emit('select-issue', issue)
 }
 </script>
@@ -70,7 +79,8 @@ function handleIssueClick(issue: RedmineIssue): void {
           v-for="issue in props.issues"
           :key="issue.id"
           class="p-3.5 rounded-lg bg-[#1a202c] border border-[#273244] hover:border-blue-500/40 transition-colors cursor-pointer space-y-1.5"
-          @click="handleIssueClick(issue)"
+          @mousedown="handleMouseDown"
+          @click="(e) => handleIssueClick(e, issue)"
         >
           <div class="flex items-center justify-between text-[11px] text-slate-400">
             <div class="flex items-center space-x-1.5">

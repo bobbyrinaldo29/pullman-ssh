@@ -39,6 +39,7 @@ const {
   activeTab,
   openIssueTabs,
   openIssueTab,
+  openIssueById,
   closeIssueTab,
   filters,
   showLoginModal,
@@ -97,6 +98,13 @@ const assignableUsers = computed(() => {
 })
 
 function handleSearch(query: string): void {
+  const cleanQ = query.trim()
+  const numMatch = cleanQ.match(/^#?(\d+)$/)
+  if (numMatch) {
+    const issueId = Number(numMatch[1])
+    openIssueById(issueId)
+    return
+  }
   filters.value.search = query
   activeTab.value = 'issues'
 }
@@ -119,7 +127,10 @@ function handleSelectNotification(item: RedmineChangeNotification): void {
     activeTab.value = 'issues'
     return
   }
-  fetchIssueDetail(item.issueId)
+  openIssueById(item.issueId, {
+    subject: item.issueSubject,
+    project: item.projectName ? { id: 0, name: item.projectName } : undefined
+  })
 }
 </script>
 
