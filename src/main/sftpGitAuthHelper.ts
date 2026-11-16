@@ -23,6 +23,25 @@ export function isGitAuthError(output: string): boolean {
   )
 }
 
+export function gitCd(remotePath: string): string {
+  const clean = (remotePath || '/').replace(/^diff:/, '').replace(/\/+/g, '/')
+  const esc = clean.replace(/'/g, "'\\''")
+  return `export PATH="$PATH:/usr/local/bin:/usr/bin:/bin"; P='${esc}'; if [ -d "$P" ]; then cd "$P" 2>/dev/null; else cd "$(dirname "$P")" 2>/dev/null; fi`
+}
+
+export function buildAuthUrl(remoteUrl: string, credentials?: GitCredentials): string | null {
+  if (!remoteUrl || !credentials?.username || !credentials?.password) return null
+  try {
+    const parsed = new URL(remoteUrl)
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null
+    parsed.username = credentials.username
+    parsed.password = credentials.password
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
 export function wrapCommandWithAskpass(
   command: string,
   credentials?: GitCredentials
@@ -34,37 +53,53 @@ export function wrapCommandWithAskpass(
   const userB64 = Buffer.from(credentials.username || '').toString('base64')
   const passB64 = Buffer.from(credentials.password || '').toString('base64')
   const randSuffix = Math.floor(100000 + Math.random() * 900000)
-  const askpassPath = `/tmp/.pullman_ask_${Date.now()}_${randSuffix}`
+  const askFileName = `.pullman_ask_${Date.now()}_${randSuffix}.sh`
 
-  // Ephemeral askpass script using base64 decoding on remote host
+  // Ephemeral script acting as GIT_ASKPASS, SSH_ASKPASS, core.askpass, and credential.helper
   const scriptLines = [
     '#!/bin/sh',
     'p="$1"',
+    `U=$(echo '${userB64}' | base64 -d 2>/dev/null || echo '${userB64}' | base64 -D 2>/dev/null || echo '${userB64}' | openssl base64 -d 2>/dev/null || python3 -c "import base64; print(base64.b64decode('${userB64}').decode(), end='')" 2>/dev/null || python -c "import base64; print(base64.b64decode('${userB64}').decode(), end='')" 2>/dev/null)`,
+    `P=$(echo '${passB64}' | base64 -d 2>/dev/null || echo '${passB64}' | base64 -D 2>/dev/null || echo '${passB64}' | openssl base64 -d 2>/dev/null || python3 -c "import base64; print(base64.b64decode('${passB64}').decode(), end='')" 2>/dev/null || python -c "import base64; print(base64.b64decode('${passB64}').decode(), end='')" 2>/dev/null)`,
+    'if [ "$p" = "get" ]; then',
+    '  printf "username=%s\\npassword=%s\\n" "$U" "$P"',
+    '  exit 0',
+    'fi',
+    'if [ "$p" = "store" ] || [ "$p" = "erase" ]; then',
+    '  exit 0',
+    'fi',
     'case "$p" in',
-    '  *[Uu]sername*|*[Ll]ogin*)',
-    `    echo '${userB64}' | base64 -d 2>/dev/null || echo '${userB64}' | base64 -D 2>/dev/null || echo '${userB64}' | openssl base64 -d 2>/dev/null`,
-    '    ;;',
-    '  *[Pp]assword*|*[Tt]oken*)',
-    `    echo '${passB64}' | base64 -d 2>/dev/null || echo '${passB64}' | base64 -D 2>/dev/null || echo '${passB64}' | openssl base64 -d 2>/dev/null`,
+    '  *[Uu]sername*|*[Ll]ogin*|*[Uu]ser*)',
+    '    printf "%s\\n" "$U"',
     '    ;;',
     '  *)',
-    '    echo ""',
+    '    printf "%s\\n" "$P"',
     '    ;;',
     'esac'
   ].join('\n')
 
   const escScript = scriptLines.replace(/'/g, "'\\''")
-  const prepCmd = `printf '%s\\n' '${escScript}' > "${askpassPath}" && chmod 700 "${askpassPath}"`
-  const runCmd = `GIT_ASKPASS="${askpassPath}" GIT_TERMINAL_PROMPT=1 ${command}`
-  const cleanup = `rm -f "${askpassPath}"`
+  const prepCmd = `P_DIR="$([ -n "$HOME" ] && [ -d "$HOME" ] && [ -w "$HOME" ] && echo "$HOME" || echo "/tmp")"; P_ASK="$P_DIR/${askFileName}"; printf '%s\\n' '${escScript}' > "$P_ASK" && chmod 700 "$P_ASK"`
+  const runCmd = `(export GIT_ASKPASS="$P_ASK" && export GIT_TERMINAL_PROMPT=1 && export SSH_ASKPASS="$P_ASK" && export GIT_CONFIG_PARAMETERS="'core.askpass='$P_ASK'' 'credential.helper='$P_ASK''" && ${command})`
+  const cleanup = `rm -f "$P_ASK"`
 
   const fullCmd = `${prepCmd} && (${runCmd}); __P_CODE=$?; ${cleanup}; exit $__P_CODE`
   return { cmd: fullCmd, hasAskpass: true }
 }
 
+export function buildGitPullCommand(remotePath: string): string {
+  const cd = gitCd(remotePath)
+  return `${cd} && [ -n "$GIT_ASKPASS" ] && ASK_OPTS="-c core.askpass=\"$GIT_ASKPASS\" -c credential.helper=\"$GIT_ASKPASS\"" || ASK_OPTS=""; BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); REMOTE=$(git -c safe.directory=* remote 2>/dev/null | head -n 1); [ -z "$REMOTE" ] && REMOTE="origin"; git -c safe.directory=* $ASK_OPTS pull "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* $ASK_OPTS pull 2>&1`
+}
+
+export function buildGitPushCommand(remotePath: string): string {
+  const cd = gitCd(remotePath)
+  return `${cd} && [ -n "$GIT_ASKPASS" ] && ASK_OPTS="-c core.askpass=\"$GIT_ASKPASS\" -c credential.helper=\"$GIT_ASKPASS\"" || ASK_OPTS=""; BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); REMOTE=$(git -c safe.directory=* remote 2>/dev/null | head -n 1); [ -z "$REMOTE" ] && REMOTE="origin"; git -c safe.directory=* $ASK_OPTS push "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* $ASK_OPTS push -u "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* $ASK_OPTS push 2>&1`
+}
+
 export function getRemoteUrlCommand(remotePath: string): string {
-  const clean = remotePath.replace(/\/+/g, '/').replace(/'/g, "'\\''")
-  return `cd '${clean}' 2>/dev/null && (git -c safe.directory=* config --get remote.origin.url 2>/dev/null || git -c safe.directory=* config --get remote.$(git -c safe.directory=* remote 2>/dev/null | head -n 1).url 2>/dev/null || true)`
+  const cd = gitCd(remotePath)
+  return `${cd} && (git -c safe.directory=* config --get remote.origin.url 2>/dev/null || git -c safe.directory=* remote get-url origin 2>/dev/null || git -c safe.directory=* config --get remote.$(git -c safe.directory=* remote 2>/dev/null | head -n 1).url 2>/dev/null || true)`
 }
 
 export function buildSaveCredentialCommand(
@@ -73,16 +108,17 @@ export function buildSaveCredentialCommand(
   credentials: GitCredentials
 ): string | null {
   if (!credentials.username || !credentials.password || !remoteUrl) return null
-  const clean = remotePath.replace(/\/+/g, '/').replace(/'/g, "'\\''")
+  const cd = gitCd(remotePath)
 
   try {
     const parsed = new URL(remoteUrl)
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null
     const protocol = parsed.protocol.replace(':', '').replace(/'/g, "'\\''")
     const host = parsed.host.replace(/'/g, "'\\''")
     const user = credentials.username.replace(/'/g, "'\\''")
     const pass = credentials.password.replace(/'/g, "'\\''")
 
-    return `cd '${clean}' 2>/dev/null && git -c safe.directory=* config credential.helper store && printf 'protocol=%s\\nhost=%s\\nusername=%s\\npassword=%s\\n\\n' '${protocol}' '${host}' '${user}' '${pass}' | git -c safe.directory=* credential approve`
+    return `${cd} && (git config --global credential.helper store 2>/dev/null || git -c safe.directory=* config credential.helper store 2>/dev/null || true) && printf 'protocol=%s\\nhost=%s\\nusername=%s\\npassword=%s\\n\\n' '${protocol}' '${host}' '${user}' '${pass}' | git -c safe.directory=* credential approve`
   } catch {
     return null
   }
@@ -95,7 +131,7 @@ export function buildCherryPickCmd(cd: string, cleanHash: string): string {
 export function buildGitGraphCommitsCmd(remotePath: string, cwd: string, limit = 80): string {
   const escDir = (remotePath || '').replace(/\/+/g, '/').replace(/'/g, "'\\''")
   const escCwd = (cwd || '').replace(/'/g, "'\\''")
-  return `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; for P in '${escDir}' '${escCwd}'; do [ -z "$P" ] && continue; T="$P"; [ -f "$T" ] && T=$(dirname "$T"); [ ! -d "$T" ] && continue; cd "$T" 2>/dev/null || continue; R=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null); if [ -n "$R" ]; then cd "$R" 2>/dev/null && git -c safe.directory=* log --all --date-order -n ${limit} --pretty=format:'%H%x09%h%x09%P%x09%an%x09%ae%x09%ar%x09%s%x09%D' 2>/dev/null || git -c safe.directory=* log -n ${limit} --pretty=format:'%H%x09%h%x09%P%x09%an%x09%ae%x09%ar%x09%s%x09%D' 2>/dev/null; exit 0; fi; done`
+  return `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; for P in '${escDir}' '${escCwd}'; do [ -z "$P" ] && continue; T="$P"; [ -f "$T" ] && T=$(dirname "$T"); [ ! -d "$T" ] && continue; cd "$T" 2>/dev/null || continue; R=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null); if [ -n "$R" ]; then cd "$R" 2>/dev/null && git -c safe.directory=* log --all --date-order -n ${limit} --pretty=format:'%H%x09%h%x09%P%x09%an%x09%ae%x09%ar%s%x09%D' 2>/dev/null || git -c safe.directory=* log -n ${limit} --pretty=format:'%H%x09%h%x09%P%x09%an%x09%ae%x09%ar%s%x09%D' 2>/dev/null; exit 0; fi; done`
 }
 
 export function buildCommitDetailsCmd(remotePath: string, cleanHash: string): string {

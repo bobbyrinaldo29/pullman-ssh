@@ -77,7 +77,7 @@ export function useEditorGit(props: {
     }
   }
 
-  function getStoredCreds(remoteUrl?: string): { username?: string; password?: string } | undefined {
+  function getStoredCreds(remoteUrl?: string): { username?: string; password?: string; remember?: boolean } | undefined {
     try {
       const globalRaw = localStorage.getItem('pullman_global_git_credentials')
       if (globalRaw) {
@@ -85,13 +85,16 @@ export function useEditorGit(props: {
         const user = parsed.username || ''
         const pass = parsed.token || parsed.password || ''
         if (user && pass) {
-          return { username: user, password: pass }
+          return { username: user, password: pass, remember: true }
         }
       }
 
       const key = getCredKey(remoteUrl)
       const raw = localStorage.getItem(key)
-      if (raw) return JSON.parse(raw)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        return { ...parsed, remember: true }
+      }
     } catch {
       // ignore
     }

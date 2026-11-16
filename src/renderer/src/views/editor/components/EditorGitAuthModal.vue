@@ -46,13 +46,26 @@ watch(
   (open) => {
     if (open) {
       localError.value = props.errorMessage || ''
-      if (!username.value) {
+      if (!username.value || !password.value) {
         try {
-          const raw = localStorage.getItem('pullman_global_git_credentials')
-          if (raw) {
-            const parsed = JSON.parse(raw)
-            if (parsed.username) username.value = parsed.username
-            if (parsed.token || parsed.password) password.value = parsed.token || parsed.password
+          if (props.remoteUrl) {
+            const cleanUrl = props.remoteUrl.trim().replace(/^git@[^:]+:/, '').replace(/\.git$/, '')
+            const rawRemote = localStorage.getItem(`pullman_git_cred_${cleanUrl}`)
+            if (rawRemote) {
+              const parsed = JSON.parse(rawRemote)
+              if (parsed.username && !username.value) username.value = parsed.username
+              if (parsed.password && !password.value) password.value = parsed.password
+            }
+          }
+          if (!username.value || !password.value) {
+            const raw = localStorage.getItem('pullman_global_git_credentials')
+            if (raw) {
+              const parsed = JSON.parse(raw)
+              if (parsed.username && !username.value) username.value = parsed.username
+              if ((parsed.token || parsed.password) && !password.value) {
+                password.value = parsed.token || parsed.password
+              }
+            }
           }
         } catch {
           // ignore
