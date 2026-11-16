@@ -134,14 +134,22 @@ declare global {
       ) => Promise<void>
       sftpGitStageAll: (remotePath: string, sessionId?: string) => Promise<void>
       sftpGitDiscardAll: (remotePath: string, sessionId?: string) => Promise<void>
-      sftpGitPull: (remotePath: string, sessionId?: string) => Promise<{ success: boolean; message: string }>
-      sftpGitPush: (remotePath: string, sessionId?: string) => Promise<{ success: boolean; message: string }>
+      sftpGitPull: (
+        remotePath: string,
+        sessionId?: string,
+        credentials?: { username?: string; password?: string; remember?: boolean }
+      ) => Promise<{ success: boolean; message: string; authRequired?: boolean; remoteUrl?: string }>
+      sftpGitPush: (
+        remotePath: string,
+        sessionId?: string,
+        credentials?: { username?: string; password?: string; remember?: boolean }
+      ) => Promise<{ success: boolean; message: string; authRequired?: boolean; remoteUrl?: string }>
       sftpGitCherryPick: (
         remotePath: string,
         hash: string,
-        options?: { autoPush?: boolean },
+        options?: { autoPush?: boolean; credentials?: { username?: string; password?: string; remember?: boolean } },
         sessionId?: string
-      ) => Promise<{ success: boolean; message: string; isConflict?: boolean }>
+      ) => Promise<{ success: boolean; message: string; isConflict?: boolean; pushFailed?: boolean; authRequired?: boolean; remoteUrl?: string }>
       sftpGitCherryPickAbort: (
         remotePath: string,
         sessionId?: string

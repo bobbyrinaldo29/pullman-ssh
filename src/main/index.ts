@@ -823,17 +823,21 @@ app.whenReady().then(() => {
     sftpService.gitDiscardAll(remotePath, sessionId)
   )
 
-  ipcMain.handle('sftp:git-pull', (_, { remotePath, sessionId }: { remotePath: string; sessionId?: string }) =>
-    sftpService.gitPull(remotePath, sessionId)
+  ipcMain.handle(
+    'sftp:git-pull',
+    (_, { remotePath, sessionId, credentials }: { remotePath: string; sessionId?: string; credentials?: any }) =>
+      sftpService.gitPull(remotePath, sessionId, credentials)
   )
 
-  ipcMain.handle('sftp:git-push', (_, { remotePath, sessionId }: { remotePath: string; sessionId?: string }) =>
-    sftpService.gitPush(remotePath, sessionId)
+  ipcMain.handle(
+    'sftp:git-push',
+    (_, { remotePath, sessionId, credentials }: { remotePath: string; sessionId?: string; credentials?: any }) =>
+      sftpService.gitPush(remotePath, sessionId, credentials)
   )
 
   ipcMain.handle(
     'sftp:git-cherry-pick',
-    (_, { remotePath, hash, options, sessionId }: { remotePath: string; hash: string; options?: { autoPush?: boolean }; sessionId?: string }) =>
+    (_, { remotePath, hash, options, sessionId }: { remotePath: string; hash: string; options?: { autoPush?: boolean; credentials?: any }; sessionId?: string }) =>
       sftpService.gitCherryPick(remotePath, hash, options, sessionId)
   )
 

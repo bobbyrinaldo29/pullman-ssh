@@ -10,6 +10,7 @@ import { GitChangeItem } from '../types'
 import { useEditorGit } from '../composables/useEditorGit'
 import EditorSourceControlMenu from './EditorSourceControlMenu.vue'
 import EditorCherryPickModal from './EditorCherryPickModal.vue'
+import EditorGitAuthModal from './EditorGitAuthModal.vue'
 import EditorSourceControlList from './EditorSourceControlList.vue'
 
 const props = defineProps<{
@@ -49,7 +50,9 @@ const {
   fetchStatus, handleCommit, handleGenerateCommit, handlePull, handlePush,
   handleCherryPick, handleCherryPickAbort, handleStageAll, handleDiscardAll,
   handleStage, handleUnstage, handleDiscard, getFileName, getFileDir,
-  getFileIconColor, getStatusColor
+  getFileIconColor, getStatusColor,
+  isGitAuthOpen, gitAuthRemoteUrl, gitAuthPendingAction, gitAuthErrorMessage,
+  isGitAuthenticating, handleGitAuthSubmit, handleCloseGitAuth
 } = useEditorGit(props, emit)
 
 function handleOpenFile(file: GitChangeItem): void {
@@ -427,6 +430,17 @@ defineExpose({
       @close="isCherryPickOpen = false"
       @submit="onCherryPickSubmit"
       @abort="handleCherryPickAbort"
+    />
+
+    <!-- Git Remote Authentication Modal -->
+    <EditorGitAuthModal
+      :show="isGitAuthOpen"
+      :remote-url="gitAuthRemoteUrl"
+      :action="gitAuthPendingAction"
+      :error-message="gitAuthErrorMessage"
+      :is-loading="isGitAuthenticating"
+      @close="handleCloseGitAuth"
+      @submit="handleGitAuthSubmit"
     />
   </div>
 </template>

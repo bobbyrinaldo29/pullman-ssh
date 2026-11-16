@@ -223,20 +223,22 @@ const api = {
     ipcRenderer.invoke('sftp:git-discard-all', { remotePath, sessionId }),
   sftpGitPull: (
     remotePath: string,
-    sessionId?: string
-  ): Promise<{ success: boolean; message: string }> =>
-    ipcRenderer.invoke('sftp:git-pull', { remotePath, sessionId }),
+    sessionId?: string,
+    credentials?: { username?: string; password?: string; remember?: boolean }
+  ): Promise<{ success: boolean; message: string; authRequired?: boolean; remoteUrl?: string }> =>
+    ipcRenderer.invoke('sftp:git-pull', { remotePath, sessionId, credentials }),
   sftpGitPush: (
     remotePath: string,
-    sessionId?: string
-  ): Promise<{ success: boolean; message: string }> =>
-    ipcRenderer.invoke('sftp:git-push', { remotePath, sessionId }),
+    sessionId?: string,
+    credentials?: { username?: string; password?: string; remember?: boolean }
+  ): Promise<{ success: boolean; message: string; authRequired?: boolean; remoteUrl?: string }> =>
+    ipcRenderer.invoke('sftp:git-push', { remotePath, sessionId, credentials }),
   sftpGitCherryPick: (
     remotePath: string,
     hash: string,
-    options?: { autoPush?: boolean },
+    options?: { autoPush?: boolean; credentials?: { username?: string; password?: string; remember?: boolean } },
     sessionId?: string
-  ): Promise<{ success: boolean; message: string; isConflict?: boolean }> =>
+  ): Promise<{ success: boolean; message: string; isConflict?: boolean; pushFailed?: boolean; authRequired?: boolean; remoteUrl?: string }> =>
     ipcRenderer.invoke('sftp:git-cherry-pick', { remotePath, hash, options, sessionId }),
   sftpGitCherryPickAbort: (
     remotePath: string,

@@ -21,6 +21,13 @@ export interface UseEditorGitReturn {
   handlePush: () => Promise<void>
   handleCherryPick: (hash: string, autoPush?: boolean) => Promise<boolean>
   handleCherryPickAbort: () => Promise<void>
+  isGitAuthOpen: Ref<boolean>
+  gitAuthRemoteUrl: Ref<string>
+  gitAuthPendingAction: Ref<'push' | 'pull'>
+  gitAuthErrorMessage: Ref<string>
+  isGitAuthenticating: Ref<boolean>
+  handleGitAuthSubmit: (creds: { username: string; password: string; remember: boolean }) => Promise<void>
+  handleCloseGitAuth: () => void
   handleStageAll: () => Promise<void>
   handleDiscardAll: () => Promise<void>
   handleStage: (file: GitChangeItem) => Promise<void>
@@ -53,6 +60,33 @@ export function useEditorGit(props: {
     root: '',
     files: []
   })
+
+  const isGitAuthOpen = ref(false)
+  const gitAuthRemoteUrl = ref('')
+  const gitAuthPendingAction = ref<'push' | 'pull'>('push')
+  const gitAuthErrorMessage = ref('')
+  const isGitAuthenticating = ref(false)
+
+  function getCredKey(remoteUrl?: string): string {
+    if (!remoteUrl) return 'pullman_git_creds_default'
+    try {
+      const u = new URL(remoteUrl)
+      return `pullman_git_creds_${u.host}`
+    } catch {
+      return `pullman_git_creds_${remoteUrl.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+    }
+  }
+
+  function getStoredCreds(remoteUrl?: string): { username?: string; password?: string } | undefined {
+    try {
+      const key = getCredKey(remoteUrl)
+      const raw = localStorage.getItem(key)
+      if (raw) return JSON.parse(raw)
+    } catch {
+      // ignore
+    }
+    return undefined
+  }
 
   const repoName = computed(() => {
     if (gitStatus.value.root) {
@@ -116,8 +150,8 @@ export function useEditorGit(props: {
           // ignore
         }
       }
-      if (andPush && window.api?.sftpGitPush) {
-        await window.api.sftpGitPush(target, props.sessionId)
+      if (andPush) {
+        await handlePush()
       }
       await fetchStatus()
     } catch (err) {
@@ -132,7 +166,8 @@ export function useEditorGit(props: {
     isLoading.value = true
     try {
       const target = gitStatus.value.root || props.rootPath
-      const res = await window.api.sftpGitCherryPick(target, hash, { autoPush }, props.sessionId)
+      const creds = getStoredCreds(gitAuthRemoteUrl.value)
+      const res = await window.api.sftpGitCherryPick(target, hash, { autoPush, credentials: creds }, props.sessionId)
       if (!res.success) {
         if (res.isConflict) {
           alert(`Cherry-pick conflict: ${res.message}\n\nPlease resolve conflicts or click 'Abort Cherry-pick'.`)
@@ -141,6 +176,15 @@ export function useEditorGit(props: {
         }
         await fetchStatus()
         return false
+      }
+      if (res.authRequired) {
+        gitAuthPendingAction.value = 'push'
+        gitAuthRemoteUrl.value = res.remoteUrl || ''
+        gitAuthErrorMessage.value = 'Cherry-pick succeeded locally, but authentication is required to push to remote.'
+        isGitAuthOpen.value = true
+        alert(`Cherry-picked commit successfully, but push requires remote authentication.`)
+        await fetchStatus()
+        return true
       }
       alert(`Success: ${res.message}`)
       await fetchStatus()
@@ -246,16 +290,25 @@ export function useEditorGit(props: {
     isGenerating.value = false
   }
 
-  async function handlePull(): Promise<void> {
+  async function handlePull(credentials?: { username?: string; password?: string; remember?: boolean }): Promise<void> {
     if (!window.api?.sftpGitPull) return
     isPulling.value = true
     try {
       const target = gitStatus.value.root || props.rootPath
-      const res = await window.api.sftpGitPull(target, props.sessionId)
+      const creds = credentials || getStoredCreds(gitAuthRemoteUrl.value)
+      const res = await window.api.sftpGitPull(target, props.sessionId, creds)
+      if (res && res.authRequired) {
+        gitAuthPendingAction.value = 'pull'
+        gitAuthRemoteUrl.value = res.remoteUrl || ''
+        gitAuthErrorMessage.value = credentials ? 'Authentication failed. Please check username and password.' : ''
+        isGitAuthOpen.value = true
+        return
+      }
       if (res && !res.success) {
         alert(`Pull failed: ${res.message}`)
       } else {
         alert(res?.message || 'Pulled from remote successfully.')
+        if (isGitAuthOpen.value) isGitAuthOpen.value = false
       }
       await fetchStatus()
     } catch (err) {
@@ -265,16 +318,25 @@ export function useEditorGit(props: {
     }
   }
 
-  async function handlePush(): Promise<void> {
+  async function handlePush(credentials?: { username?: string; password?: string; remember?: boolean }): Promise<void> {
     if (!window.api?.sftpGitPush) return
     isPushing.value = true
     try {
       const target = gitStatus.value.root || props.rootPath
-      const res = await window.api.sftpGitPush(target, props.sessionId)
+      const creds = credentials || getStoredCreds(gitAuthRemoteUrl.value)
+      const res = await window.api.sftpGitPush(target, props.sessionId, creds)
+      if (res && res.authRequired) {
+        gitAuthPendingAction.value = 'push'
+        gitAuthRemoteUrl.value = res.remoteUrl || ''
+        gitAuthErrorMessage.value = credentials ? 'Authentication failed. Please check username and password.' : ''
+        isGitAuthOpen.value = true
+        return
+      }
       if (res && !res.success) {
         alert(`Push failed: ${res.message}`)
       } else {
         alert(res?.message || 'Pushed to origin successfully.')
+        if (isGitAuthOpen.value) isGitAuthOpen.value = false
       }
       await fetchStatus()
     } catch (err) {
@@ -282,6 +344,42 @@ export function useEditorGit(props: {
     } finally {
       isPushing.value = false
     }
+  }
+
+  async function handleGitAuthSubmit(creds: { username: string; password: string; remember: boolean }): Promise<void> {
+    isGitAuthenticating.value = true
+    gitAuthErrorMessage.value = ''
+    try {
+      const action = gitAuthPendingAction.value
+      const target = gitStatus.value.root || props.rootPath
+      const res =
+        action === 'pull'
+          ? await window.api.sftpGitPull(target, props.sessionId, creds)
+          : await window.api.sftpGitPush(target, props.sessionId, creds)
+
+      if (res.authRequired || !res.success) {
+        gitAuthErrorMessage.value = res.message || 'Authentication failed. Please verify credentials.'
+        return
+      }
+
+      if (creds.remember && (res.remoteUrl || gitAuthRemoteUrl.value)) {
+        const key = getCredKey(res.remoteUrl || gitAuthRemoteUrl.value)
+        localStorage.setItem(key, JSON.stringify({ username: creds.username, password: creds.password }))
+      }
+
+      isGitAuthOpen.value = false
+      alert(res.message || (action === 'pull' ? 'Pulled successfully.' : 'Pushed successfully.'))
+      await fetchStatus()
+    } catch (err) {
+      gitAuthErrorMessage.value = err instanceof Error ? err.message : String(err)
+    } finally {
+      isGitAuthenticating.value = false
+    }
+  }
+
+  function handleCloseGitAuth(): void {
+    isGitAuthOpen.value = false
+    gitAuthErrorMessage.value = ''
   }
 
   async function handleStageAll(): Promise<void> {
@@ -394,6 +492,13 @@ export function useEditorGit(props: {
     handlePush,
     handleCherryPick,
     handleCherryPickAbort,
+    isGitAuthOpen,
+    gitAuthRemoteUrl,
+    gitAuthPendingAction,
+    gitAuthErrorMessage,
+    isGitAuthenticating,
+    handleGitAuthSubmit,
+    handleCloseGitAuth,
     handleStageAll,
     handleDiscardAll,
     handleStage,
