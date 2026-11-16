@@ -55,7 +55,7 @@ export function wrapCommandWithAskpass(
   const randSuffix = Math.floor(100000 + Math.random() * 900000)
   const askFileName = `.pullman_ask_${Date.now()}_${randSuffix}.sh`
 
-  // Ephemeral script acting as GIT_ASKPASS, SSH_ASKPASS, core.askpass, and credential.helper
+  // Ephemeral script acting as GIT_ASKPASS, SSH_ASKPASS, and Git credential.helper
   const scriptLines = [
     '#!/bin/sh',
     'p="$1"',
@@ -80,7 +80,7 @@ export function wrapCommandWithAskpass(
 
   const escScript = scriptLines.replace(/'/g, "'\\''")
   const prepCmd = `P_DIR="$([ -n "$HOME" ] && [ -d "$HOME" ] && [ -w "$HOME" ] && echo "$HOME" || echo "/tmp")"; P_ASK="$P_DIR/${askFileName}"; printf '%s\\n' '${escScript}' > "$P_ASK" && chmod 700 "$P_ASK"`
-  const runCmd = `(export GIT_ASKPASS="$P_ASK" && export GIT_TERMINAL_PROMPT=1 && export SSH_ASKPASS="$P_ASK" && export GIT_CONFIG_PARAMETERS="'core.askpass='$P_ASK'' 'credential.helper='$P_ASK''" && ${command})`
+  const runCmd = `export GIT_ASKPASS="$P_ASK" && export SSH_ASKPASS="$P_ASK" && export GIT_TERMINAL_PROMPT=1 && ${command}`
   const cleanup = `rm -f "$P_ASK"`
 
   const fullCmd = `${prepCmd} && (${runCmd}); __P_CODE=$?; ${cleanup}; exit $__P_CODE`
@@ -89,12 +89,12 @@ export function wrapCommandWithAskpass(
 
 export function buildGitPullCommand(remotePath: string): string {
   const cd = gitCd(remotePath)
-  return `${cd} && [ -n "$GIT_ASKPASS" ] && ASK_OPTS="-c core.askpass=\"$GIT_ASKPASS\" -c credential.helper=\"$GIT_ASKPASS\"" || ASK_OPTS=""; BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); REMOTE=$(git -c safe.directory=* remote 2>/dev/null | head -n 1); [ -z "$REMOTE" ] && REMOTE="origin"; git -c safe.directory=* $ASK_OPTS pull "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* $ASK_OPTS pull 2>&1`
+  return `${cd} && BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); REMOTE=$(git -c safe.directory=* remote 2>/dev/null | head -n 1); [ -z "$REMOTE" ] && REMOTE="origin"; git -c safe.directory=* pull "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* pull 2>&1`
 }
 
 export function buildGitPushCommand(remotePath: string): string {
   const cd = gitCd(remotePath)
-  return `${cd} && [ -n "$GIT_ASKPASS" ] && ASK_OPTS="-c core.askpass=\"$GIT_ASKPASS\" -c credential.helper=\"$GIT_ASKPASS\"" || ASK_OPTS=""; BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); REMOTE=$(git -c safe.directory=* remote 2>/dev/null | head -n 1); [ -z "$REMOTE" ] && REMOTE="origin"; git -c safe.directory=* $ASK_OPTS push "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* $ASK_OPTS push -u "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* $ASK_OPTS push 2>&1`
+  return `${cd} && BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); REMOTE=$(git -c safe.directory=* remote 2>/dev/null | head -n 1); [ -z "$REMOTE" ] && REMOTE="origin"; git -c safe.directory=* push "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* push -u "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* push 2>&1`
 }
 
 export function getRemoteUrlCommand(remotePath: string): string {
@@ -131,7 +131,7 @@ export function buildCherryPickCmd(cd: string, cleanHash: string): string {
 export function buildGitGraphCommitsCmd(remotePath: string, cwd: string, limit = 80): string {
   const escDir = (remotePath || '').replace(/\/+/g, '/').replace(/'/g, "'\\''")
   const escCwd = (cwd || '').replace(/'/g, "'\\''")
-  return `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; for P in '${escDir}' '${escCwd}'; do [ -z "$P" ] && continue; T="$P"; [ -f "$T" ] && T=$(dirname "$T"); [ ! -d "$T" ] && continue; cd "$T" 2>/dev/null || continue; R=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null); if [ -n "$R" ]; then cd "$R" 2>/dev/null && git -c safe.directory=* log --all --date-order -n ${limit} --pretty=format:'%H%x09%h%x09%P%x09%an%x09%ae%x09%ar%s%x09%D' 2>/dev/null || git -c safe.directory=* log -n ${limit} --pretty=format:'%H%x09%h%x09%P%x09%an%x09%ae%x09%ar%s%x09%D' 2>/dev/null; exit 0; fi; done`
+  return `PATH=$PATH:/usr/local/bin:/usr/bin:/bin; for P in '${escDir}' '${escCwd}'; do [ -z "$P" ] && continue; T="$P"; [ -f "$T" ] && T=$(dirname "$T"); [ ! -d "$T" ] && continue; cd "$T" 2>/dev/null || continue; R=$(git -c safe.directory=* rev-parse --show-toplevel 2>/dev/null); if [ -n "$R" ]; then cd "$R" 2>/dev/null && git -c safe.directory=* log --all --date-order -n ${limit} --pretty=format:'%H%x09%h%x09%P%x09%an%x09%ae%x09%ar%x09%s%x09%D' 2>/dev/null || git -c safe.directory=* log -n ${limit} --pretty=format:'%H%x09%h%x09%P%x09%an%x09%ae%x09%ar%x09%s%x09%D' 2>/dev/null; exit 0; fi; done`
 }
 
 export function buildCommitDetailsCmd(remotePath: string, cleanHash: string): string {

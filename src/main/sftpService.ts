@@ -488,8 +488,11 @@ export class SftpService {
     }
   }
 
-  public async writeFile(remotePath: string, content: string, sessionId?: string, asSudo = false): Promise<void> {
+  public async writeFile(remotePath: string, content: string, sessionId?: string, asSudo = false, sudoPassword?: string): Promise<void> {
     let session = this.requireSession(sessionId)
+    if (sudoPassword && session.config) {
+      session.config.password = sudoPassword
+    }
     const cleanPath = remotePath.replace(/\/+/g, '/'), buffer = Buffer.from(content, 'utf-8')
     const doWrite = async (s: SftpSession): Promise<void> => {
       if (asSudo && s.config?.user !== 'root') {
