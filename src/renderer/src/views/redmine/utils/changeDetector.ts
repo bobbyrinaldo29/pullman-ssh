@@ -23,6 +23,10 @@ export interface IssueSnapshot {
   lastJournalId?: number
 }
 
+export const STORAGE_SNAPSHOTS_KEY = 'redmine_issue_snapshots'
+export const STORAGE_LAST_SEEN_KEY = 'redmine_last_seen_at'
+export const STORAGE_NOTIFIED_UPDATES_KEY = 'redmine_notified_updates'
+
 export function createIssueSnapshot(issue: RedmineIssue): IssueSnapshot {
   const journals = issue.journals || []
   const lastJournalId = journals.length > 0 ? journals[journals.length - 1].id : undefined
@@ -42,6 +46,80 @@ export function createIssueSnapshot(issue: RedmineIssue): IssueSnapshot {
   }
 }
 
+export function loadStoredSnapshots(): Map<number, IssueSnapshot> {
+  const map = new Map<number, IssueSnapshot>()
+  try {
+    const raw = localStorage.getItem(STORAGE_SNAPSHOTS_KEY)
+    if (!raw) return map
+    const list: IssueSnapshot[] = JSON.parse(raw)
+    if (Array.isArray(list)) {
+      for (const snap of list) {
+        if (snap && typeof snap.id === 'number') {
+          map.set(snap.id, snap)
+        }
+      }
+    }
+  } catch {}
+  return map
+}
+
+export function persistSnapshots(snapshots: Map<number, IssueSnapshot>): void {
+  try {
+    const list = Array.from(snapshots.values()).slice(-100)
+    localStorage.setItem(STORAGE_SNAPSHOTS_KEY, JSON.stringify(list))
+  } catch {}
+}
+
+export function loadLastSeenTimestamp(): number {
+  try {
+    const raw = localStorage.getItem(STORAGE_LAST_SEEN_KEY)
+    if (!raw) return 0
+    const parsed = parseInt(raw, 10)
+    return isNaN(parsed) ? 0 : parsed
+  } catch {
+    return 0
+  }
+}
+
+export function persistLastSeenTimestamp(ts: number = Date.now()): void {
+  try {
+    localStorage.setItem(STORAGE_LAST_SEEN_KEY, String(ts))
+  } catch {}
+}
+
+export function loadNotifiedUpdatesSet(): Set<string> {
+  const set = new Set<string>()
+  try {
+    const raw = localStorage.getItem(STORAGE_NOTIFIED_UPDATES_KEY)
+    if (raw) {
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr)) {
+        for (const item of arr) {
+          if (typeof item === 'string') set.add(item)
+        }
+      }
+    }
+  } catch {}
+  return set
+}
+
+export function recordNotifiedUpdate(key: string): void {
+  try {
+    const set = loadNotifiedUpdatesSet()
+    set.add(key)
+    const arr = Array.from(set).slice(-200)
+    localStorage.setItem(STORAGE_NOTIFIED_UPDATES_KEY, JSON.stringify(arr))
+  } catch {}
+}
+
+export function isUpdateAlreadyDispatched(
+  issueId: number,
+  updatedOn: string,
+  feed: RedmineChangeNotification[]
+): boolean {
+  return feed.some((n) => n.issueId === issueId && n.id.includes(`${issueId}-${updatedOn}`))
+}
+
 export function getLatestRelevantJournal(
   issue: RedmineIssue,
   prev?: IssueSnapshot
@@ -58,9 +136,9 @@ export function getLatestRelevantJournal(
   const latest = sorted[sorted.length - 1]
   const issueUpdatedMs = new Date(issue.updated_on).getTime()
   const journalCreatedMs = new Date(latest.created_on).getTime()
-  // Redmine timestamps match closely when update created a journal
+  // Redmine timestamps match closely when update created a journal (5-min tolerance)
   if (!isNaN(issueUpdatedMs) && !isNaN(journalCreatedMs)) {
-    if (Math.abs(issueUpdatedMs - journalCreatedMs) <= 180_000) {
+    if (Math.abs(issueUpdatedMs - journalCreatedMs) <= 300_000) {
       return latest
     }
   }
@@ -102,14 +180,18 @@ export function analyzeIssueChange(params: {
   const latestJournal = isBrandNew ? null : getLatestRelevantJournal(issue, prev)
   const actorId = isBrandNew
     ? issue.author?.id
-    : latestJournal?.user?.id || undefined
-  const actorName = isBrandNew
+    : latestJournal?.user?.id || issue.author?.id || undefined
+  const rawActorName = isBrandNew
     ? issue.author?.name || 'Seseorang'
     : latestJournal?.user?.name || issue.author?.name || 'Tim Redmine'
 
-  if (ignoreOwnChanges && currentUserId && actorId === currentUserId) {
+  const isMe = Boolean(currentUserId && actorId === currentUserId)
+
+  if (ignoreOwnChanges && isMe) {
     return null
   }
+
+  const actorName = isMe ? 'Anda' : rawActorName
 
   const detectedFlags = {
     newIssue: isBrandNew,
@@ -125,7 +207,7 @@ export function analyzeIssueChange(params: {
   let primaryType: RedmineChangeType = isBrandNew ? 'new_issue' : 'update'
 
   if (isBrandNew) {
-    const trackerName = issue.tracker?.name || 'Issue'
+    const trackerName = issue.tracker?.name || 'Tiket'
     const assignee = issue.assigned_to?.name ? ` • Assignee: ${issue.assigned_to.name}` : ''
     detailLines.push(`${trackerName} baru dibuat oleh ${actorName}${assignee}`)
   } else {
@@ -248,7 +330,7 @@ export function analyzeIssueChange(params: {
 
   const summary =
     primaryType === 'new_issue'
-      ? `${actorName} membuat ${issue.tracker?.name || 'Issue'}: "${truncateText(issue.subject, 80)}"`
+      ? `${actorName} membuat ${issue.tracker?.name || 'Tiket'}: "${truncateText(issue.subject, 80)}"`
       : `${actorName}: ${detailLines.slice(0, 2).join(' | ')}`
 
   return {
@@ -265,4 +347,3 @@ export function analyzeIssueChange(params: {
     read: false
   }
 }
-
