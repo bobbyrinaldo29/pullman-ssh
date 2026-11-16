@@ -2,6 +2,7 @@
 import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import TitleBar from './components/TitleBar.vue'
 import NewConnectionDialog from './components/NewConnectionDialog.vue'
+import GitCredentialModal from './components/GitCredentialModal.vue'
 import SidebarNavigator from './components/SidebarNavigator.vue'
 import ImportExportDialog from './components/ImportExportDialog.vue'
 import NetworkStatusNotifier from './components/NetworkStatusNotifier.vue'
@@ -19,11 +20,13 @@ import { useAppConnections } from './composables/useAppConnections'
 import { useTheme } from './composables/useTheme'
 import { useCornerStyle } from './composables/useCornerStyle'
 import { useAppearance } from './composables/useAppearance'
+import { useGlobalGitCredentials } from './composables/useGlobalGitCredentials'
 import type { RedmineChangeNotification } from './views/redmine/types'
 
 const { toggleTheme } = useTheme()
 useCornerStyle()
 useAppearance()
+const { isGitCredentialModalOpen: showGitCredentialModal } = useGlobalGitCredentials()
 
 const {
   projects: redmineProjects,
@@ -273,6 +276,13 @@ function handlePluginCenter(): void {
       @data-transfer="handleDataTransfer"
       @plugin-center="handlePluginCenter"
       @open-import-export="openImportExport('import')"
+      @open-git-credentials="showGitCredentialModal = true"
+    />
+
+    <!-- Git Credential Modal Dialog (Applies to all SSH connections) -->
+    <GitCredentialModal
+      :show="showGitCredentialModal"
+      @close="showGitCredentialModal = false"
     />
 
     <!-- New / Edit Connection Modal Dialog -->

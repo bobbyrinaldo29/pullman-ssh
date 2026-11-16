@@ -11,7 +11,9 @@ import { useEditorGit } from '../composables/useEditorGit'
 import EditorSourceControlMenu from './EditorSourceControlMenu.vue'
 import EditorCherryPickModal from './EditorCherryPickModal.vue'
 import EditorGitAuthModal from './EditorGitAuthModal.vue'
+import GitCredentialModal from '../../../components/GitCredentialModal.vue'
 import EditorSourceControlList from './EditorSourceControlList.vue'
+import { useGlobalGitCredentials } from '../../../composables/useGlobalGitCredentials'
 
 const props = defineProps<{
   isConnected: boolean
@@ -31,6 +33,7 @@ const isMoreMenuOpen = ref(false)
 const isCherryPickOpen = ref(false)
 const isHashCopied = ref(false)
 const menuPos = ref({ top: 40, left: 280 })
+const { isGitCredentialModalOpen: isGlobalGitCredOpen, openModal: openGlobalGitCred, closeModal: closeGlobalGitCred } = useGlobalGitCredentials()
 
 function handleToggleMenu(e: MouseEvent): void {
   const btn = e.currentTarget as HTMLElement
@@ -161,6 +164,7 @@ defineExpose({
       @cherry-pick="isCherryPickOpen = true"
       @view-git-log="emit('open-git-graph')"
       @show-git-output="emit('open-git-graph')"
+      @open-credentials="openGlobalGitCred"
     />
 
     <!-- Empty State: Not a Git Repo -->
@@ -441,6 +445,12 @@ defineExpose({
       :is-loading="isGitAuthenticating"
       @close="handleCloseGitAuth"
       @submit="handleGitAuthSubmit"
+    />
+
+    <!-- Global Git Credential Modal Dialog -->
+    <GitCredentialModal
+      :show="isGlobalGitCredOpen"
+      @close="closeGlobalGitCred"
     />
   </div>
 </template>

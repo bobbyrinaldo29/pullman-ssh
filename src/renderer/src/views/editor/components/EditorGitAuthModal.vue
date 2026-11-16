@@ -46,8 +46,20 @@ watch(
   (open) => {
     if (open) {
       localError.value = props.errorMessage || ''
-      if (!username.value && props.defaultUsername) {
-        username.value = props.defaultUsername
+      if (!username.value) {
+        try {
+          const raw = localStorage.getItem('pullman_global_git_credentials')
+          if (raw) {
+            const parsed = JSON.parse(raw)
+            if (parsed.username) username.value = parsed.username
+            if (parsed.token || parsed.password) password.value = parsed.token || parsed.password
+          }
+        } catch {
+          // ignore
+        }
+        if (!username.value && props.defaultUsername) {
+          username.value = props.defaultUsername
+        }
       }
       nextTick(() => {
         if (!username.value) {

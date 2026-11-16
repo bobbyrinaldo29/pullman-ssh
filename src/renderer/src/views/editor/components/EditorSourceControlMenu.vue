@@ -23,6 +23,7 @@ const emit = defineEmits<{
   (e: 'view-git-log'): void
   (e: 'show-git-output'): void
   (e: 'cherry-pick'): void
+  (e: 'open-credentials'): void
 }>()
 
 const activeSubmenu = ref<string | null>(null)
@@ -367,6 +368,14 @@ function trigger(action: () => void): void {
             @click="trigger(() => emit('view-git-log'))"
           >
             <span>Visualize Repository History</span>
+          </button>
+          <div class="h-[1px] bg-[#2a3040] my-1 mx-1.5"></div>
+          <button
+            type="button"
+            class="w-full px-2.5 py-1 text-left hover:bg-blue-600 hover:text-white rounded flex items-center justify-between transition-colors group text-blue-400 hover:text-white"
+            @click="trigger(() => emit('open-credentials'))"
+          >
+            <span>Git Credentials (Global)</span>
           </button>
         </div>
 

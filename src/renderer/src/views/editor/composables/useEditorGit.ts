@@ -79,6 +79,16 @@ export function useEditorGit(props: {
 
   function getStoredCreds(remoteUrl?: string): { username?: string; password?: string } | undefined {
     try {
+      const globalRaw = localStorage.getItem('pullman_global_git_credentials')
+      if (globalRaw) {
+        const parsed = JSON.parse(globalRaw)
+        const user = parsed.username || ''
+        const pass = parsed.token || parsed.password || ''
+        if (user && pass) {
+          return { username: user, password: pass }
+        }
+      }
+
       const key = getCredKey(remoteUrl)
       const raw = localStorage.getItem(key)
       if (raw) return JSON.parse(raw)
@@ -362,9 +372,15 @@ export function useEditorGit(props: {
         return
       }
 
-      if (creds.remember && (res.remoteUrl || gitAuthRemoteUrl.value)) {
-        const key = getCredKey(res.remoteUrl || gitAuthRemoteUrl.value)
-        localStorage.setItem(key, JSON.stringify({ username: creds.username, password: creds.password }))
+      if (creds.remember) {
+        if (res.remoteUrl || gitAuthRemoteUrl.value) {
+          const key = getCredKey(res.remoteUrl || gitAuthRemoteUrl.value)
+          localStorage.setItem(key, JSON.stringify({ username: creds.username, password: creds.password }))
+        }
+        localStorage.setItem(
+          'pullman_global_git_credentials',
+          JSON.stringify({ username: creds.username, token: creds.password, updatedAt: Date.now() })
+        )
       }
 
       isGitAuthOpen.value = false

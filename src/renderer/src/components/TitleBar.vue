@@ -56,6 +56,7 @@ const emit = defineEmits<{
   (e: 'toggle-theme'): void
   (e: 'open-history'): void
   (e: 'open-git'): void
+  (e: 'open-git-credentials'): void
 }>()
 
 const isMac = ref(true)
@@ -249,7 +250,7 @@ function handleClose(): void {
         >
           <button
             class="w-full text-left px-3 py-1.5 flex items-center space-x-2 text-[#CBD5E1] hover:text-white hover:bg-[#293040] transition-colors"
-            @click="showMoreMenu = false"
+            @click="() => { showMoreMenu = false; emit('open-git-credentials') }"
           >
             <ShieldCheck class="w-3.5 h-3.5 text-blue-400" />
             <span>Git Credentials</span>

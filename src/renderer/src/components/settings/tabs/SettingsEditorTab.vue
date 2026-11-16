@@ -6,10 +6,14 @@ import {
   Play,
   CheckCircle2,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  ShieldCheck,
+  Key
 } from 'lucide-vue-next'
 import ToggleSwitch from '../../ToggleSwitch.vue'
+import GitCredentialModal from '../../GitCredentialModal.vue'
 import { useEditorSettings, ExternalEditorId } from '../../../composables/useEditorSettings'
+import { useGlobalGitCredentials } from '../../../composables/useGlobalGitCredentials'
 
 const {
   fontFamily,
@@ -27,6 +31,14 @@ const {
   autoSyncExternal,
   fontFamilies
 } = useEditorSettings()
+
+const {
+  globalCredentials,
+  hasCredentials,
+  isGitCredentialModalOpen,
+  openModal,
+  closeModal
+} = useGlobalGitCredentials()
 
 interface DetectedEditor {
   id: string
@@ -382,6 +394,55 @@ onMounted(() => {
           />
         </div>
       </div>
+    </div>
+
+    <!-- Git Version Control & Global Credentials Section -->
+    <div class="space-y-3">
+      <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400">
+        Git Version Control & Credentials
+      </h3>
+
+      <div class="p-4 rounded-lg bg-[#1D222E] border border-[#2B3245] flex items-center justify-between">
+        <div class="flex items-start space-x-3">
+          <div class="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 shrink-0">
+            <ShieldCheck class="w-5 h-5 text-blue-400" />
+          </div>
+          <div class="space-y-1">
+            <div class="text-sm font-semibold text-slate-100 flex items-center space-x-2">
+              <span>Git Credential Global</span>
+              <span
+                v-if="hasCredentials"
+                class="px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+              >
+                Aktif ({{ globalCredentials.username }})
+              </span>
+              <span
+                v-else
+                class="px-2 py-0.5 rounded-full text-[10px] bg-slate-700/50 text-slate-400 border border-slate-600/30"
+              >
+                Belum diatur
+              </span>
+            </div>
+            <p class="text-xs text-slate-400 leading-relaxed max-w-xl">
+              Dipakai untuk semua koneksi SSH yang menjalankan Git Pull, Git Push, atau Cherry-pick.
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition-colors shadow-sm flex items-center space-x-1.5 shrink-0"
+          @click="openModal"
+        >
+          <Key class="w-3.5 h-3.5" />
+          <span>{{ hasCredentials ? 'Ubah Credential' : 'Atur Credential' }}</span>
+        </button>
+      </div>
+
+      <GitCredentialModal
+        :show="isGitCredentialModalOpen"
+        @close="closeModal"
+      />
     </div>
   </div>
 </template>
