@@ -33,7 +33,8 @@ export function wrapCommandWithAskpass(
 
   const userB64 = Buffer.from(credentials.username || '').toString('base64')
   const passB64 = Buffer.from(credentials.password || '').toString('base64')
-  const askpassPath = `/tmp/.pullman_ask_${Date.now()}_$RANDOM`
+  const randSuffix = Math.floor(100000 + Math.random() * 900000)
+  const askpassPath = `/tmp/.pullman_ask_${Date.now()}_${randSuffix}`
 
   // Ephemeral askpass script using base64 decoding on remote host
   const scriptLines = [
@@ -41,21 +42,21 @@ export function wrapCommandWithAskpass(
     'p="$1"',
     'case "$p" in',
     '  *[Uu]sername*|*[Ll]ogin*)',
-    `    printf '%s\\n' "$(echo '${userB64}' | base64 -d 2>/dev/null || echo '${userB64}' | openssl base64 -d 2>/dev/null)"`,
+    `    echo '${userB64}' | base64 -d 2>/dev/null || echo '${userB64}' | base64 -D 2>/dev/null || echo '${userB64}' | openssl base64 -d 2>/dev/null`,
     '    ;;',
     '  *[Pp]assword*|*[Tt]oken*)',
-    `    printf '%s\\n' "$(echo '${passB64}' | base64 -d 2>/dev/null || echo '${passB64}' | openssl base64 -d 2>/dev/null)"`,
+    `    echo '${passB64}' | base64 -d 2>/dev/null || echo '${passB64}' | base64 -D 2>/dev/null || echo '${passB64}' | openssl base64 -d 2>/dev/null`,
     '    ;;',
     '  *)',
-    "    printf '\\n'",
+    '    echo ""',
     '    ;;',
     'esac'
   ].join('\n')
 
   const escScript = scriptLines.replace(/'/g, "'\\''")
-  const prepCmd = `printf '%s' '${escScript}' > ${askpassPath} && chmod 700 ${askpassPath}`
-  const runCmd = `GIT_ASKPASS=${askpassPath} GIT_TERMINAL_PROMPT=1 ${command}`
-  const cleanup = `rm -f ${askpassPath}`
+  const prepCmd = `printf '%s\\n' '${escScript}' > "${askpassPath}" && chmod 700 "${askpassPath}"`
+  const runCmd = `GIT_ASKPASS="${askpassPath}" GIT_TERMINAL_PROMPT=1 ${command}`
+  const cleanup = `rm -f "${askpassPath}"`
 
   const fullCmd = `${prepCmd} && (${runCmd}); __P_CODE=$?; ${cleanup}; exit $__P_CODE`
   return { cmd: fullCmd, hasAskpass: true }
@@ -76,12 +77,12 @@ export function buildSaveCredentialCommand(
 
   try {
     const parsed = new URL(remoteUrl)
-    const protocol = parsed.protocol.replace(':', '')
-    const host = parsed.host
+    const protocol = parsed.protocol.replace(':', '').replace(/'/g, "'\\''")
+    const host = parsed.host.replace(/'/g, "'\\''")
     const user = credentials.username.replace(/'/g, "'\\''")
     const pass = credentials.password.replace(/'/g, "'\\''")
 
-    return `cd '${clean}' 2>/dev/null && git -c safe.directory=* config credential.helper store && printf 'protocol=${protocol}\\nhost=${host}\\nusername=${user}\\npassword=${pass}\\n\\n' | git -c safe.directory=* credential approve`
+    return `cd '${clean}' 2>/dev/null && git -c safe.directory=* config credential.helper store && printf 'protocol=%s\\nhost=%s\\nusername=%s\\npassword=%s\\n\\n' '${protocol}' '${host}' '${user}' '${pass}' | git -c safe.directory=* credential approve`
   } catch {
     return null
   }
