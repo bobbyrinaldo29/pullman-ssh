@@ -34,7 +34,12 @@ export interface UseEditorSshReturn {
   loadRootDirectory: () => Promise<void>
   toggleFolder: (node: EditorFileNode) => Promise<void>
   openFile: (fileNode: EditorFileNode) => Promise<void>
-  saveActiveTab: (asSudo?: boolean) => Promise<boolean>
+  saveActiveTab: (asSudo?: boolean, customSudoPass?: string) => Promise<boolean>
+  isSudoModalOpen: Ref<boolean>
+  sudoModalFile: Ref<string>
+  sudoModalError: Ref<string>
+  handleSudoPasswordSubmit: (password: string) => void
+  handleSudoPasswordCancel: () => void
   closeTab: (tabId: string) => void
   createRemoteFile: (targetDir: string, name: string) => Promise<boolean>
   createRemoteFolder: (targetDir: string, name: string) => Promise<boolean>
@@ -394,14 +399,64 @@ export function useEditorSsh(): UseEditorSshReturn {
     }
   }
 
-  async function saveActiveTab(asSudo = false): Promise<boolean> {
+  const isSudoModalOpen = ref(false)
+  const sudoModalFile = ref('')
+  const sudoModalError = ref('')
+  const sessionSudoPassword = ref('')
+  let sudoPasswordResolver: ((pw: string | null) => void) | null = null
+
+  function promptSudoPassword(filename: string, initialError = ''): Promise<string | null> {
+    sudoModalFile.value = filename
+    sudoModalError.value = initialError
+    isSudoModalOpen.value = true
+    return new Promise((resolve) => {
+      sudoPasswordResolver = resolve
+    })
+  }
+
+  function handleSudoPasswordSubmit(password: string): void {
+    if (sudoPasswordResolver) {
+      sudoPasswordResolver(password)
+      sudoPasswordResolver = null
+    }
+  }
+
+  function handleSudoPasswordCancel(): void {
+    isSudoModalOpen.value = false
+    sudoModalError.value = ''
+    if (sudoPasswordResolver) {
+      sudoPasswordResolver(null)
+      sudoPasswordResolver = null
+    }
+  }
+
+  async function saveActiveTab(asSudo = false, customSudoPass?: string): Promise<boolean> {
     const tab = activeTab.value
     if (!tab) return false
 
     tab.isSaving = true
     try {
       if (window.api?.sftpWriteFile) {
-        await window.api.sftpWriteFile(tab.path, tab.content, sessionId.value, asSudo)
+        let sudoPass = customSudoPass
+        const isNonRoot = currentHost.value?.user && currentHost.value.user !== 'root'
+
+        if (asSudo && isNonRoot && !sudoPass) {
+          sudoPass = sessionSudoPassword.value || currentHost.value?.password || ''
+          if (!sudoPass) {
+            tab.isSaving = false
+            const entered = await promptSudoPassword(tab.name)
+            if (!entered) return false
+            sudoPass = entered
+            tab.isSaving = true
+          }
+        }
+
+        await window.api.sftpWriteFile(tab.path, tab.content, sessionId.value, asSudo, sudoPass)
+        if (asSudo && sudoPass) {
+          sessionSudoPassword.value = sudoPass
+        }
+        isSudoModalOpen.value = false
+        sudoModalError.value = ''
         tab.originalContent = tab.content
         tab.isDirty = false
 
@@ -417,6 +472,21 @@ export function useEditorSsh(): UseEditorSshReturn {
     } catch (err) {
       console.error(`Failed to save file ${tab.path}:`, err)
       const errMsg = err instanceof Error ? err.message : String(err)
+      const isAuthOrPermError =
+        errMsg.toLowerCase().includes('password') ||
+        errMsg.toLowerCase().includes('sudo') ||
+        errMsg.toLowerCase().includes('permission') ||
+        errMsg.toLowerCase().includes('incorrect')
+
+      if (asSudo && isAuthOrPermError) {
+        sessionSudoPassword.value = ''
+        const retryPass = await promptSudoPassword(tab.name, errMsg)
+        if (retryPass) {
+          return await saveActiveTab(true, retryPass)
+        }
+        return false
+      }
+
       if (!asSudo && (errMsg.toLowerCase().includes('permission') || errMsg.toLowerCase().includes('access denied') || errMsg.toLowerCase().includes('eacces'))) {
         const retrySudo = confirm(`Permission denied when saving "${tab.name}". Would you like to Save as Sudo (Root)?`)
         if (retrySudo) {
@@ -571,6 +641,11 @@ export function useEditorSsh(): UseEditorSshReturn {
     toggleFolder,
     openFile,
     saveActiveTab,
+    isSudoModalOpen,
+    sudoModalFile,
+    sudoModalError,
+    handleSudoPasswordSubmit,
+    handleSudoPasswordCancel,
     closeTab,
     createRemoteFile,
     createRemoteFolder,

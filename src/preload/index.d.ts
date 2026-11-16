@@ -102,7 +102,7 @@ declare global {
       sftpRenameRemote: (oldPath: string, newPath: string, sessionId?: string, asSudo?: boolean) => Promise<void>
       sftpChmodRemote: (remotePath: string, mode: string | number, sessionId?: string, asSudo?: boolean) => Promise<void>
       sftpReadFile: (remotePath: string, sessionId?: string, asSudo?: boolean) => Promise<string>
-      sftpWriteFile: (remotePath: string, content: string, sessionId?: string, asSudo?: boolean) => Promise<void>
+      sftpWriteFile: (remotePath: string, content: string, sessionId?: string, asSudo?: boolean, sudoPassword?: string) => Promise<void>
       sftpGetGitInfo: (remotePath: string, sessionId?: string) => Promise<{ isGit: boolean; branch: string; isDirty: boolean }>
       sftpGetGitBlame: (
         filePath: string,

@@ -17,6 +17,7 @@ import EditorAntigravityPane from './EditorAntigravityPane.vue'
 import EditorAiGenInline from './EditorAiGenInline.vue'
 import EditorStatusBar from './EditorStatusBar.vue'
 import EditorSplitView from './EditorSplitView.vue'
+import EditorSudoPasswordModal from './EditorSudoPasswordModal.vue'
 
 const props = defineProps<{
   host: HostItem
@@ -58,16 +59,13 @@ const {
   rootPath, defaultRootPath, gitInfo, fetchGitInfo, fileTree, isTreeLoading,
   openTabs, activeTabId, activeTab, connectToHost, disconnect,
   loadRootDirectory, toggleFolder, openFile, saveActiveTab, closeTab,
-  setRootFolder, resetToDefaultRoot, syncHost, navigateUp, createRemoteFile, createRemoteFolder, deleteRemoteNode
+  setRootFolder, resetToDefaultRoot, syncHost, navigateUp, createRemoteFile, createRemoteFolder, deleteRemoteNode,
+  isSudoModalOpen, sudoModalFile, sudoModalError, handleSudoPasswordSubmit, handleSudoPasswordCancel
 } = useEditorSsh()
 
-watch(() => props.host, (updated) => {
-  if (updated) void syncHost(updated)
-}, { deep: true })
+watch(() => props.host, (updated) => { if (updated) void syncHost(updated) }, { deep: true })
 
-const splitActiveTab = computed(() => {
-  return openTabs.value.find((t) => t.id === splitActiveTabId.value) || activeTab.value
-})
+const splitActiveTab = computed(() => openTabs.value.find((t) => t.id === splitActiveTabId.value) || activeTab.value)
 
 watch([isConnecting, isConnected, connectionError], () => {
   if (isConnecting.value) emit('update-status', 'connecting')
@@ -77,23 +75,14 @@ watch([isConnecting, isConnected, connectionError], () => {
 }, { immediate: true })
 
 function updateGitBlame(): void {
-  if (blameTimeout) {
-    clearTimeout(blameTimeout)
-    blameTimeout = null
-  }
+  if (blameTimeout) { clearTimeout(blameTimeout); blameTimeout = null }
 
   const curTab = activeTab.value
   const targetLine = cursorPos.value.line
-  if (!curTab || !curTab.path || curTab.viewType === 'git-graph') {
-    currentBlame.value = null
-    return
-  }
+  if (!curTab || !curTab.path || curTab.viewType === 'git-graph') { currentBlame.value = null; return }
 
   const cacheKey = `${curTab.path}:${targetLine}:${curTab.isDirty}`
-  if (blameCache.has(cacheKey)) {
-    currentBlame.value = blameCache.get(cacheKey) || null
-    return
-  }
+  if (blameCache.has(cacheKey)) { currentBlame.value = blameCache.get(cacheKey) || null; return }
 
   blameTimeout = setTimeout(async () => {
     try {
@@ -476,7 +465,6 @@ defineExpose({
       </EditorSplitView>
     </div>
 
-    <!-- 4. VS Code Blue Status Bar (Bottom) -->
     <EditorStatusBar
       :is-connected="isConnected"
       :host-title="currentHost?.name || currentHost?.ip"
@@ -486,6 +474,15 @@ defineExpose({
       :git-info="gitInfo"
       :git-blame="currentBlame"
       @click-remote="isSidebarOpen = true; activeView = 'explorer'"
+    />
+
+    <EditorSudoPasswordModal
+      :show="isSudoModalOpen"
+      :filename="sudoModalFile"
+      :username="currentHost?.user"
+      :error-message="sudoModalError"
+      @submit="handleSudoPasswordSubmit"
+      @cancel="handleSudoPasswordCancel"
     />
   </div>
 </template>
