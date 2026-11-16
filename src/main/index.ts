@@ -6,6 +6,14 @@ import { Client as SshClient } from 'ssh2'
 import mysql from 'mysql2/promise'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT EXCEPTION]', err)
+})
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[UNHANDLED REJECTION]', reason)
+})
 import { dbService, ConnectionInput } from './database'
 import { sftpService } from './sftpService'
 import { SshShellService } from './sshShellService'
@@ -344,6 +352,14 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+  })
+
+  mainWindow.webContents.on('did-fail-load', (_, errorCode, errorDescription, validatedURL) => {
+    console.error(`[FAIL-LOAD] ${errorCode}: ${errorDescription} (${validatedURL})`)
+  })
+
+  mainWindow.webContents.on('render-process-gone', (_, details) => {
+    console.error(`[RENDER-GONE] ${details.reason} (exit: ${details.exitCode})`)
   })
 
   mainWindow.on('maximize', () => {
@@ -760,10 +776,17 @@ app.whenReady().then(() => {
         remotePath,
         content,
         sessionId,
-        asSudo
-      }: { remotePath: string; content: string; sessionId?: string; asSudo?: boolean }
+        asSudo,
+        sudoPassword
+      }: {
+        remotePath: string
+        content: string
+        sessionId?: string
+        asSudo?: boolean
+        sudoPassword?: string
+      }
     ) => {
-      return sftpService.writeFile(remotePath, content, sessionId, asSudo)
+      return sftpService.writeFile(remotePath, content, sessionId, asSudo, sudoPassword)
     }
   )
 
@@ -908,11 +931,7 @@ app.whenReady().then(() => {
   ipcMain.handle('sftp:mkdir-local', (_, arg: string | { dirPath: string; asSudo?: boolean }) => sftpService.mkdirLocal(typeof arg === 'string' ? arg : arg.dirPath, typeof arg === 'object' ? Boolean(arg.asSudo) : false))
   ipcMain.handle('sftp:delete-local', (_, arg: string | { filePath: string; asSudo?: boolean }) => sftpService.deleteLocal(typeof arg === 'string' ? arg : arg.filePath, typeof arg === 'object' ? Boolean(arg.asSudo) : false))
 
-  ipcMain.handle('app:show-notification', (event, payload) =>
-    notificationService.show(event, payload, icon)
-  )
-
-  // IPC test
+  ipcMain.handle('app:show-notification', (event, payload) => notificationService.show(event, payload, icon))
   ipcMain.on('ping', () => console.log('pong'))
 
   // Windows / Frameless Window Controls
@@ -936,16 +955,10 @@ app.whenReady().then(() => {
           body: payload.body,
           signal: controller.signal
         }).finally(() => clearTimeout(timer))
-        const status = res.status
-        const ok = res.ok
         const data = await res.json().catch(() => null)
-        return { ok, status, statusText: res.statusText, data }
+        return { ok: res.ok, status: res.status, statusText: res.statusText, data }
       } catch (err) {
-        return {
-          ok: false,
-          status: 0,
-          error: err instanceof Error ? err.message : String(err)
-        }
+        return { ok: false, status: 0, error: err instanceof Error ? err.message : String(err) }
       }
     }
   )

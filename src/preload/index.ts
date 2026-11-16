@@ -176,9 +176,10 @@ const api = {
     remotePath: string,
     content: string,
     sessionId?: string,
-    asSudo?: boolean
+    asSudo?: boolean,
+    sudoPassword?: string
   ): Promise<void> =>
-    ipcRenderer.invoke('sftp:write-file', { remotePath, content, sessionId, asSudo }),
+    ipcRenderer.invoke('sftp:write-file', { remotePath, content, sessionId, asSudo, sudoPassword }),
   sftpGetGitInfo: (
     remotePath: string,
     sessionId?: string

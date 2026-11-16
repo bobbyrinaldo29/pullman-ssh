@@ -1,5 +1,6 @@
 appId: com.domba.pullmanager
 productName: DO.MBA Pull Manager
+afterPack: build/afterPack.js
 directories:
   buildResources: build
 files:
@@ -24,7 +25,11 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  identity: null
+  entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  hardenedRuntime: false
+  gatekeeperAssess: false
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
