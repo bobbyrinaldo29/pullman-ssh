@@ -484,6 +484,12 @@ export function useEditorSsh(): UseEditorSshReturn {
         if (retryPass) {
           return await saveActiveTab(true, retryPass)
         }
+        if (window.api?.showNotification) {
+          window.api.showNotification({
+            title: 'Save as Sudo Failed',
+            body: `Failed to save "${tab.name}": ${errMsg}`
+          }).catch(() => {})
+        }
         return false
       }
 
@@ -492,9 +498,15 @@ export function useEditorSsh(): UseEditorSshReturn {
         if (retrySudo) {
           return await saveActiveTab(true)
         }
-      } else {
-        alert(`Save failed for "${tab.name}": ${errMsg}`)
       }
+
+      if (window.api?.showNotification) {
+        window.api.showNotification({
+          title: asSudo ? 'Save as Sudo Failed' : 'Save Failed',
+          body: `Failed to save "${tab.name}": ${errMsg}`
+        }).catch(() => {})
+      }
+      alert(`Save failed for "${tab.name}": ${errMsg}`)
       return false
     } finally {
       tab.isSaving = false

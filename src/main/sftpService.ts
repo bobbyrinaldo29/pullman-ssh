@@ -254,7 +254,8 @@ export class SftpService {
   public async execRemote(
     command: string,
     sessionId?: string,
-    asSudo = false
+    asSudo = false,
+    sudoPassword?: string
   ): Promise<{ stdout: string; stderr: string; code: number }> {
     const session = this.getSession(sessionId)
     if (!session || !session.isConnected) {
@@ -268,19 +269,30 @@ export class SftpService {
     }
 
     const isRoot = session.config?.user === 'root'
-    const password = session.config?.password || ''
+    const password = (sudoPassword !== undefined && sudoPassword !== null && sudoPassword !== '')
+      ? sudoPassword
+      : (session.config?.password || '')
 
     let cmdToRun = command
     let feedStdin = false
 
     if (asSudo && !isRoot) {
+      const hasShellMeta = /[&|;><]/.test(command)
       const esc = command.replace(/'/g, "'\\''")
-      if (password) {
-        const escPass = password.replace(/'/g, "'\\''")
-        cmdToRun = `printf '%s\\n' '${escPass}' | sudo -S -p '' -- sh -c '${esc}'`
-        feedStdin = true
+      if (hasShellMeta) {
+        if (password) {
+          const escPass = password.replace(/'/g, "'\\''")
+          cmdToRun = `printf '%s\\n' '${escPass}' | sudo -S -p '' -- sh -c '${esc}'`
+        } else {
+          cmdToRun = `sudo -n -- sh -c '${esc}'`
+        }
       } else {
-        cmdToRun = `sudo -n -- sh -c '${esc}'`
+        if (password) {
+          const escPass = password.replace(/'/g, "'\\''")
+          cmdToRun = `printf '%s\\n' '${escPass}' | sudo -S -p '' -- ${command}`
+        } else {
+          cmdToRun = `sudo -n -- ${command}`
+        }
       }
     }
 
@@ -411,7 +423,8 @@ export class SftpService {
     const target = remotePath.replace(/\/+/g, '/')
     if (asSudo) {
       const escTarget = target.replace(/'/g, "'\\''")
-      await this.execRemote(`mkdir -p '${escTarget}'`, sessionId, true)
+      const res = await this.execRemote(`mkdir -p '${escTarget}'`, sessionId, true)
+      if (res.code !== 0) throw new Error((res.stderr || res.stdout || '').trim() || `Create directory as sudo failed (exit code: ${res.code})`)
       return
     }
     await session.client.mkdir(target, true)
@@ -420,7 +433,8 @@ export class SftpService {
   public async deleteRemote(remotePath: string, isDirectory = false, sessionId?: string, asSudo = false): Promise<void> {
     const session = this.requireSession(sessionId), target = remotePath.replace(/\/+/g, '/')
     if (asSudo) {
-      await this.execRemote(`rm -rf '${target.replace(/'/g, "'\\''")}'`, sessionId, true)
+      const res = await this.execRemote(`rm -rf '${target.replace(/'/g, "'\\''")}'`, sessionId, true)
+      if (res.code !== 0) throw new Error((res.stderr || res.stdout || '').trim() || `Delete as sudo failed (exit code: ${res.code})`)
       return
     }
     if (isDirectory) await session.client.rmdir(target, true)
@@ -430,7 +444,8 @@ export class SftpService {
   public async renameRemote(oldPath: string, newPath: string, sessionId?: string, asSudo = false): Promise<void> {
     const session = this.requireSession(sessionId), cleanOld = oldPath.replace(/\/+/g, '/'), cleanNew = newPath.replace(/\/+/g, '/')
     if (asSudo) {
-      await this.execRemote(`mv '${cleanOld.replace(/'/g, "'\\''")}' '${cleanNew.replace(/'/g, "'\\''")}'`, sessionId, true)
+      const res = await this.execRemote(`mv '${cleanOld.replace(/'/g, "'\\''")}' '${cleanNew.replace(/'/g, "'\\''")}'`, sessionId, true)
+      if (res.code !== 0) throw new Error((res.stderr || res.stdout || '').trim() || `Rename as sudo failed (exit code: ${res.code})`)
       return
     }
     await session.client.rename(cleanOld, cleanNew)
@@ -442,7 +457,8 @@ export class SftpService {
     const modeStr = String(mode).replace(/^0+/, '') || '0'
     if (asSudo) {
       const esc = cleanPath.replace(/'/g, "'\\''")
-      await this.execRemote(`chmod ${modeStr} '${esc}'`, sessionId, true)
+      const res = await this.execRemote(`chmod ${modeStr} '${esc}'`, sessionId, true)
+      if (res.code !== 0) throw new Error((res.stderr || res.stdout || '').trim() || `Chmod as sudo failed (exit code: ${res.code})`)
       return
     }
     const numericMode = parseInt(modeStr, 8)
@@ -454,6 +470,7 @@ export class SftpService {
     const cleanPath = remotePath.replace(/\/+/g, '/')
     if (asSudo && session.config?.user !== 'root') {
       const res = await this.execRemote(`cat '${cleanPath.replace(/'/g, "'\\''")}'`, sessionId, true)
+      if (res.code !== 0) throw new Error((res.stderr || res.stdout || '').trim() || `Read as sudo failed (exit code: ${res.code})`)
       return res.stdout
     }
     try {
@@ -488,7 +505,13 @@ export class SftpService {
     }
   }
 
-  public async writeFile(remotePath: string, content: string, sessionId?: string, asSudo = false, sudoPassword?: string): Promise<void> {
+  public async writeFile(
+    remotePath: string,
+    content: string,
+    sessionId?: string,
+    asSudo = false,
+    sudoPassword?: string
+  ): Promise<void> {
     let session = this.requireSession(sessionId)
     if (sudoPassword && session.config) {
       session.config.password = sudoPassword
@@ -496,10 +519,142 @@ export class SftpService {
     const cleanPath = remotePath.replace(/\/+/g, '/'), buffer = Buffer.from(content, 'utf-8')
     const doWrite = async (s: SftpSession): Promise<void> => {
       if (asSudo && s.config?.user !== 'root') {
-        const tmpRemote = `/tmp/pullman_edit_${Date.now()}`
-        await s.client.put(buffer, tmpRemote)
-        await this.execRemote(`cp -f '${tmpRemote}' '${cleanPath.replace(/'/g, "'\\''")}' && rm -f '${tmpRemote}'`, sessionId, true)
-        return
+        const currentUser = s.config?.user || ''
+        const escClean = cleanPath.replace(/'/g, "'\\''")
+        const parentDir = path.posix.dirname(cleanPath)
+        const escParentDir = parentDir.replace(/'/g, "'\\''")
+
+        // 1. Get original permissions mode, owner, and group
+        let origFileMode = ''
+        let origFileOwner = ''
+        let origFileGroup = ''
+        let origParentMode = ''
+        let fileExists = false
+
+        try {
+          const statFile = await this.execRemote(
+            `stat -c '%a:%U:%G' '${escClean}' 2>/dev/null || stat -f '%Lp:%Su:%Sg' '${escClean}' 2>/dev/null`,
+            sessionId,
+            false
+          )
+          if (statFile.code === 0 && statFile.stdout.trim()) {
+            const parts = statFile.stdout.trim().split(':')
+            if (parts.length >= 1 && parts[0]) {
+              origFileMode = parts[0].trim()
+              origFileOwner = parts[1]?.trim() || ''
+              origFileGroup = parts[2]?.trim() || ''
+              fileExists = true
+            }
+          }
+        } catch {}
+
+        try {
+          const statParent = await this.execRemote(
+            `stat -c '%a' '${escParentDir}' 2>/dev/null || stat -f '%Lp' '${escParentDir}' 2>/dev/null`,
+            sessionId,
+            false
+          )
+          if (statParent.code === 0 && statParent.stdout.trim()) {
+            origParentMode = statParent.stdout.trim().split('\n')[0].trim()
+          }
+        } catch {}
+
+        let lastError: Error | null = null
+
+        // =========================================================================
+        // Strategy 1: CHMOD 777 (User requested)
+        // Temporarily chmod 777 so user can write natively over SFTP, then restore
+        // =========================================================================
+        try {
+          if (fileExists) {
+            await this.execRemote(`chmod 777 '${escClean}'`, sessionId, true, sudoPassword)
+            await this.execRemote(`chmod 777 '${escClean}'`, sessionId, false).catch(() => {})
+          } else {
+            await this.execRemote(`mkdir -p '${escParentDir}'`, sessionId, true, sudoPassword)
+            await this.execRemote(`chmod 777 '${escParentDir}'`, sessionId, true, sudoPassword)
+          }
+
+          if (currentUser) {
+            await this.execRemote(`chown ${currentUser} '${escClean}'`, sessionId, true, sudoPassword).catch(() => {})
+          }
+
+          await s.client.put(buffer, cleanPath)
+
+          // SUCCESS with chmod 777! Restore original permissions
+          try {
+            const restoreMode = origFileMode || '644'
+            await this.execRemote(`chmod ${restoreMode} '${escClean}'`, sessionId, true, sudoPassword)
+            if (origFileOwner && origFileGroup) {
+              await this.execRemote(`chown ${origFileOwner}:${origFileGroup} '${escClean}'`, sessionId, true, sudoPassword).catch(() => {})
+            }
+          } catch {}
+
+          if (!fileExists && origParentMode) {
+            try {
+              await this.execRemote(`chmod ${origParentMode} '${escParentDir}'`, sessionId, true, sudoPassword)
+            } catch {}
+          }
+
+          return
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err))
+        } finally {
+          if (origFileMode) {
+            this.execRemote(`chmod ${origFileMode} '${escClean}'`, sessionId, true, sudoPassword).catch(() => {})
+          }
+          if (!fileExists && origParentMode) {
+            this.execRemote(`chmod ${origParentMode} '${escParentDir}'`, sessionId, true, sudoPassword).catch(() => {})
+          }
+        }
+
+        // =========================================================================
+        // Strategy 2: DIRECT SUDO CP (via /tmp file with direct binary cp -f)
+        // =========================================================================
+        try {
+          await this.execRemote(`mkdir -p '${escParentDir}'`, sessionId, true, sudoPassword)
+          const tmpRemote = `/tmp/pullman_edit_${Date.now()}`
+          await s.client.put(buffer, tmpRemote)
+          const escTmp = tmpRemote.replace(/'/g, "'\\''")
+
+          try {
+            await this.execRemote(`chmod 777 '${escClean}'`, sessionId, true, sudoPassword).catch(() => {})
+            const cpRes = await this.execRemote(`cp -f '${escTmp}' '${escClean}'`, sessionId, true, sudoPassword)
+
+            if (cpRes.code === 0) {
+              if (origFileMode) {
+                await this.execRemote(`chmod ${origFileMode} '${escClean}'`, sessionId, true, sudoPassword).catch(() => {})
+              }
+              if (origFileOwner && origFileGroup) {
+                await this.execRemote(`chown ${origFileOwner}:${origFileGroup} '${escClean}'`, sessionId, true, sudoPassword).catch(() => {})
+              }
+              return
+            } else {
+              const errDetail = (cpRes.stderr || cpRes.stdout || '').trim()
+              lastError = new Error(errDetail || `cp -f failed with exit code ${cpRes.code}`)
+            }
+
+            // =========================================================================
+            // Strategy 3: DIRECT SUDO DD (alternative binary to cp)
+            // =========================================================================
+            const ddRes = await this.execRemote(`dd if='${escTmp}' of='${escClean}' bs=64k`, sessionId, true, sudoPassword)
+            if (ddRes.code === 0) {
+              if (origFileMode) {
+                await this.execRemote(`chmod ${origFileMode} '${escClean}'`, sessionId, true, sudoPassword).catch(() => {})
+              }
+              return
+            }
+          } finally {
+            try {
+              await s.client.delete(tmpRemote)
+            } catch {
+              await this.execRemote(`rm -f '${escTmp}'`, sessionId, false)
+            }
+          }
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err))
+        }
+
+        throw lastError || new Error(`Failed to save "${cleanPath}" with sudo privileges.`)
       }
       await s.client.put(buffer, cleanPath)
     }
@@ -516,7 +671,7 @@ export class SftpService {
     }
   }
 
-  public renameLocal(oldPath: string, newPath: string, asSudo = false): Promise<void> { return localFileService.renameLocal(oldPath, newPath, asSudo) }
+    public renameLocal(oldPath: string, newPath: string, asSudo = false): Promise<void> { return localFileService.renameLocal(oldPath, newPath, asSudo) }
   public mkdirLocal(dirPath: string, asSudo = false): Promise<void> { return localFileService.mkdirLocal(dirPath, asSudo) }
   public deleteLocal(filePath: string, asSudo = false): Promise<void> { return localFileService.deleteLocal(filePath, asSudo) }
   public getLocalHome(): string { return localFileService.getLocalHome() }

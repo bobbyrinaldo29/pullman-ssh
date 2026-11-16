@@ -1,14 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import {
-  Code2,
-  FolderOpen,
-  Play,
-  CheckCircle2,
-  AlertCircle,
-  RefreshCw,
-  ShieldCheck,
-  Key
+  Code2, FolderOpen, Play, CheckCircle2, AlertCircle, RefreshCw, ShieldCheck, Key
 } from 'lucide-vue-next'
 import ToggleSwitch from '../../ToggleSwitch.vue'
 import GitCredentialModal from '../../GitCredentialModal.vue'
@@ -16,28 +9,36 @@ import { useEditorSettings, ExternalEditorId } from '../../../composables/useEdi
 import { useGlobalGitCredentials } from '../../../composables/useGlobalGitCredentials'
 
 const {
-  fontFamily,
-  fontSize,
-  tabSize,
-  fontLigatures,
-  minimap,
-  lineNumbers,
-  wordWrap,
-  formatOnSave,
-  externalEditorType,
-  customEditorPath,
-  customEditorArgs,
-  openExternalByDefault,
-  autoSyncExternal,
-  fontFamilies
+  fontFamily, fontSize, tabSize, fontLigatures, minimap, lineNumbers, wordWrap,
+  formatOnSave, externalEditorType, customEditorPath, customEditorArgs,
+  openExternalByDefault, autoSyncExternal, fontFamilies
 } = useEditorSettings()
 
+const isCustomFont = computed(() => !fontFamilies.some((f) => f.value === fontFamily.value))
+const customFontInput = ref(isCustomFont.value ? fontFamily.value : '')
+
+watch(fontFamily, (newVal) => {
+  if (isCustomFont.value) customFontInput.value = newVal
+})
+
+function handleFontSelect(e: Event): void {
+  const target = e.target as HTMLSelectElement
+  if (target.value === 'custom') {
+    if (!customFontInput.value) customFontInput.value = 'Hack, monospace'
+    fontFamily.value = customFontInput.value
+  } else {
+    fontFamily.value = target.value
+  }
+}
+
+function handleCustomFontInput(e: Event): void {
+  const val = (e.target as HTMLInputElement).value
+  customFontInput.value = val
+  if (val.trim()) fontFamily.value = val.trim()
+}
+
 const {
-  globalCredentials,
-  hasCredentials,
-  isGitCredentialModalOpen,
-  openModal,
-  closeModal
+  globalCredentials, hasCredentials, isGitCredentialModalOpen, openModal, closeModal
 } = useGlobalGitCredentials()
 
 interface DetectedEditor {
@@ -308,15 +309,33 @@ onMounted(() => {
       <div class="p-4 rounded-lg bg-[#1D222E] border border-[#2B3245] space-y-4">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div class="space-y-1.5">
-            <label class="font-medium text-slate-300">Editor Font Family</label>
+            <div class="flex items-center justify-between">
+              <label class="font-medium text-slate-300">Editor Font Family</label>
+              <span
+                v-if="isCustomFont"
+                class="text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20"
+              >
+                Custom
+              </span>
+            </div>
             <select
-              v-model="fontFamily"
+              :value="isCustomFont ? 'custom' : fontFamily"
               class="w-full px-2.5 py-1.5 bg-[#161B26] border border-[#2B3245] rounded-lg text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
+              @change="handleFontSelect"
             >
               <option v-for="f in fontFamilies" :key="f.value" :value="f.value">
                 {{ f.label }}
               </option>
+              <option value="custom">Custom Font...</option>
             </select>
+            <input
+              v-if="isCustomFont"
+              :value="customFontInput"
+              type="text"
+              placeholder="e.g. 'Hack', 'Operator Mono', monospace"
+              class="w-full mt-1.5 px-2.5 py-1.5 bg-[#161B26] border border-[#2B3245] rounded-lg text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+              @input="handleCustomFontInput"
+            />
           </div>
 
           <div class="grid grid-cols-2 gap-3">
