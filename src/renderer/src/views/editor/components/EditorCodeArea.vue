@@ -30,7 +30,6 @@ const containerRef = ref<HTMLDivElement | null>(null)
 let editor: monaco.editor.IStandaloneCodeEditor | null = null
 let resizeObserver: ResizeObserver | null = null
 const editorSettings = useEditorSettings()
-
 const activeSymbols = ref<BreadcrumbSymbol[]>([])
 const outlineSymbols = ref<DocumentOutlineSymbol[]>([])
 const isOutlineModalOpen = ref(false)
@@ -111,40 +110,41 @@ function getOrCreateModel(tab: EditorTab): monaco.editor.ITextModel {
 }
 
 const defaultEditorOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
-  theme: 'pullman-dark',
-  automaticLayout: true,
-  lineHeight: 22,
-  scrollBeyondLastLine: false,
-  renderLineHighlight: 'all',
-  cursorBlinking: 'smooth',
-  cursorSmoothCaretAnimation: 'on',
-  smoothScrolling: true,
-  bracketPairColorization: { enabled: true },
-  guides: { indentation: true, bracketPairs: true },
-  padding: { top: 10, bottom: 10 },
-  roundedSelection: true,
-  fixedOverflowWidgets: true,
-  formatOnPaste: true,
+  theme: 'pullman-dark', automaticLayout: true, lineHeight: 22, scrollBeyondLastLine: false,
+  renderLineHighlight: 'all', cursorBlinking: 'smooth', cursorSmoothCaretAnimation: 'on',
+  smoothScrolling: true, bracketPairColorization: { enabled: true },
+  guides: { indentation: true, bracketPairs: true }, padding: { top: 10, bottom: 10 },
+  roundedSelection: true, fixedOverflowWidgets: true, formatOnPaste: true,
   ...editorSettings.getMonacoOptions()
 }
 
-async function handleSaveTrigger(asSudo = false): Promise<void> {
-  if (props.activeTab && editor) {
+function flushContent(): string {
+  if (editor) {
     const m = editor.getModel()
-    if (m) props.activeTab.content = m.getValue()
+    if (m) {
+      const val = m.getValue()
+      if (props.activeTab) {
+        props.activeTab.content = val
+        props.activeTab.isDirty = val !== props.activeTab.originalContent
+      }
+      return val
+    }
   }
+  return props.activeTab?.content || ''
+}
+
+async function handleSaveTrigger(asSudo = false): Promise<void> {
+  flushContent()
   if (editorSettings.formatOnSave.value && editor) {
     try {
       await editor.getAction('editor.action.formatDocument')?.run()
+      flushContent()
     } catch (e) {
       console.warn('Format on save failed:', e)
     }
   }
-  if (asSudo) {
-    emit('save-as-sudo')
-  } else {
-    emit('save')
-  }
+  if (asSudo) emit('save-as-sudo')
+  else emit('save')
 }
 
 watch(
@@ -393,12 +393,8 @@ function handleWrapLog(): void {
 }
 
 defineExpose({
-  goToLine,
-  handleWrapLog,
-  insertSnippet,
-  formatDocument: async () => {
-    await editor?.getAction('editor.action.formatDocument')?.run()
-  }
+  goToLine, handleWrapLog, insertSnippet, flushContent,
+  formatDocument: async () => { await editor?.getAction('editor.action.formatDocument')?.run() }
 })
 
 onMounted(() => {

@@ -34,7 +34,7 @@ export interface UseEditorSshReturn {
   loadRootDirectory: () => Promise<void>
   toggleFolder: (node: EditorFileNode) => Promise<void>
   openFile: (fileNode: EditorFileNode) => Promise<void>
-  saveActiveTab: (asSudo?: boolean, customSudoPass?: string) => Promise<boolean>
+  saveActiveTab: (asSudo?: boolean, customSudoPass?: string, forcedContent?: string) => Promise<boolean>
   isSudoModalOpen: Ref<boolean>
   sudoModalFile: Ref<string>
   sudoModalError: Ref<string>
@@ -430,9 +430,13 @@ export function useEditorSsh(): UseEditorSshReturn {
     }
   }
 
-  async function saveActiveTab(asSudo = false, customSudoPass?: string): Promise<boolean> {
+  async function saveActiveTab(asSudo = false, customSudoPass?: string, forcedContent?: string): Promise<boolean> {
     const tab = activeTab.value
     if (!tab) return false
+
+    if (typeof forcedContent === 'string') {
+      tab.content = forcedContent
+    }
 
     tab.isSaving = true
     try {

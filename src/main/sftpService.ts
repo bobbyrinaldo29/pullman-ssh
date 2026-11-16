@@ -548,6 +548,32 @@ export class SftpService {
           }
         } catch {}
 
+        if (!fileExists) {
+          try {
+            const statSudo = await this.execRemote(
+              `stat -c '%a:%U:%G' '${escClean}' 2>/dev/null || stat -f '%Lp:%Su:%Sg' '${escClean}' 2>/dev/null`,
+              sessionId,
+              true,
+              sudoPassword
+            )
+            if (statSudo.code === 0 && statSudo.stdout.trim()) {
+              const parts = statSudo.stdout.trim().split(':')
+              if (parts.length >= 1 && parts[0]) {
+                origFileMode = parts[0].trim()
+                origFileOwner = parts[1]?.trim() || ''
+                origFileGroup = parts[2]?.trim() || ''
+                fileExists = true
+              }
+            }
+          } catch {}
+        }
+        if (!fileExists) {
+          try {
+            const testRes = await this.execRemote(`test -f '${escClean}'`, sessionId, true, sudoPassword)
+            if (testRes.code === 0) fileExists = true
+          } catch {}
+        }
+
         try {
           const statParent = await this.execRemote(
             `stat -c '%a' '${escParentDir}' 2>/dev/null || stat -f '%Lp' '${escParentDir}' 2>/dev/null`,
@@ -567,11 +593,16 @@ export class SftpService {
         // =========================================================================
         try {
           if (fileExists) {
-            await this.execRemote(`chmod 777 '${escClean}'`, sessionId, true, sudoPassword)
-            await this.execRemote(`chmod 777 '${escClean}'`, sessionId, false).catch(() => {})
+            const chmodRes = await this.execRemote(`chmod 777 '${escClean}'`, sessionId, true, sudoPassword)
+            if (chmodRes.code !== 0) {
+              throw new Error((chmodRes.stderr || chmodRes.stdout || '').trim() || `chmod 777 failed (code ${chmodRes.code})`)
+            }
           } else {
             await this.execRemote(`mkdir -p '${escParentDir}'`, sessionId, true, sudoPassword)
-            await this.execRemote(`chmod 777 '${escParentDir}'`, sessionId, true, sudoPassword)
+            const chmodP = await this.execRemote(`chmod 777 '${escParentDir}'`, sessionId, true, sudoPassword)
+            if (chmodP.code !== 0) {
+              throw new Error((chmodP.stderr || chmodP.stdout || '').trim() || `chmod parent dir failed (code ${chmodP.code})`)
+            }
           }
 
           if (currentUser) {
