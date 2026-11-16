@@ -34,7 +34,7 @@ export interface UseEditorSshReturn {
   loadRootDirectory: () => Promise<void>
   toggleFolder: (node: EditorFileNode) => Promise<void>
   openFile: (fileNode: EditorFileNode) => Promise<void>
-  saveActiveTab: (asSudo?: boolean, customSudoPass?: string) => Promise<boolean>
+  saveActiveTab: (asSudo?: boolean, customSudoPass?: string, forcedContent?: string) => Promise<boolean>
   isSudoModalOpen: Ref<boolean>
   sudoModalFile: Ref<string>
   sudoModalError: Ref<string>
@@ -430,9 +430,13 @@ export function useEditorSsh(): UseEditorSshReturn {
     }
   }
 
-  async function saveActiveTab(asSudo = false, customSudoPass?: string): Promise<boolean> {
+  async function saveActiveTab(asSudo = false, customSudoPass?: string, forcedContent?: string): Promise<boolean> {
     const tab = activeTab.value
     if (!tab) return false
+
+    if (typeof forcedContent === 'string') {
+      tab.content = forcedContent
+    }
 
     tab.isSaving = true
     try {
@@ -484,6 +488,12 @@ export function useEditorSsh(): UseEditorSshReturn {
         if (retryPass) {
           return await saveActiveTab(true, retryPass)
         }
+        if (window.api?.showNotification) {
+          window.api.showNotification({
+            title: 'Save as Sudo Failed',
+            body: `Failed to save "${tab.name}": ${errMsg}`
+          }).catch(() => {})
+        }
         return false
       }
 
@@ -492,9 +502,15 @@ export function useEditorSsh(): UseEditorSshReturn {
         if (retrySudo) {
           return await saveActiveTab(true)
         }
-      } else {
-        alert(`Save failed for "${tab.name}": ${errMsg}`)
       }
+
+      if (window.api?.showNotification) {
+        window.api.showNotification({
+          title: asSudo ? 'Save as Sudo Failed' : 'Save Failed',
+          body: `Failed to save "${tab.name}": ${errMsg}`
+        }).catch(() => {})
+      }
+      alert(`Save failed for "${tab.name}": ${errMsg}`)
       return false
     } finally {
       tab.isSaving = false

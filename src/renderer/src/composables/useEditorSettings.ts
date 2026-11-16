@@ -41,13 +41,45 @@ export interface UseEditorSettingsReturn {
   getMonacoOptions: () => MonacoEditorOptions
 }
 
-export const FONT_FAMILIES = [
+export const DEFAULT_FONT_FAMILY = `'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace`
+
+export interface FontFamilyPreset {
+  label: string
+  value: string
+}
+
+export const FONT_FAMILIES: FontFamilyPreset[] = [
   { label: 'JetBrains Mono', value: `'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace` },
   { label: 'Fira Code', value: `'Fira Code', Menlo, Monaco, 'Courier New', monospace` },
   { label: 'Cascadia Code', value: `'Cascadia Code', 'Segoe UI Mono', Menlo, monospace` },
+  { label: 'Source Code Pro', value: `'Source Code Pro', Menlo, Monaco, monospace` },
   { label: 'Consolas', value: `Consolas, Menlo, Monaco, monospace` },
+  { label: 'Monaco', value: `Monaco, Menlo, 'Courier New', monospace` },
+  { label: 'Menlo', value: `Menlo, Monaco, 'Courier New', monospace` },
   { label: 'System Monospace', value: `Menlo, Monaco, 'Courier New', monospace` }
 ]
+
+export function normalizeFontFamily(raw: unknown): string {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return DEFAULT_FONT_FAMILY
+  }
+  const clean = raw.trim()
+  // Exact match
+  const exact = FONT_FAMILIES.find((f) => f.value === clean)
+  if (exact) return exact.value
+
+  // Match by label (case-insensitive) or primary font family name
+  const primaryName = clean.replace(/['"]/g, '').split(',')[0].trim().toLowerCase()
+  const matched = FONT_FAMILIES.find((f) => {
+    const fLabel = f.label.toLowerCase()
+    const fClean = f.value.replace(/['"]/g, '').split(',')[0].trim().toLowerCase()
+    return fLabel === primaryName || fClean === primaryName
+  })
+  if (matched) return matched.value
+
+  // Return clean custom font string
+  return clean
+}
 
 const KEY_FONT_FAMILY = 'app_editor_font_family'
 const KEY_FONT_SIZE = 'app_editor_font_size'
@@ -76,7 +108,7 @@ function getStored<T>(key: string, fallback: T): T {
 
 // Shared reactive state across components
 const fontFamily = ref<string>(
-  getStored(KEY_FONT_FAMILY, `'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace`)
+  normalizeFontFamily(getStored(KEY_FONT_FAMILY, DEFAULT_FONT_FAMILY))
 )
 const fontSize = ref<number>(getStored(KEY_FONT_SIZE, 13))
 const tabSize = ref<number>(getStored(KEY_TAB_SIZE, 4))
@@ -95,7 +127,12 @@ const autoSyncExternal = ref<boolean>(getStored(KEY_AUTO_SYNC_EXTERNAL, true))
 
 // Watchers for persistence
 watch(fontFamily, (val) => {
-  if (typeof localStorage !== 'undefined') localStorage.setItem(KEY_FONT_FAMILY, JSON.stringify(val))
+  const normalized = normalizeFontFamily(val)
+  if (normalized !== val) {
+    fontFamily.value = normalized
+    return
+  }
+  if (typeof localStorage !== 'undefined') localStorage.setItem(KEY_FONT_FAMILY, JSON.stringify(normalized))
 })
 
 watch(fontSize, (val) => {

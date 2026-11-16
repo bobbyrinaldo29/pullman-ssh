@@ -186,14 +186,16 @@ async function openDiffTab(filePath: string, hash?: string): Promise<void> {
 const editorSettings = useEditorSettings()
 
 async function handleSaveActiveTab(asSudo = false): Promise<boolean> {
+  let content = primaryCodeAreaRef.value?.flushContent?.()
   if (editorSettings.formatOnSave.value) {
     try {
       await primaryCodeAreaRef.value?.formatDocument?.()
+      content = primaryCodeAreaRef.value?.flushContent?.()
     } catch {
       // ignore format error
     }
   }
-  return saveActiveTab(asSudo)
+  return saveActiveTab(asSudo, undefined, content)
 }
 
 function handleKeyDown(e: KeyboardEvent): void {
@@ -387,7 +389,7 @@ defineExpose({
             @select-tab="(id) => (activeTabId = id)"
             @close-tab="closeTab"
             @toggle-split="handleToggleSplit"
-            @save-as-sudo="saveActiveTab(true)"
+            @save-as-sudo="handleSaveActiveTab(true)"
             @open-git-graph="openGitGraphTab"
             @toggle-ai-gen="isAiGenOpen = !isAiGenOpen"
             @open-external="handleOpenExternal"
