@@ -214,12 +214,19 @@ async function handleOpenExternal(nodeOrTab: { path: string }): Promise<void> {
   const targetPath = nodeOrTab?.path
   if (!targetPath) return
   const openTab = openTabs.value.find((t) => t.path === targetPath)
+  let content = openTab?.content
+  if (!content && window.api?.sftpReadFile) {
+    try {
+      const clean = targetPath.trim().replace(/\/+/g, '/').replace(/^([^\/])/, '/$1')
+      content = await window.api.sftpReadFile(clean, sessionId.value)
+    } catch {}
+  }
   try {
     if (window.api?.openInExternalEditor) {
       await window.api.openInExternalEditor({
         sessionId: sessionId.value,
         remotePath: targetPath,
-        content: openTab?.content,
+        content: content || undefined,
         editorType: editorSettings.externalEditorType.value,
         customPath: editorSettings.customEditorPath.value,
         customArgs: editorSettings.customEditorArgs.value,
@@ -393,6 +400,7 @@ defineExpose({
             @open-git-graph="openGitGraphTab"
             @toggle-ai-gen="isAiGenOpen = !isAiGenOpen"
             @open-external="handleOpenExternal"
+            @reorder-tabs="(newTabs) => (openTabs = newTabs)"
           />
 
           <!-- Antigravity Inline AI Gen Floating Widget -->

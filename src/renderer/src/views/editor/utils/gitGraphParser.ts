@@ -20,9 +20,15 @@ export function parseGitGraphCommits(rawText: string): GitGraphCommit[] {
   const lines = rawText.trim().split('\n').filter(Boolean)
   const commits: GitGraphCommit[] = []
   const activeLanes: (string | null)[] = []
+  const SEP = '<|PULLMAN_SEP|>'
 
   for (const line of lines) {
-    const parts = line.split('\t')
+    let parts: string[] = []
+    if (line.includes(SEP)) {
+      parts = line.split(SEP)
+    } else {
+      parts = line.split('\t')
+    }
     if (parts.length < 6) continue
 
     const hash = parts[0]?.trim()
@@ -32,11 +38,48 @@ export function parseGitGraphCommits(rawText: string): GitGraphCommit[] {
     const parents = parts[2] ? parts[2].split(' ').filter(Boolean) : []
     const author = parts[3]?.trim() || 'Unknown'
     const email = parts[4]?.trim() || ''
-    const date = parts[5]?.trim() || ''
-    const subject = parts[6]?.trim() || 'No commit message'
-    const refsRaw = parts[7]?.trim() || ''
+    let date = parts[5]?.trim() || ''
+    let subject = parts[6]?.trim() || ''
+    const dRef = parts[7]?.trim() || ''
+    const DRef = parts[8]?.trim() || ''
+
+    // Resilience against merged date & subject in TSV mode (e.g. "3 days agotes commit" or "24 seconds agoer...")
+    const agoMatch = date.match(/^(.+?\b(?:seconds?|minutes?|hours?|days?|weeks?|months?|years?)\s+ago)(.+)$/i)
+    if (agoMatch) {
+      date = agoMatch[1].trim()
+      const extractedSubject = agoMatch[2].trim()
+      if (!subject || subject === 'No commit message' || subject.startsWith('HEAD ->') || subject.startsWith('origin/')) {
+        if (!subject || subject === 'No commit message') {
+          subject = extractedSubject
+        }
+      }
+    }
+
+    if (!subject) {
+      subject = 'No commit message'
+    }
+
+    // Determine refs (%D without parens, or %d with parens, or parts[7])
+    let refsRaw = ''
+    if (DRef && DRef !== '%D') {
+      refsRaw = DRef
+    } else if (dRef && dRef !== '%d') {
+      refsRaw = dRef.replace(/^\s*\(/, '').replace(/\)\s*$/, '')
+    } else if (parts[7] && !dRef && !DRef) {
+      refsRaw = parts[7].trim()
+    }
+
+    // If subject was mistakenly holding the ref in TSV mode
+    if ((subject.startsWith('HEAD ->') || subject.startsWith('origin/')) && !refsRaw) {
+      refsRaw = subject
+      subject = 'No commit message'
+    }
+
     const refs = refsRaw
-      ? refsRaw.split(',').map((r) => r.trim()).filter(Boolean)
+      ? refsRaw
+          .split(',')
+          .map((r) => r.replace(/^\s*\(/, '').replace(/\)\s*$/, '').trim())
+          .filter(Boolean)
       : []
 
     // Calculate lane

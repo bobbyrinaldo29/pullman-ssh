@@ -67,9 +67,17 @@ function selectQuery(id: number | 'all'): void {
   emit('apply-filters')
 }
 
-function handleRowClick(issue: RedmineIssue): void {
-  const selection = window.getSelection()?.toString().trim()
-  if (selection) return
+let mouseStartX = 0
+let mouseStartY = 0
+
+function handleRowMouseDown(e: MouseEvent): void {
+  mouseStartX = e.clientX
+  mouseStartY = e.clientY
+}
+
+function handleRowClick(e: MouseEvent, issue: RedmineIssue): void {
+  const dist = Math.hypot(e.clientX - mouseStartX, e.clientY - mouseStartY)
+  if (dist > 6) return
   emit('select-issue', issue)
 }
 
@@ -368,9 +376,13 @@ function startResize(index: number, e: MouseEvent): void {
                 v-for="issue in props.issues"
                 :key="issue.id"
                 class="hover:bg-[#1f2636] transition-colors cursor-pointer group"
-                @click="handleRowClick(issue)"
+                @mousedown="handleRowMouseDown"
+                @click="(e) => handleRowClick(e, issue)"
               >
-                <td class="py-2 px-3 text-center font-mono text-sky-400 font-semibold group-hover:underline truncate select-text">
+                <td
+                  class="py-2 px-3 text-center font-mono text-sky-400 font-semibold group-hover:underline truncate select-text"
+                  @click.stop="emit('select-issue', issue)"
+                >
                   {{ issue.id }}
                 </td>
 

@@ -8,6 +8,7 @@ import ProdBadge from '../../components/ProdBadge.vue'
 import EditorSessionWorkspace from './components/EditorSessionWorkspace.vue'
 import { useActiveConnections } from '../../composables/useActiveConnections'
 import { useAppearance } from '../../composables/useAppearance'
+import { useTabDragDrop } from '../../composables/useTabDragDrop'
 
 const props = defineProps<{
   hosts: HostItem[]
@@ -20,6 +21,16 @@ type EditorWorkspaceInstance = InstanceType<typeof EditorSessionWorkspace>
 const connectionTabs = ref<EditorConnectionTab[]>([])
 const activeConnectionTabId = ref<string>('')
 const sessionWorkspaceRefs = ref<Record<string, EditorWorkspaceInstance | null>>({})
+
+const {
+  draggedIndex,
+  dragOverIndex,
+  handleDragStart,
+  handleDragOver,
+  handleDragLeave,
+  handleDrop,
+  handleDragEnd
+} = useTabDragDrop(connectionTabs)
 
 function getTabColor(t: EditorConnectionTab): string {
   if (!colorTabsByConnection.value) return '#3b82f6'
@@ -164,17 +175,25 @@ defineExpose({
       <!-- Tabs strip -->
       <div class="flex items-center space-x-1 overflow-x-auto flex-1 no-scrollbar py-1">
         <button
-          v-for="t in connectionTabs"
+          v-for="(t, idx) in connectionTabs"
           :key="t.id"
           type="button"
-          class="group h-8 px-3 rounded-t flex items-center space-x-2 border-b-2 transition-colors max-w-[220px] shrink-0"
-          :class="
+          draggable="true"
+          class="group h-8 px-3 rounded-t flex items-center space-x-2 border-b-2 transition-all max-w-[220px] shrink-0 cursor-grab active:cursor-grabbing select-none"
+          :class="[
             activeConnectionTabId === t.id
               ? 'bg-[#1E222B] text-white font-medium'
-              : 'text-[#8E99AF] hover:text-white hover:bg-[#252C3D] border-transparent'
-          "
+              : 'text-[#8E99AF] hover:text-white hover:bg-[#252C3D] border-transparent',
+            draggedIndex === idx ? 'opacity-40 scale-95' : '',
+            dragOverIndex === idx && draggedIndex !== idx ? 'ring-1 ring-blue-500/70 bg-[#252C3D]' : ''
+          ]"
           :style="activeConnectionTabId === t.id ? { borderBottomColor: getTabColor(t) } : {}"
           @click="activeConnectionTabId = t.id"
+          @dragstart="handleDragStart($event, idx)"
+          @dragover="handleDragOver($event, idx)"
+          @dragleave="handleDragLeave($event, idx)"
+          @drop="handleDrop($event, idx)"
+          @dragend="handleDragEnd"
         >
           <!-- Connection Color Dot -->
           <span
@@ -195,6 +214,8 @@ defineExpose({
           <span
             class="p-0.5 rounded hover:bg-slate-700/60 text-slate-400 hover:text-white transition-colors"
             title="Close connection"
+            draggable="false"
+            @dragstart.stop
             @click.stop="closeConnectionTab(t.id)"
           >
             <X class="w-3 h-3" />

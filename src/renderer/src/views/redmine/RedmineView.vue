@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import {
   FolderKanban,
   KeyRound,
@@ -39,6 +39,7 @@ const {
   activeTab,
   openIssueTabs,
   openIssueTab,
+  openIssueById,
   closeIssueTab,
   filters,
   showLoginModal,
@@ -52,6 +53,7 @@ const {
   isMonitoringActive,
   login,
   disconnect,
+  fetchMetadata,
   fetchProjects,
   fetchIssues,
   fetchIssueDetail,
@@ -65,6 +67,36 @@ const {
   markAllNotificationsAsRead,
   clearNotificationFeed
 } = useRedmine()
+
+onMounted(() => {
+  if (isConnected.value) {
+    const projId = selectedProjectId.value !== 'all' ? selectedProjectId.value : undefined
+    if (queries.value.length === 0) {
+      fetchMetadata(projId)
+    }
+    if (projects.value.length === 0) {
+      fetchProjects()
+    }
+    if (issues.value.length === 0) {
+      fetchIssues()
+    }
+  }
+})
+
+watch(isConnected, (connected) => {
+  if (connected) {
+    const projId = selectedProjectId.value !== 'all' ? selectedProjectId.value : undefined
+    if (queries.value.length === 0) {
+      fetchMetadata(projId)
+    }
+    if (projects.value.length === 0) {
+      fetchProjects()
+    }
+    if (issues.value.length === 0) {
+      fetchIssues()
+    }
+  }
+})
 
 const selectedProject = computed(() => {
   if (selectedProjectId.value === 'all') return null
@@ -97,6 +129,13 @@ const assignableUsers = computed(() => {
 })
 
 function handleSearch(query: string): void {
+  const cleanQ = query.trim()
+  const numMatch = cleanQ.match(/^#?(\d+)$/)
+  if (numMatch) {
+    const issueId = Number(numMatch[1])
+    openIssueById(issueId)
+    return
+  }
   filters.value.search = query
   activeTab.value = 'issues'
 }
@@ -104,10 +143,13 @@ function handleSearch(query: string): void {
 function handleSelectProject(id: number): void {
   selectedProjectId.value = id
   activeTab.value = 'issues'
+  fetchMetadata(id)
   fetchIssues()
 }
 
 function handleRefresh(): void {
+  const projId = selectedProjectId.value !== 'all' ? selectedProjectId.value : undefined
+  fetchMetadata(projId)
   fetchProjects()
   fetchIssues()
   checkForUpdates({ manual: true })
@@ -119,7 +161,10 @@ function handleSelectNotification(item: RedmineChangeNotification): void {
     activeTab.value = 'issues'
     return
   }
-  fetchIssueDetail(item.issueId)
+  openIssueById(item.issueId, {
+    subject: item.issueSubject,
+    project: item.projectName ? { id: 0, name: item.projectName } : undefined
+  })
 }
 </script>
 

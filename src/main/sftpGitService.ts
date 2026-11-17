@@ -227,11 +227,45 @@ export class SftpGitService {
     let isAuth = isGitAuthError(output)
     let remoteUrl: string | undefined
 
-    if (!isAuth && res.code !== 0 && (output.toLowerCase().includes('permission denied') || output.toLowerCase().includes('eacces'))) {
+    const isLocalFsPermError = (out: string): boolean => {
+      const lower = out.toLowerCase()
+      if (
+        lower.includes('(publickey') ||
+        lower.includes('publickey') ||
+        lower.includes('username for') ||
+        lower.includes('password for') ||
+        lower.includes('access rights') ||
+        lower.includes('could not read') ||
+        lower.includes('terminal prompts disabled')
+      ) {
+        return false
+      }
+      return (
+        lower.includes('.git/') ||
+        lower.includes('unable to create file') ||
+        lower.includes('cannot create directory') ||
+        lower.includes('unable to write') ||
+        lower.includes('index.lock')
+      )
+    }
+
+    if (!isAuth && res.code !== 0 && isLocalFsPermError(output)) {
       if (session.config?.password || session.config?.user !== 'root') {
-        res = await this.sftp.execRemote(cmd, sessionId, true)
-        output = (res.stdout || res.stderr || '').trim()
-        isAuth = isGitAuthError(output)
+        const sudoRes = await this.sftp.execRemote(cmd, sessionId, true)
+        const sudoOutput = (sudoRes.stdout || sudoRes.stderr || '').trim()
+        if (sudoRes.code === 0) {
+          res = sudoRes
+          output = sudoOutput
+          isAuth = false
+        } else if (
+          !sudoOutput.includes('not allowed to execute') &&
+          !sudoOutput.includes('not in the sudoers file') &&
+          !sudoOutput.includes('incorrect password')
+        ) {
+          res = sudoRes
+          output = sudoOutput
+          isAuth = isGitAuthError(output)
+        }
       }
     }
 
@@ -250,6 +284,12 @@ export class SftpGitService {
               res = retryRes
               output = (res.stdout || res.stderr || '').trim()
               isAuth = false
+            } else {
+              const retryOut = (retryRes.stderr || retryRes.stdout || '').trim()
+              if (retryOut) {
+                output = retryOut
+                isAuth = isGitAuthError(output)
+              }
             }
           }
         }
@@ -304,11 +344,45 @@ export class SftpGitService {
     let isAuth = isGitAuthError(output)
     let remoteUrl: string | undefined
 
-    if (!isAuth && res.code !== 0 && (output.toLowerCase().includes('permission denied') || output.toLowerCase().includes('eacces'))) {
+    const isLocalFsPermError = (out: string): boolean => {
+      const lower = out.toLowerCase()
+      if (
+        lower.includes('(publickey') ||
+        lower.includes('publickey') ||
+        lower.includes('username for') ||
+        lower.includes('password for') ||
+        lower.includes('access rights') ||
+        lower.includes('could not read') ||
+        lower.includes('terminal prompts disabled')
+      ) {
+        return false
+      }
+      return (
+        lower.includes('.git/') ||
+        lower.includes('unable to create file') ||
+        lower.includes('cannot create directory') ||
+        lower.includes('unable to write') ||
+        lower.includes('index.lock')
+      )
+    }
+
+    if (!isAuth && res.code !== 0 && isLocalFsPermError(output)) {
       if (session.config?.password || session.config?.user !== 'root') {
-        res = await this.sftp.execRemote(cmd, sessionId, true)
-        output = (res.stdout || res.stderr || '').trim()
-        isAuth = isGitAuthError(output)
+        const sudoRes = await this.sftp.execRemote(cmd, sessionId, true)
+        const sudoOutput = (sudoRes.stdout || sudoRes.stderr || '').trim()
+        if (sudoRes.code === 0) {
+          res = sudoRes
+          output = sudoOutput
+          isAuth = false
+        } else if (
+          !sudoOutput.includes('not allowed to execute') &&
+          !sudoOutput.includes('not in the sudoers file') &&
+          !sudoOutput.includes('incorrect password')
+        ) {
+          res = sudoRes
+          output = sudoOutput
+          isAuth = isGitAuthError(output)
+        }
       }
     }
 
@@ -327,6 +401,12 @@ export class SftpGitService {
               res = retryRes
               output = (res.stdout || res.stderr || '').trim()
               isAuth = false
+            } else {
+              const retryOut = (retryRes.stderr || retryRes.stdout || '').trim()
+              if (retryOut) {
+                output = retryOut
+                isAuth = isGitAuthError(output)
+              }
             }
           }
         }
