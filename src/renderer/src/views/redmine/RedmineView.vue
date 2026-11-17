@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import {
   FolderKanban,
   KeyRound,
@@ -53,6 +53,7 @@ const {
   isMonitoringActive,
   login,
   disconnect,
+  fetchMetadata,
   fetchProjects,
   fetchIssues,
   fetchIssueDetail,
@@ -66,6 +67,36 @@ const {
   markAllNotificationsAsRead,
   clearNotificationFeed
 } = useRedmine()
+
+onMounted(() => {
+  if (isConnected.value) {
+    const projId = selectedProjectId.value !== 'all' ? selectedProjectId.value : undefined
+    if (queries.value.length === 0) {
+      fetchMetadata(projId)
+    }
+    if (projects.value.length === 0) {
+      fetchProjects()
+    }
+    if (issues.value.length === 0) {
+      fetchIssues()
+    }
+  }
+})
+
+watch(isConnected, (connected) => {
+  if (connected) {
+    const projId = selectedProjectId.value !== 'all' ? selectedProjectId.value : undefined
+    if (queries.value.length === 0) {
+      fetchMetadata(projId)
+    }
+    if (projects.value.length === 0) {
+      fetchProjects()
+    }
+    if (issues.value.length === 0) {
+      fetchIssues()
+    }
+  }
+})
 
 const selectedProject = computed(() => {
   if (selectedProjectId.value === 'all') return null
@@ -112,10 +143,13 @@ function handleSearch(query: string): void {
 function handleSelectProject(id: number): void {
   selectedProjectId.value = id
   activeTab.value = 'issues'
+  fetchMetadata(id)
   fetchIssues()
 }
 
 function handleRefresh(): void {
+  const projId = selectedProjectId.value !== 'all' ? selectedProjectId.value : undefined
+  fetchMetadata(projId)
   fetchProjects()
   fetchIssues()
   checkForUpdates({ manual: true })

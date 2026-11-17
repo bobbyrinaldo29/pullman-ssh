@@ -42,6 +42,8 @@ import {
 export { getDefaultNotificationSettings }
 
 const STORAGE_USER_KEY = 'redmine_current_user'
+const STORAGE_QUERIES_KEY = 'redmine_cached_queries'
+const STORAGE_PROJECTS_KEY = 'redmine_cached_projects'
 const DEMO_API_KEY = 'demo_redmine_api_key_1234567890'
 
 function loadStoredCurrentUser(): RedmineUser | null {
@@ -63,6 +65,44 @@ function persistCurrentUser(user: RedmineUser | null): void {
   } catch {}
 }
 
+function loadStoredQueries(): RedmineQuery[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_QUERIES_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function persistQueries(items: RedmineQuery[]): void {
+  try {
+    if (items && items.length > 0) {
+      localStorage.setItem(STORAGE_QUERIES_KEY, JSON.stringify(items))
+    } else {
+      localStorage.removeItem(STORAGE_QUERIES_KEY)
+    }
+  } catch {}
+}
+
+function loadStoredProjects(): RedmineProject[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_PROJECTS_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function persistProjects(items: RedmineProject[]): void {
+  try {
+    if (items && items.length > 0) {
+      localStorage.setItem(STORAGE_PROJECTS_KEY, JSON.stringify(items))
+    } else {
+      localStorage.removeItem(STORAGE_PROJECTS_KEY)
+    }
+  } catch {}
+}
+
 // Shared module-level reactive state
 const config = ref<RedmineConfig>({
   url: (localStorage.getItem('redmine_url') || '').replace(/\/$/, ''),
@@ -70,7 +110,7 @@ const config = ref<RedmineConfig>({
 })
 
 const currentUser = ref<RedmineUser | null>(loadStoredCurrentUser())
-const projects = ref<RedmineProject[]>([])
+const projects = ref<RedmineProject[]>(loadStoredProjects())
 const selectedProjectId = ref<number | 'all'>('all')
 const issues = ref<RedmineIssue[]>([])
 const selectedIssue = ref<RedmineIssue | null>(null)
@@ -82,7 +122,7 @@ const showNotificationSettingsModal = ref(false)
 const trackers = ref<RedmineTracker[]>(DEFAULT_TRACKERS)
 const statuses = ref<RedmineStatus[]>(DEFAULT_STATUSES)
 const priorities = ref<RedminePriority[]>(DEFAULT_PRIORITIES)
-const queries = ref<RedmineQuery[]>([])
+const queries = ref<RedmineQuery[]>(loadStoredQueries())
 
 const isLoading = ref(false)
 const error = ref<string | null>(null)
@@ -244,7 +284,6 @@ export function useRedmine() {
     const cleanKey = apiKey.trim()
 
     config.value = { url: cleanUrl, apiKey: cleanKey }
-    queries.value = []
 
     try {
       let res = await apiCall('/users/current.json')
@@ -300,10 +339,14 @@ export function useRedmine() {
     snapshotMap.clear()
     persistSnapshots(snapshotMap)
     persistCurrentUser(null)
+    persistQueries([])
+    persistProjects([])
     currentUser.value = null
     config.value = { url: '', apiKey: '' }
     localStorage.removeItem('redmine_url')
     localStorage.removeItem('redmine_api_key')
+    localStorage.removeItem('redmine_cached_queries')
+    localStorage.removeItem('redmine_cached_projects')
     localStorage.removeItem('redmine_issue_snapshots')
     localStorage.removeItem('redmine_last_seen_at')
     localStorage.removeItem('redmine_notified_updates')
@@ -312,16 +355,28 @@ export function useRedmine() {
     queries.value = []
     selectedIssue.value = null
     openIssueTabs.value = []
+    hasInitialized = false
   }
 
-  async function fetchMetadata(): Promise<void> {
+  async function fetchMetadata(projectId?: number): Promise<void> {
     try {
-      const [tRes, sRes, pRes, qRes] = await Promise.allSettled([
+      const endpoints: Promise<any>[] = [
         apiCall('/trackers.json'),
         apiCall('/issue_statuses.json'),
         apiCall('/enumerations/issue_priorities.json'),
         apiCall('/queries.json?limit=100')
-      ])
+      ]
+      if (projectId) {
+        endpoints.push(apiCall(`/projects/${projectId}/queries.json?limit=100`))
+      }
+
+      const results = await Promise.allSettled(endpoints)
+      const tRes = results[0]
+      const sRes = results[1]
+      const pRes = results[2]
+      const qRes = results[3]
+      const projQRes = results[4]
+
       if (tRes.status === 'fulfilled' && tRes.value.ok && tRes.value.data?.trackers) {
         trackers.value = tRes.value.data.trackers
       }
@@ -331,8 +386,34 @@ export function useRedmine() {
       if (pRes.status === 'fulfilled' && pRes.value.ok && pRes.value.data?.issue_priorities) {
         priorities.value = pRes.value.data.issue_priorities
       }
-      if (qRes.status === 'fulfilled' && qRes.value.ok && qRes.value.data?.queries) {
-        queries.value = qRes.value.data.queries
+
+      const fetchedQueries: RedmineQuery[] = []
+      if (qRes.status === 'fulfilled' && qRes.value.ok && Array.isArray(qRes.value.data?.queries)) {
+        fetchedQueries.push(...qRes.value.data.queries)
+      }
+      if (
+        projQRes &&
+        projQRes.status === 'fulfilled' &&
+        projQRes.value.ok &&
+        Array.isArray(projQRes.value.data?.queries)
+      ) {
+        for (const pq of projQRes.value.data.queries) {
+          if (!fetchedQueries.some((q) => q.id === pq.id)) {
+            fetchedQueries.push(pq)
+          }
+        }
+      }
+
+      if (fetchedQueries.length > 0) {
+        const queryMap = new Map<number, RedmineQuery>()
+        for (const q of queries.value) {
+          queryMap.set(q.id, q)
+        }
+        for (const q of fetchedQueries) {
+          queryMap.set(q.id, q)
+        }
+        queries.value = Array.from(queryMap.values())
+        persistQueries(queries.value)
       }
     } catch {}
   }
@@ -341,6 +422,7 @@ export function useRedmine() {
     const res = await apiCall('/projects.json?limit=100')
     if (res.ok && res.data?.projects) {
       projects.value = res.data.projects
+      persistProjects(projects.value)
     }
   }
 
@@ -812,8 +894,25 @@ export function useRedmine() {
         if (!document.hidden) triggerFocusCheck()
       })
     }
-    if (config.value.url && config.value.apiKey && !currentUser.value && !isDemoMode.value) {
-      login(config.value.url, config.value.apiKey).catch(() => {})
+    if (config.value.url && config.value.apiKey && !isDemoMode.value) {
+      if (!currentUser.value) {
+        login(config.value.url, config.value.apiKey).catch(() => {})
+      } else {
+        Promise.allSettled([
+          apiCall('/users/current.json').then((res) => {
+            if (res.ok && res.data?.user) {
+              currentUser.value = res.data.user
+              persistCurrentUser(res.data.user)
+            }
+          }),
+          fetchMetadata(),
+          fetchProjects(),
+          fetchIssues({ background: true })
+        ]).then(() => {
+          notifMgr.checkForUpdates().catch(() => {})
+          notifMgr.startNotificationPolling()
+        })
+      }
     }
   }
 
@@ -855,6 +954,7 @@ export function useRedmine() {
     initRedmine,
     login,
     disconnect,
+    fetchMetadata,
     fetchProjects,
     fetchIssues,
     fetchIssueDetail,
