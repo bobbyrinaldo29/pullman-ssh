@@ -18,8 +18,13 @@ export function isGitAuthError(output: string): boolean {
     lower.includes('not authorized') ||
     lower.includes('access denied') ||
     lower.includes('no such device or address') ||
-    lower.includes('permission denied (publickey)') ||
-    lower.includes('device not configured')
+    lower.includes('permission denied (publickey') ||
+    lower.includes('publickey') ||
+    lower.includes('device not configured') ||
+    lower.includes('repository not found') ||
+    lower.includes('please make sure you have the correct access rights') ||
+    lower.includes('fatal: authentication') ||
+    (lower.includes('permission denied') && (lower.includes('git@') || lower.includes('ssh') || lower.includes('fatal:')))
   )
 }
 

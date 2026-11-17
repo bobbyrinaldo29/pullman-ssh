@@ -218,13 +218,19 @@ export class ExternalEditorService {
     // 1. Fetch remote content if not provided
     let content = payload.content
     let effectiveSudo = asSudo
-    if (typeof content !== 'string') {
+    const hasValidPayloadContent = typeof content === 'string' && content.length > 0
+
+    if (!hasValidPayloadContent) {
       try {
         content = await this.sftpService.readFile(remotePath, sessionId, effectiveSudo)
       } catch (err) {
         if (!effectiveSudo) {
-          content = await this.sftpService.readFile(remotePath, sessionId, true)
-          effectiveSudo = true
+          try {
+            content = await this.sftpService.readFile(remotePath, sessionId, true)
+            effectiveSudo = true
+          } catch {
+            throw err
+          }
         } else {
           throw err
         }
@@ -242,9 +248,40 @@ export class ExternalEditorService {
       fs.mkdirSync(dir, { recursive: true })
     }
 
-    // 3. Write content to local file
-    const initialHash = crypto.createHash('md5').update(content, 'utf8').digest('hex')
-    fs.writeFileSync(localFilePath, content, 'utf8')
+    // 3. Write content to local file with binary fidelity & fallback
+    if (hasValidPayloadContent && content !== undefined) {
+      fs.writeFileSync(localFilePath, content, 'utf8')
+    } else {
+      let downloaded = false
+      try {
+        await this.sftpService.download(remotePath, localFilePath, sessionId, effectiveSudo)
+        downloaded = fs.existsSync(localFilePath) && fs.statSync(localFilePath).size > 0
+      } catch {}
+
+      if (!downloaded) {
+        fs.writeFileSync(localFilePath, content || '', 'utf8')
+      }
+
+      // If still 0 bytes, try reading shell cat output as final safeguard
+      if (fs.existsSync(localFilePath) && fs.statSync(localFilePath).size === 0) {
+        try {
+          const cleanPath = remotePath.replace(/\/+/g, '/').replace(/'/g, "'\\''")
+          const catRes = await this.sftpService.execRemote(`cat '${cleanPath}'`, sessionId, effectiveSudo)
+          if (catRes.code === 0 && catRes.stdout.length > 0) {
+            content = catRes.stdout
+            fs.writeFileSync(localFilePath, content, 'utf8')
+          }
+        } catch {}
+      }
+
+      if (fs.existsSync(localFilePath)) {
+        try {
+          content = fs.readFileSync(localFilePath, 'utf8')
+        } catch {}
+      }
+    }
+
+    const initialHash = crypto.createHash('md5').update(content || '', 'utf8').digest('hex')
 
     // 4. Setup auto-sync watcher
     if (autoSync) {

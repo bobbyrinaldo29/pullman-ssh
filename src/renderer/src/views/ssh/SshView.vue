@@ -8,6 +8,7 @@ import SshSessionPane from './components/SshSessionPane.vue'
 import ProdBadge from '../../components/ProdBadge.vue'
 import { useActiveConnections } from '../../composables/useActiveConnections'
 import { useAppearance } from '../../composables/useAppearance'
+import { useTabDragDrop } from '../../composables/useTabDragDrop'
 
 const props = defineProps<{
   hosts: HostItem[]
@@ -27,6 +28,16 @@ function getTabColor(t: SshTab): string {
 
 const tabs = ref<SshTab[]>([])
 const activeTabId = ref<string>('')
+
+const {
+  draggedIndex,
+  dragOverIndex,
+  handleDragStart,
+  handleDragOver,
+  handleDragLeave,
+  handleDrop,
+  handleDragEnd
+} = useTabDragDrop(tabs)
 
 function generateId(): string {
   return 'ssh_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7)
@@ -349,17 +360,25 @@ defineExpose({
       <!-- Tabs strip -->
       <div class="flex items-center space-x-1 overflow-x-auto flex-1 no-scrollbar">
         <button
-          v-for="t in tabs"
+          v-for="(t, idx) in tabs"
           :key="t.id"
           type="button"
-          class="group h-8 px-3 rounded-t flex items-center space-x-2 border-b-2 transition-colors max-w-[200px]"
-          :class="
+          draggable="true"
+          class="group h-8 px-3 rounded-t flex items-center space-x-2 border-b-2 transition-all max-w-[200px] cursor-grab active:cursor-grabbing select-none"
+          :class="[
             activeTabId === t.id
               ? 'bg-[#12151D] text-white font-medium'
-              : 'text-[#8E99AF] hover:text-white hover:bg-[#252C3D] border-transparent'
-          "
+              : 'text-[#8E99AF] hover:text-white hover:bg-[#252C3D] border-transparent',
+            draggedIndex === idx ? 'opacity-40 scale-95' : '',
+            dragOverIndex === idx && draggedIndex !== idx ? 'ring-1 ring-blue-500/70 bg-[#252C3D]' : ''
+          ]"
           :style="activeTabId === t.id ? { borderBottomColor: getTabColor(t) } : {}"
           @click="activeTabId = t.id"
+          @dragstart="handleDragStart($event, idx)"
+          @dragover="handleDragOver($event, idx)"
+          @dragleave="handleDragLeave($event, idx)"
+          @drop="handleDrop($event, idx)"
+          @dragend="handleDragEnd"
         >
           <span
             class="w-2 h-2 rounded-full shrink-0"
@@ -372,6 +391,8 @@ defineExpose({
           <ProdBadge v-if="t.host.isProduction" size="sm" />
           <span
             class="p-0.5 rounded hover:bg-slate-700/60 text-slate-400 hover:text-white transition-colors"
+            draggable="false"
+            @dragstart.stop
             @click.stop="closeTab(t.id)"
           >
             <X class="w-3 h-3" />

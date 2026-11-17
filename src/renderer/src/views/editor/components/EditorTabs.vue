@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import type { Component } from 'vue'
+import { ref, type Component } from 'vue'
 import { X, ChevronRight, FileCode, FileText, File, Columns2, ShieldAlert, GitBranch, GitCompare, Sparkles, ExternalLink } from 'lucide-vue-next'
 import { EditorTab } from '../types'
 
-defineProps<{
+const props = defineProps<{
   tabs: EditorTab[]
   activeTab: EditorTab | null
   currentHostName?: string
@@ -19,7 +19,51 @@ const emit = defineEmits<{
   (e: 'open-git-graph'): void
   (e: 'toggle-ai-gen'): void
   (e: 'open-external', tab: EditorTab): void
+  (e: 'reorder-tabs', newTabs: EditorTab[]): void
 }>()
+
+const draggedIndex = ref<number | null>(null)
+const dragOverIndex = ref<number | null>(null)
+
+function handleDragStart(event: DragEvent, index: number): void {
+  draggedIndex.value = index
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', String(index))
+  }
+}
+
+function handleDragOver(event: DragEvent, index: number): void {
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+  dragOverIndex.value = index
+}
+
+function handleDragLeave(_event: DragEvent, index: number): void {
+  if (dragOverIndex.value === index) {
+    dragOverIndex.value = null
+  }
+}
+
+function handleDrop(event: DragEvent, toIndex: number): void {
+  event.preventDefault()
+  const fromIndex = draggedIndex.value
+  if (fromIndex !== null && fromIndex !== toIndex) {
+    const list = [...props.tabs]
+    const [moved] = list.splice(fromIndex, 1)
+    list.splice(toIndex, 0, moved)
+    emit('reorder-tabs', list)
+  }
+  draggedIndex.value = null
+  dragOverIndex.value = null
+}
+
+function handleDragEnd(): void {
+  draggedIndex.value = null
+  dragOverIndex.value = null
+}
 
 function getIcon(tab: EditorTab): Component {
   if (tab.viewType === 'git-graph' || tab.name === 'Git Graph') return GitBranch
@@ -52,15 +96,23 @@ function getIconColor(tab: EditorTab): string {
       <!-- Tabs Scroll Container -->
       <div class="flex-1 h-full flex items-center overflow-x-auto min-w-0">
         <div
-          v-for="tab in tabs"
+          v-for="(tab, idx) in tabs"
           :key="tab.id"
-          class="group flex items-center space-x-2 px-3 h-full border-r border-[#24272E] text-xs cursor-pointer transition-colors shrink-0 max-w-[200px]"
-          :class="
+          draggable="true"
+          class="group flex items-center space-x-2 px-3 h-full border-r border-[#24272E] text-xs cursor-grab active:cursor-grabbing transition-all shrink-0 max-w-[200px] select-none"
+          :class="[
             activeTab?.id === tab.id
               ? 'bg-[#1E222B] text-white font-medium border-t-2 border-t-blue-500'
-              : 'bg-[#181A1F] text-[#848D97] hover:bg-[#1E222B] hover:text-[#C9D1D9]'
-          "
+              : 'bg-[#181A1F] text-[#848D97] hover:bg-[#1E222B] hover:text-[#C9D1D9]',
+            draggedIndex === idx ? 'opacity-40 scale-95' : '',
+            dragOverIndex === idx && draggedIndex !== idx ? 'ring-1 ring-blue-500/70 bg-[#252C3D]' : ''
+          ]"
           @click="emit('select-tab', tab.id)"
+          @dragstart="handleDragStart($event, idx)"
+          @dragover="handleDragOver($event, idx)"
+          @dragleave="handleDragLeave($event, idx)"
+          @drop="handleDrop($event, idx)"
+          @dragend="handleDragEnd"
         >
           <component :is="getIcon(tab)" class="w-3.5 h-3.5 shrink-0" :class="getIconColor(tab)" />
           <span class="truncate text-[12px]">{{ tab.name }}</span>
@@ -76,6 +128,8 @@ function getIconColor(tab: EditorTab): string {
             class="p-0.5 rounded text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors shrink-0"
             :class="{ 'hidden group-hover:block': tab.isDirty }"
             title="Close (Cmd+W)"
+            draggable="false"
+            @dragstart.stop
             @click.stop="emit('close-tab', tab.id)"
           >
             <X class="w-3 h-3" />
