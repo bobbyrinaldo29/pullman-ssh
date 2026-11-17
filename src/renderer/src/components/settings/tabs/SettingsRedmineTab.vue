@@ -9,9 +9,11 @@ import {
   AlertCircle,
   KeyRound,
   Bell,
-  Zap
+  Zap,
+  Settings
 } from 'lucide-vue-next'
 import ToggleSwitch from '../../ToggleSwitch.vue'
+import { useRedmine } from '../../../views/redmine/composables/useRedmine'
 import type { RedmineNotificationSettings, RedmineProject } from '../../../views/redmine/types'
 import { formatShortRelativeTime } from '../../../views/redmine/utils/notificationPresentation'
 import {
@@ -40,6 +42,7 @@ const emit = defineEmits<{
 const draft = ref<RedmineNotificationSettings>(cloneSettings(props.settings))
 const checkFeedback = ref<string | null>(null)
 const isManualChecking = ref(false)
+const { config, currentUser } = useRedmine()
 
 function cloneSettings(src: RedmineNotificationSettings): RedmineNotificationSettings {
   return {
@@ -132,27 +135,47 @@ defineExpose({
 
 <template>
   <div class="space-y-6 text-xs text-slate-200">
-    <!-- Redmine Connection Status Alert -->
+    <!-- Redmine API Connection Card -->
     <div
-      v-if="!props.isConnected"
-      class="p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-3"
+      class="p-3.5 rounded-lg bg-[#1D222E] border border-[#2B3245] flex items-center justify-between gap-3"
     >
-      <div class="flex items-start space-x-2 text-amber-200">
-        <AlertCircle class="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-        <div>
-          <div class="font-semibold text-xs">Redmine Not Connected</div>
-          <div class="text-[11px] text-amber-300/80">
-            Connect your Redmine Server URL and API Key first so automatic background monitoring can run.
+      <div class="flex items-center space-x-3 min-w-0">
+        <div
+          class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+          :class="props.isConnected ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'"
+        >
+          <KeyRound class="w-4 h-4" />
+        </div>
+        <div class="min-w-0">
+          <div class="font-semibold text-xs text-white flex items-center space-x-2">
+            <span>Koneksi API Redmine</span>
+            <span
+              class="px-2 py-0.5 rounded-full text-[10px] font-medium"
+              :class="props.isConnected ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'"
+            >
+              {{ props.isConnected ? 'Terhubung' : 'Belum Terhubung' }}
+            </span>
+          </div>
+          <div class="text-[11px] text-slate-400 truncate mt-0.5">
+            <template v-if="props.isConnected && config.url">
+              Server: <span class="font-mono text-slate-300">{{ config.url }}</span>
+              <span v-if="currentUser" class="text-slate-500 ml-1.5">({{ currentUser.login }})</span>
+            </template>
+            <template v-else>
+              Hubungkan URL Server dan API Access Key untuk mengelola issue dan monitoring tiket.
+            </template>
           </div>
         </div>
       </div>
+
       <button
         type="button"
-        class="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 font-medium text-xs flex items-center space-x-1.5 shrink-0 cursor-pointer transition-colors"
+        class="px-3.5 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-slate-200 hover:text-white text-xs font-medium transition-colors flex items-center space-x-1.5 shrink-0 cursor-pointer shadow-sm"
+        title="Konfigurasi URL server dan API key Redmine"
         @click="emit('open-login')"
       >
-        <KeyRound class="w-3.5 h-3.5" />
-        <span>API Connection</span>
+        <Settings class="w-3.5 h-3.5 text-sky-400" />
+        <span>Koneksi API</span>
       </button>
     </div>
 

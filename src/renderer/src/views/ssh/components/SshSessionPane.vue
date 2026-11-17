@@ -1,22 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import {
-  RotateCcw,
-  Trash2,
-  Power,
-  Shield,
-  Sparkles,
-  Server,
-  ShieldAlert,
-  Key,
-  Check
+  RotateCcw, Trash2, Power, Shield, Sparkles, Server, ShieldAlert, Key, Check
 } from 'lucide-vue-next'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useTheme } from '../../../composables/useTheme'
 import { DARK_TERMINAL_THEME, LIGHT_TERMINAL_THEME } from '../utils/terminalThemes'
-
+import { setupTerminalKeyHandler, handleTerminalContextMenu } from '../utils/terminalKeyHandler'
 import { SshTab } from '../types'
 
 const props = defineProps<{
@@ -71,6 +63,7 @@ function initTerminal(): void {
   fitAddon = new FitAddon()
   term.loadAddon(fitAddon)
   term.open(terminalContainer.value)
+  setupTerminalKeyHandler(term, props.tab.id, asSudo)
 
   try {
     fitAddon.fit()
@@ -398,7 +391,9 @@ onUnmounted(() => {
     <div
       ref="terminalContainer"
       class="flex-1 overflow-hidden bg-[#12151D] select-text relative"
+      tabindex="0"
       @click="term?.focus()"
+      @contextmenu="(e) => handleTerminalContextMenu(term, tab.id, e)"
     ></div>
   </div>
 </template>

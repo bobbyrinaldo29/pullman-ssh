@@ -6,7 +6,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Settings,
   X
 } from 'lucide-vue-next'
 import { RedmineProject, OpenIssueTab, RedmineChangeNotification } from '../types'
@@ -253,16 +252,6 @@ const currentProject = (): RedmineProject | null => {
           @check-now="emit('check-updates-now')"
           @open-settings="emit('open-notification-settings')"
         />
-
-        <button
-          type="button"
-          class="px-2 py-1 rounded text-[11px] text-[#c0d4e5] hover:text-white hover:bg-[#3b556b] flex items-center space-x-1 cursor-pointer transition-colors"
-          title="Redmine API Key &amp; Server Connection Settings"
-          @click="emit('open-login')"
-        >
-          <Settings class="w-3 h-3" />
-          <span>Koneksi API</span>
-        </button>
       </div>
     </div>
 
