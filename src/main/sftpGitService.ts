@@ -284,6 +284,12 @@ export class SftpGitService {
               res = retryRes
               output = (res.stdout || res.stderr || '').trim()
               isAuth = false
+            } else {
+              const retryOut = (retryRes.stderr || retryRes.stdout || '').trim()
+              if (retryOut) {
+                output = retryOut
+                isAuth = isGitAuthError(output)
+              }
             }
           }
         }
@@ -395,6 +401,12 @@ export class SftpGitService {
               res = retryRes
               output = (res.stdout || res.stderr || '').trim()
               isAuth = false
+            } else {
+              const retryOut = (retryRes.stderr || retryRes.stdout || '').trim()
+              if (retryOut) {
+                output = retryOut
+                isAuth = isGitAuthError(output)
+              }
             }
           }
         }
