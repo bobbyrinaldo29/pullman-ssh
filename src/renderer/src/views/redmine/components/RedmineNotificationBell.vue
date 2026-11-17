@@ -81,7 +81,7 @@ function handleSelect(item: RedmineChangeNotification): void {
           ? 'bg-[#2c3f52] text-white'
           : 'text-[#d6e2ec] hover:bg-[#3b556b] hover:text-white'
       "
-      title="Riwayat Notifikasi Perubahan Redmine"
+      title="Redmine Change Notification History"
       @click.stop="toggleDropdown"
     >
       <div class="relative flex items-center">
@@ -90,10 +90,10 @@ function handleSelect(item: RedmineChangeNotification): void {
         <span
           v-if="props.isMonitoringActive && props.unreadCount === 0"
           class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400 ring-1 ring-[#324b61]"
-          title="Monitoring perubahan aktif"
+          title="Change monitoring active"
         ></span>
       </div>
-      <span>Notifikasi</span>
+      <span>Notifications</span>
       <span
         v-if="props.unreadCount > 0"
         class="px-1.5 py-0.2 rounded-full bg-[#e11d48] text-white text-[10px] font-bold leading-tight font-mono"
@@ -113,7 +113,7 @@ function handleSelect(item: RedmineChangeNotification): void {
       <div class="px-3.5 py-2.5 bg-[#151a25] border-b border-[#263044] flex items-center justify-between">
         <div>
           <div class="text-xs font-bold text-white flex items-center space-x-2">
-            <span>Notifikasi Perubahan</span>
+            <span>Change Notifications</span>
             <span
               class="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
               :class="
@@ -126,11 +126,11 @@ function handleSelect(item: RedmineChangeNotification): void {
                 class="w-1.5 h-1.5 rounded-full"
                 :class="props.isMonitoringActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'"
               ></span>
-              <span>{{ props.isMonitoringActive ? 'Live' : 'Nonaktif' }}</span>
+              <span>{{ props.isMonitoringActive ? 'Live' : 'Inactive' }}</span>
             </span>
           </div>
           <div class="text-[10px] text-slate-400 mt-0.5">
-            Dicek terakhir: {{ formatShortRelativeTime(props.lastCheckedAt) }}
+            Last checked: {{ formatShortRelativeTime(props.lastCheckedAt) }}
           </div>
         </div>
 
@@ -139,7 +139,7 @@ function handleSelect(item: RedmineChangeNotification): void {
             type="button"
             :disabled="!props.isConnected || props.isChecking"
             class="p-1.5 rounded hover:bg-[#242e42] text-slate-300 hover:text-sky-300 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed transition-colors"
-            title="Cek perubahan sekarang"
+            title="Check for updates now"
             @click="emit('check-now')"
           >
             <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': props.isChecking }" />
@@ -148,7 +148,7 @@ function handleSelect(item: RedmineChangeNotification): void {
             v-if="props.unreadCount > 0"
             type="button"
             class="p-1.5 rounded hover:bg-[#242e42] text-slate-300 hover:text-emerald-300 cursor-pointer transition-colors"
-            title="Tandai semua sudah dibaca"
+            title="Mark all as read"
             @click="emit('mark-all-read')"
           >
             <CheckCheck class="w-3.5 h-3.5" />
@@ -157,7 +157,7 @@ function handleSelect(item: RedmineChangeNotification): void {
             v-if="props.notifications.length > 0"
             type="button"
             class="p-1.5 rounded hover:bg-[#242e42] text-slate-300 hover:text-rose-300 cursor-pointer transition-colors"
-            title="Bersihkan riwayat"
+            title="Clear history"
             @click="emit('clear-all')"
           >
             <Trash2 class="w-3.5 h-3.5" />
@@ -172,9 +172,9 @@ function handleSelect(item: RedmineChangeNotification): void {
           class="p-6 text-center text-slate-400 space-y-1.5"
         >
           <Bell class="w-6 h-6 mx-auto text-slate-500 opacity-70" />
-          <div class="text-xs font-medium text-slate-300">Belum ada notifikasi perubahan</div>
+          <div class="text-xs font-medium text-slate-300">No change notifications yet</div>
           <p class="text-[11px] text-slate-500">
-            Perubahan tiket Redmine (status, komentar, assignee, lampiran) akan muncul di sini.
+            Redmine ticket updates (status, comments, assignee, attachments) will appear here.
           </p>
         </div>
 
@@ -226,7 +226,7 @@ function handleSelect(item: RedmineChangeNotification): void {
 
             <div class="text-[10px] text-sky-400/0 group-hover:text-sky-400 transition-colors mt-1 flex items-center space-x-1">
               <ExternalLink class="w-2.5 h-2.5" />
-              <span>Buka detail tiket</span>
+              <span>Open ticket details</span>
             </div>
           </div>
         </button>
@@ -235,7 +235,7 @@ function handleSelect(item: RedmineChangeNotification): void {
       <!-- Footer -->
       <div class="px-3.5 py-2 bg-[#151a25] border-t border-[#263044] flex items-center justify-between">
         <span class="text-[10px] text-slate-400">
-          {{ props.notifications.length }} riwayat terbaru
+          {{ props.notifications.length }} recent updates
         </span>
         <button
           type="button"
@@ -243,7 +243,7 @@ function handleSelect(item: RedmineChangeNotification): void {
           @click="isOpen = false; emit('open-settings')"
         >
           <Settings class="w-3 h-3" />
-          <span>Pengaturan Notifikasi</span>
+          <span>Notification Settings</span>
         </button>
       </div>
     </div>

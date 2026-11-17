@@ -112,7 +112,7 @@ onUnmounted(() => {
               <button
                 type="button"
                 class="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white cursor-pointer transition-colors"
-                title="Tutup"
+                title="Dismiss"
                 @click="emit('dismiss', toast.id)"
               >
                 <X class="w-3.5 h-3.5" />
@@ -143,17 +143,17 @@ onUnmounted(() => {
               @click="emit('open-issue', toast)"
             >
               <ExternalLink class="w-3 h-3" />
-              <span>Buka Tiket</span>
+              <span>Open Ticket</span>
             </button>
 
             <button
               type="button"
               class="text-[10px] text-slate-400 hover:text-slate-200 flex items-center space-x-1 cursor-pointer transition-colors"
-              title="Buka Pengaturan Notifikasi"
+              title="Open Notification Settings"
               @click="emit('open-settings')"
             >
               <Settings class="w-3 h-3" />
-              <span>Pengaturan</span>
+              <span>Settings</span>
             </button>
           </div>
         </div>

@@ -235,18 +235,18 @@ function formatMappedChange(
   if (oldText && newText) {
     return {
       label,
-      html: `${escapeHtml(label)} diubah dari <span class="text-slate-300 font-medium">${oldText}</span> menjadi <span class="${newColorClass}">${newText}</span>`
+      html: `${escapeHtml(label)} changed from <span class="text-slate-300 font-medium">${oldText}</span> to <span class="${newColorClass}">${newText}</span>`
     }
   }
   if (newText || !allowClear) {
     return {
       label,
-      html: `${escapeHtml(label)} diisi <span class="${newColorClass}">${newText || '-'}</span>`
+      html: `${escapeHtml(label)} set to <span class="${newColorClass}">${newText || '-'}</span>`
     }
   }
   return {
     label,
-    html: `${escapeHtml(label)} dihapus (sebelumnya <span class="text-slate-400">${oldText}</span>)`
+    html: `${escapeHtml(label)} removed (was <span class="text-slate-400">${oldText}</span>)`
   }
 }
 
@@ -280,7 +280,7 @@ export function formatJournalDetail(
 
   if (name === 'priority_id') {
     return formatMappedChange(
-      'Prioritas',
+      'Priority',
       d.old_value,
       d.new_value,
       (v) => maps.priorities.get(Number(v)) || v,
@@ -291,7 +291,7 @@ export function formatJournalDetail(
   if (name === 'done_ratio') {
     return {
       label: 'Done %',
-      html: `Done % diubah dari <span class="text-slate-300 font-mono font-medium">${escapeHtml(d.old_value || '0')}</span> menjadi <span class="text-emerald-300 font-mono font-bold">${escapeHtml(d.new_value || '0')}</span>`
+      html: `Done % changed from <span class="text-slate-300 font-mono font-medium">${escapeHtml(d.old_value || '0')}</span> to <span class="text-emerald-300 font-mono font-bold">${escapeHtml(d.new_value || '0')}</span>`
     }
   }
 
@@ -309,8 +309,8 @@ export function formatJournalDetail(
 
   if (name === 'description') {
     return {
-      label: 'Deskripsi',
-      html: d.old_value ? 'Deskripsi diperbarui' : 'Deskripsi diisi'
+      label: 'Description',
+      html: d.old_value ? 'Description updated' : 'Description set'
     }
   }
 
@@ -321,19 +321,19 @@ export function formatJournalDetail(
     const file = escapeHtml(d.new_value || d.name)
     return {
       label: 'File',
-      html: `File ditambahkan: <span class="text-emerald-300 font-medium font-mono">${file}</span>`
+      html: `File added: <span class="text-emerald-300 font-medium font-mono">${file}</span>`
     }
   }
 
   if (prop === 'cf' || /^\d+$/.test(name)) {
-    const cfName = maps.customFields.get(String(name)) || (name === '8' ? 'Poin' : `Custom Field #${name}`)
+    const cfName = maps.customFields.get(String(name)) || (name === '8' ? 'Points' : `Custom Field #${name}`)
     return formatMappedChange(cfName, d.old_value, d.new_value, (v) => v, 'text-sky-300 font-bold')
   }
 
   if (prop === 'relation' || name === 'relates') {
     return {
-      label: 'Relasi',
-      html: `Relasi ${escapeHtml(d.name || 'relates')}: <span class="text-sky-300 font-mono font-bold">#${escapeHtml(d.new_value || '')}</span>`
+      label: 'Relation',
+      html: `Relation ${escapeHtml(d.name || 'relates')}: <span class="text-sky-300 font-mono font-bold">#${escapeHtml(d.new_value || '')}</span>`
     }
   }
 
@@ -341,12 +341,12 @@ export function formatJournalDetail(
   if (d.old_value && d.new_value) {
     return {
       label,
-      html: `${label} diubah dari <span class="line-through text-slate-500">${escapeHtml(d.old_value)}</span> menjadi <span class="text-sky-300 font-medium">${escapeHtml(d.new_value)}</span>`
+      html: `${label} changed from <span class="line-through text-slate-500">${escapeHtml(d.old_value)}</span> to <span class="text-sky-300 font-medium">${escapeHtml(d.new_value)}</span>`
     }
   }
   return {
     label,
-    html: `${label} diisi <span class="text-sky-300 font-medium">${escapeHtml(d.new_value || '-')}</span>`
+    html: `${label} set to <span class="text-sky-300 font-medium">${escapeHtml(d.new_value || '-')}</span>`
   }
 }
 

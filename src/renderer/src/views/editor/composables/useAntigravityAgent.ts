@@ -256,7 +256,7 @@ export function useAntigravityAgent(props: {
       const errMsg = err instanceof Error ? err.message : String(err)
       if (errMsg.toLowerCase().includes('insufficient authentication scopes')) {
         return {
-          text: `⚠️ **Google Gemini API Error**:\nRequest had insufficient authentication scopes.\n\n👉 **Penyebab & Solusi:**\nAkun Google Anda berhasil login, tetapi endpoint Google AI Studio publik mewajibkan **Gemini API Key** (atau Google Cloud Project ID untuk Vertex AI).\n\nSilakan klik icon **Settings (⚙️)** di kanan atas lalu masukkan **Gemini API Key** Anda dari Google AI Studio (100% gratis & instan).`
+          text: `⚠️ **Google Gemini API Error**:\nRequest had insufficient authentication scopes.\n\n👉 **Cause & Solution:**\nYour Google account is signed in, but the public Google AI Studio endpoint requires a **Gemini API Key** (or a Google Cloud Project ID for Vertex AI).\n\nPlease click the **Settings (⚙️)** icon at the top right and enter your **Gemini API Key** from Google AI Studio (free & instant).`
         }
       }
       return {

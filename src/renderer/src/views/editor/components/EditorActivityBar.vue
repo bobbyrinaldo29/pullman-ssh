@@ -3,15 +3,13 @@ import {
   Files,
   Search,
   GitBranch,
-  Sparkles,
-  Settings,
-  CircleDot
+  Sparkles
 } from 'lucide-vue-next'
 
 defineProps<{
   activeView: 'explorer' | 'search' | 'git' | 'antigravity'
   isSidebarOpen: boolean
-  isConnected: boolean
+  isConnected?: boolean
   hostTitle?: string
   gitChangesCount?: number
 }>()
@@ -22,7 +20,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="w-12 bg-[#181A1F] border-r border-[#24272E] flex flex-col justify-between shrink-0 select-none py-2 items-center z-10">
+  <div class="w-12 bg-[#181A1F] border-r border-[#24272E] flex flex-col justify-start shrink-0 select-none py-2 items-center z-10">
     <!-- Top Action Icons -->
     <div class="flex flex-col space-y-3 items-center w-full">
       <!-- Explorer (Files) -->
@@ -89,27 +87,6 @@ const emit = defineEmits<{
           class="absolute left-0 top-2 bottom-2 w-0.5 bg-gradient-to-b from-purple-500 to-blue-500 rounded-r"
         ></span>
         <Sparkles class="w-5 h-5" />
-      </button>
-    </div>
-
-    <!-- Bottom Badges -->
-    <div class="flex flex-col space-y-2 items-center w-full">
-      <!-- VS Code Remote-SSH Badge Indicator (Iconic >< SSH Badge) -->
-      <div
-        class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors cursor-pointer"
-        :class="isConnected ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30' : 'text-[#7D8590] hover:text-white'"
-        :title="isConnected ? `Connected via SSH to ${hostTitle}` : 'Remote SSH Disconnected'"
-      >
-        <CircleDot class="w-4 h-4" :class="{ 'animate-pulse': isConnected }" />
-      </div>
-
-      <!-- Settings Gear -->
-      <button
-        type="button"
-        title="Settings"
-        class="w-10 h-10 flex items-center justify-center rounded-lg text-[#7D8590] hover:text-white transition-colors"
-      >
-        <Settings class="w-5 h-5" />
       </button>
     </div>
   </div>

@@ -28,8 +28,8 @@ const bannerConfig = computed(() => {
   if (status.value === 'offline') {
     return {
       type: 'offline',
-      title: 'Tidak Ada Koneksi Internet',
-      desc: 'Komputer Anda sedang offline. Koneksi SSH, SFTP, AI, dan database tidak dapat terhubung.',
+      title: 'No Internet Connection',
+      desc: 'Your computer is offline. SSH, SFTP, AI, and database connections cannot be established.',
       bg: 'bg-rose-950/90 border-rose-500/50 text-rose-200',
       icon: WifiOff,
       iconColor: 'text-rose-400'
@@ -39,8 +39,8 @@ const bannerConfig = computed(() => {
   if (status.value === 'unstable') {
     return {
       type: 'unstable',
-      title: 'Koneksi Internet Tidak Stabil',
-      desc: `Latensi tinggi (${latency.value}ms) terdeteksi. Sesi terminal remote dan transfer file mungkin mengalami keterlambatan.`,
+      title: 'Unstable Internet Connection',
+      desc: `High latency (${latency.value}ms) detected. Remote terminal sessions and file transfers may experience delays.`,
       bg: 'bg-amber-950/90 border-amber-500/50 text-amber-200',
       icon: AlertTriangle,
       iconColor: 'text-amber-400'
@@ -49,8 +49,8 @@ const bannerConfig = computed(() => {
 
   return {
     type: 'restored',
-    title: 'Koneksi Internet Terhubung Kembali',
-    desc: `Semua layanan jaringan kembali normal (${latency.value > 0 ? latency.value + 'ms' : 'Online'}).`,
+    title: 'Internet Connection Restored',
+    desc: `All network services are back to normal (${latency.value > 0 ? latency.value + 'ms' : 'Online'}).`,
     bg: 'bg-emerald-950/90 border-emerald-500/50 text-emerald-200',
     icon: CheckCircle2,
     iconColor: 'text-emerald-400'
@@ -102,13 +102,13 @@ const bannerConfig = computed(() => {
             class="w-3.5 h-3.5"
             :class="{ 'animate-spin': isChecking }"
           />
-          <span class="text-[11px]">{{ isChecking ? 'Memeriksa...' : 'Coba Lagi' }}</span>
+          <span class="text-[11px]">{{ isChecking ? 'Checking...' : 'Retry' }}</span>
         </button>
 
         <button
           type="button"
           class="p-1 text-white/60 hover:text-white hover:bg-black/20 rounded-lg transition-colors cursor-pointer"
-          title="Tutup Notifikasi"
+          title="Dismiss Notification"
           @click="dismiss"
         >
           <X class="w-4 h-4" />

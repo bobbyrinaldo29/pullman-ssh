@@ -40,12 +40,12 @@ watch(
 function handleSave(): void {
   errorMessage.value = ''
   if (!username.value.trim()) {
-    errorMessage.value = 'Git username / email tidak boleh kosong.'
+    errorMessage.value = 'Git username / email cannot be empty.'
     usernameInputRef.value?.focus()
     return
   }
   if (!token.value) {
-    errorMessage.value = 'Personal access token / password tidak boleh kosong.'
+    errorMessage.value = 'Personal access token / password cannot be empty.'
     return
   }
 
@@ -60,7 +60,7 @@ function handleSave(): void {
 }
 
 function handleDelete(): void {
-  const confirmed = confirm('Hapus Git Credential global? Semua koneksi SSH tidak akan lagi menggunakan kredensial ini secara otomatis.')
+  const confirmed = confirm('Remove global Git credentials? All SSH connections will no longer use these credentials automatically.')
   if (!confirmed) return
   clearCredentials()
   username.value = ''
@@ -106,7 +106,7 @@ function handleClose(): void {
         <div>
           <h2 class="text-xl font-bold text-white tracking-tight">Git Credential</h2>
           <p class="text-xs text-slate-400 leading-relaxed mt-1.5">
-            Dipakai untuk semua koneksi SSH yang menjalankan Git Pull. Token akan disimpan terenkripsi di perangkat ini.
+            Used for all SSH connections running Git operations. Credentials are encrypted and stored locally on this device.
           </p>
         </div>
 
@@ -124,7 +124,7 @@ function handleClose(): void {
           class="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center space-x-2 animate-in fade-in"
         >
           <Check class="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>Git Credential berhasil disimpan dan aktif untuk semua koneksi!</span>
+          <span>Git credentials saved successfully and active for all connections!</span>
         </div>
 
         <!-- Git username / email -->
@@ -137,7 +137,7 @@ function handleClose(): void {
             v-model="username"
             type="text"
             autocomplete="username"
-            placeholder="e.g. erik atau erik@recis.co.id"
+            placeholder="e.g. username"
             class="w-full px-3.5 py-2.5 bg-[#1B202D] border border-[#2D3547] rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
           />
         </div>
@@ -152,7 +152,7 @@ function handleClose(): void {
               v-model="token"
               :type="showPassword ? 'text' : 'password'"
               autocomplete="current-password"
-              placeholder="Masukkan password atau token repositori"
+              placeholder="Enter password or repository access token"
               class="w-full pl-3.5 pr-10 py-2.5 bg-[#1B202D] border border-[#2D3547] rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
             />
             <button
@@ -175,7 +175,7 @@ function handleClose(): void {
             @click="handleDelete"
           >
             <Trash2 class="w-3.5 h-3.5" />
-            <span>Hapus</span>
+            <span>Delete</span>
           </button>
 
           <div class="flex items-center space-x-2">
@@ -184,14 +184,14 @@ function handleClose(): void {
               class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1.5"
             >
               <Key class="w-3.5 h-3.5" />
-              <span>Simpan</span>
+              <span>Save</span>
             </button>
             <button
               type="button"
               class="px-3.5 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-slate-300 hover:text-white text-xs font-medium transition-colors flex items-center space-x-1.5"
               @click="handleClose"
             >
-              <span>Batal</span>
+              <span>Cancel</span>
             </button>
           </div>
         </div>

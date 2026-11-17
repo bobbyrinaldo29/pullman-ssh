@@ -172,7 +172,7 @@ export async function extractDBeaverProjectFromUint8Array(
     keys.find((k) => k.endsWith('.json'))
 
   if (!targetKey || !files[targetKey]) {
-    throw new Error('Tidak ditemukan data koneksi (data-sources.json) di dalam file project DBeaver (.dbp) ini.')
+    throw new Error('No connection data (data-sources.json) found in this DBeaver project file (.dbp).')
   }
 
   // Look for credentials-config.json and decrypt

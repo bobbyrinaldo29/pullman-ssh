@@ -95,7 +95,7 @@ function handleTest(): void {
       .showNotification({
         title: 'Pullman Redmine • Update #144720',
         subtitle: 'PBB-P2',
-        body: 'Status: In Progress → Ready to test (Simulasi Notifikasi Desktop)',
+        body: 'Status: In Progress → Ready to test (Desktop Notification Simulation)',
         silent: !draft.value.soundEnabled,
         tag: 'redmine-test'
       })
@@ -148,12 +148,12 @@ defineExpose({
         </div>
         <div class="min-w-0">
           <div class="font-semibold text-xs text-white flex items-center space-x-2">
-            <span>Koneksi API Redmine</span>
+            <span>Redmine API Connection</span>
             <span
               class="px-2 py-0.5 rounded-full text-[10px] font-medium"
               :class="props.isConnected ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'"
             >
-              {{ props.isConnected ? 'Terhubung' : 'Belum Terhubung' }}
+              {{ props.isConnected ? 'Connected' : 'Not Connected' }}
             </span>
           </div>
           <div class="text-[11px] text-slate-400 truncate mt-0.5">
@@ -162,7 +162,7 @@ defineExpose({
               <span v-if="currentUser" class="text-slate-500 ml-1.5">({{ currentUser.login }})</span>
             </template>
             <template v-else>
-              Hubungkan URL Server dan API Access Key untuk mengelola issue dan monitoring tiket.
+              Connect your Redmine Server URL and API Access Key to manage issues and monitor tickets.
             </template>
           </div>
         </div>
@@ -171,11 +171,11 @@ defineExpose({
       <button
         type="button"
         class="px-3.5 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-slate-200 hover:text-white text-xs font-medium transition-colors flex items-center space-x-1.5 shrink-0 cursor-pointer shadow-sm"
-        title="Konfigurasi URL server dan API key Redmine"
+        title="Configure Redmine server URL and API key"
         @click="emit('open-login')"
       >
         <Settings class="w-3.5 h-3.5 text-sky-400" />
-        <span>Koneksi API</span>
+        <span>API Connection</span>
       </button>
     </div>
 

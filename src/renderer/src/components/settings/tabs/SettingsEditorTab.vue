@@ -428,22 +428,22 @@ onMounted(() => {
           </div>
           <div class="space-y-1">
             <div class="text-sm font-semibold text-slate-100 flex items-center space-x-2">
-              <span>Git Credential Global</span>
+              <span>Global Git Credentials</span>
               <span
                 v-if="hasCredentials"
                 class="px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
               >
-                Aktif ({{ globalCredentials.username }})
+                Active ({{ globalCredentials.username }})
               </span>
               <span
                 v-else
                 class="px-2 py-0.5 rounded-full text-[10px] bg-slate-700/50 text-slate-400 border border-slate-600/30"
               >
-                Belum diatur
+                Not configured
               </span>
             </div>
             <p class="text-xs text-slate-400 leading-relaxed max-w-xl">
-              Dipakai untuk semua koneksi SSH yang menjalankan Git Pull, Git Push, atau Cherry-pick.
+              Used for all SSH connections running Git Pull, Git Push, or Cherry-pick operations.
             </p>
           </div>
         </div>
@@ -454,7 +454,7 @@ onMounted(() => {
           @click="openModal"
         >
           <Key class="w-3.5 h-3.5" />
-          <span>{{ hasCredentials ? 'Ubah Credential' : 'Atur Credential' }}</span>
+          <span>{{ hasCredentials ? 'Edit Credentials' : 'Configure Credentials' }}</span>
         </button>
       </div>
 

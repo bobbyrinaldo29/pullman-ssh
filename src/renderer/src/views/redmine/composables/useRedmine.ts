@@ -566,7 +566,7 @@ export function useRedmine() {
     const foundInList = issues.value.find((i) => i.id === issueId)
     const initialIssue: RedmineIssue = foundInList || {
       id: issueId,
-      subject: fallback?.subject || `Memuat tiket #${issueId}...`,
+      subject: fallback?.subject || `Loading issue #${issueId}...`,
       description: fallback?.description || '',
       created_on: fallback?.created_on || new Date().toISOString(),
       updated_on: fallback?.updated_on || new Date().toISOString(),

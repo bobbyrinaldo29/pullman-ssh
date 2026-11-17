@@ -280,7 +280,7 @@ defineExpose({
       <button
         type="button"
         class="p-1 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors cursor-pointer text-xs flex items-center space-x-1"
-        title="Tutup form edit"
+        title="Close edit form"
         @click="emit('close')"
       >
         <X class="w-3.5 h-3.5" />

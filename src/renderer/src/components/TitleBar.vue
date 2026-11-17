@@ -206,7 +206,7 @@ function handleClose(): void {
           <span
             v-if="props.redmineMonitoringActive && props.redmineUnreadCount === 0"
             class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400 ring-1 ring-[#20242F]"
-            title="Monitoring perubahan Redmine aktif"
+            title="Redmine change monitoring active"
           ></span>
         </div>
         <span>Redmine</span>

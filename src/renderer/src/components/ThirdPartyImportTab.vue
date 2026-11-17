@@ -76,7 +76,7 @@ async function handleDBeaverFileSelected(event: Event): Promise<void> {
     emit('update:discoveredFolders', folders)
 
     if (items.length === 0) {
-      emit('update:importError', 'Tidak ada koneksi database yang ditemukan di dalam file project DBeaver ini.')
+      emit('update:importError', 'No database connections found in this DBeaver project file.')
       emit('update:parsedItems', [])
       return
     }
@@ -84,7 +84,7 @@ async function handleDBeaverFileSelected(event: Event): Promise<void> {
     emit('update:parsedItems', items)
   } catch (err: unknown) {
     const errorMsg =
-      err instanceof Error ? err.message : 'Gagal mengekstrak file project DBeaver (.dbp)'
+      err instanceof Error ? err.message : 'Failed to extract DBeaver project file (.dbp)'
     emit('update:importError', errorMsg)
     emit('update:parsedItems', [])
   } finally {
@@ -104,13 +104,13 @@ async function handleDataGripFileSelected(event: Event): Promise<void> {
     const text = await file.text()
     const items = parseDataGripConnections(text)
     if (items.length === 0) {
-      emit('update:importError', 'Tidak ada koneksi database yang ditemukan di dalam file XML ini.')
+      emit('update:importError', 'No database connections found in this XML file.')
       emit('update:parsedItems', [])
       return
     }
     emit('update:parsedItems', items)
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : 'Gagal membaca file DataGrip'
+    const errorMsg = err instanceof Error ? err.message : 'Failed to read DataGrip file'
     emit('update:importError', errorMsg)
     emit('update:parsedItems', [])
   } finally {
@@ -130,13 +130,13 @@ async function handleNavicatFileSelected(event: Event): Promise<void> {
     const text = await file.text()
     const items = await parseNavicatConnections(text)
     if (items.length === 0) {
-      emit('update:importError', 'Tidak ada koneksi database yang ditemukan di dalam file Navicat (.ncx) ini.')
+      emit('update:importError', 'No database connections found in this Navicat (.ncx) file.')
       emit('update:parsedItems', [])
       return
     }
     emit('update:parsedItems', items)
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : 'Gagal membaca file Navicat'
+    const errorMsg = err instanceof Error ? err.message : 'Failed to read Navicat file'
     emit('update:importError', errorMsg)
     emit('update:parsedItems', [])
   } finally {

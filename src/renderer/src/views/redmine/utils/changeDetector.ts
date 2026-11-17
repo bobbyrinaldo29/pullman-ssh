@@ -182,8 +182,8 @@ export function analyzeIssueChange(params: {
     ? issue.author?.id
     : latestJournal?.user?.id || issue.author?.id || undefined
   const rawActorName = isBrandNew
-    ? issue.author?.name || 'Seseorang'
-    : latestJournal?.user?.name || issue.author?.name || 'Tim Redmine'
+    ? issue.author?.name || 'Someone'
+    : latestJournal?.user?.name || issue.author?.name || 'Redmine Team'
 
   const isMe = Boolean(currentUserId && actorId === currentUserId)
 
@@ -191,7 +191,7 @@ export function analyzeIssueChange(params: {
     return null
   }
 
-  const actorName = isMe ? 'Anda' : rawActorName
+  const actorName = isMe ? 'You' : rawActorName
 
   const detectedFlags = {
     newIssue: isBrandNew,
@@ -207,9 +207,9 @@ export function analyzeIssueChange(params: {
   let primaryType: RedmineChangeType = isBrandNew ? 'new_issue' : 'update'
 
   if (isBrandNew) {
-    const trackerName = issue.tracker?.name || 'Tiket'
+    const trackerName = issue.tracker?.name || 'Ticket'
     const assignee = issue.assigned_to?.name ? ` • Assignee: ${issue.assigned_to.name}` : ''
-    detailLines.push(`${trackerName} baru dibuat oleh ${actorName}${assignee}`)
+    detailLines.push(`New ${trackerName} created by ${actorName}${assignee}`)
   } else {
     const details = latestJournal?.details || []
 
@@ -233,20 +233,20 @@ export function analyzeIssueChange(params: {
         detectedFlags.priorityChange = true
         const oldName = d.old_value ? priorityMap.get(Number(d.old_value)) || d.old_value : '-'
         const newName = d.new_value ? priorityMap.get(Number(d.new_value)) || d.new_value : '-'
-        detailLines.push(`Prioritas: ${oldName} → ${newName}`)
+        detailLines.push(`Priority: ${oldName} → ${newName}`)
       } else if (d.name === 'description') {
         detectedFlags.descriptionOrAttachment = true
-        detailLines.push('Deskripsi diperbarui')
+        detailLines.push('Description updated')
       } else if (d.property === 'attachment') {
         detectedFlags.descriptionOrAttachment = true
-        const fileName = d.new_value || d.name || 'lampiran'
-        detailLines.push(`File ditambahkan: ${fileName}`)
+        const fileName = d.new_value || d.name || 'attachment'
+        detailLines.push(`File added: ${fileName}`)
       } else if (d.name === 'done_ratio') {
         detectedFlags.otherUpdates = true
         detailLines.push(`Progress: ${d.old_value || 0}% → ${d.new_value || 0}%`)
       } else if (d.name === 'subject') {
         detectedFlags.otherUpdates = true
-        detailLines.push('Subject diperbarui')
+        detailLines.push('Subject updated')
       } else if (d.name === 'due_date' || d.name === 'start_date') {
         detectedFlags.otherUpdates = true
         const fieldLabel = d.name === 'due_date' ? 'Due date' : 'Start date'
@@ -275,27 +275,27 @@ export function analyzeIssueChange(params: {
       if (!detectedFlags.priorityChange && issue.priority?.id !== prev.priorityId) {
         detectedFlags.priorityChange = true
         detailLines.push(
-          `Prioritas: ${prev.priorityName || '-'} → ${issue.priority?.name || '-'}`
+          `Priority: ${prev.priorityName || '-'} → ${issue.priority?.name || '-'}`
         )
       }
       if (issue.done_ratio !== prev.done_ratio && !detailLines.some((l) => l.startsWith('Progress:'))) {
         detectedFlags.otherUpdates = true
         detailLines.push(`Progress: ${prev.done_ratio}% → ${issue.done_ratio}%`)
       }
-      if (issue.subject !== prev.subject && !detailLines.includes('Subject diperbarui')) {
+      if (issue.subject !== prev.subject && !detailLines.includes('Subject updated')) {
         detectedFlags.otherUpdates = true
-        detailLines.push('Subject diperbarui')
+        detailLines.push('Subject updated')
       }
     }
 
     if (latestJournal?.notes && latestJournal.notes.trim()) {
       detectedFlags.newComment = true
-      detailLines.push(`Komentar: "${truncateText(latestJournal.notes, 90)}"`)
+      detailLines.push(`Comment: "${truncateText(latestJournal.notes, 90)}"`)
     }
 
     if (detailLines.length === 0) {
       detectedFlags.otherUpdates = true
-      detailLines.push('Tiket diperbarui')
+      detailLines.push('Ticket updated')
     }
 
     // Determine primary icon / color category
@@ -323,14 +323,14 @@ export function analyzeIssueChange(params: {
 
   const projectName = issue.project?.name || 'Redmine'
   let title = `Update #${issue.id} • ${projectName}`
-  if (primaryType === 'new_issue') title = `Tiket Baru #${issue.id} • ${projectName}`
+  if (primaryType === 'new_issue') title = `New Ticket #${issue.id} • ${projectName}`
   else if (primaryType === 'status') title = `Status #${issue.id} • ${issue.status?.name || ''}`
-  else if (primaryType === 'comment') title = `Komentar Baru #${issue.id} • ${projectName}`
-  else if (primaryType === 'assignee') title = `Penugasan #${issue.id} • ${projectName}`
+  else if (primaryType === 'comment') title = `New Comment #${issue.id} • ${projectName}`
+  else if (primaryType === 'assignee') title = `Assignment #${issue.id} • ${projectName}`
 
   const summary =
     primaryType === 'new_issue'
-      ? `${actorName} membuat ${issue.tracker?.name || 'Tiket'}: "${truncateText(issue.subject, 80)}"`
+      ? `${actorName} created ${issue.tracker?.name || 'Ticket'}: "${truncateText(issue.subject, 80)}"`
       : `${actorName}: ${detailLines.slice(0, 2).join(' | ')}`
 
   return {
