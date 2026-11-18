@@ -26,11 +26,12 @@ export interface SftpSession {
   client: SftpClient
   isConnected: boolean
   cwd?: string
-  config?: { host: string; port: number; user: string; password?: string; timeoutMs?: number }
+  config?: { sessionId?: string; host: string; port: number; user: string; password?: string; timeoutMs?: number; skipCwd?: boolean }
 }
 
 export class SftpService {
   private sessions = new Map<string, SftpSession>()
+  private lastConfigs = new Map<string, { sessionId?: string; host: string; port: number; user: string; password?: string; timeoutMs?: number; skipCwd?: boolean }>()
   private dirCache = new Map<string, { items: SftpFileItem[]; timestamp: number }>()
 
   public clearDirCache(sessionId?: string): void {
@@ -68,6 +69,7 @@ export class SftpService {
     skipCwd?: boolean
   }): Promise<{ success: boolean; message: string; cwd?: string }> {
     const sid = config.sessionId || 'default'
+    this.lastConfigs.set(sid, { ...config, sessionId: sid })
     await this.disconnect(sid)
     const client = new SftpClient()
 
@@ -512,7 +514,20 @@ export class SftpService {
     asSudo = false,
     sudoPassword?: string
   ): Promise<void> {
-    let session = this.requireSession(sessionId)
+    const sid = sessionId || 'default'
+    let session = this.getSession(sid)
+    if (!session || !session.isConnected) {
+      const savedCfg = this.lastConfigs.get(sid)
+      if (savedCfg) {
+        const connRes = await this.connect({ ...savedCfg, sessionId: sid })
+        if (connRes.success) {
+          session = this.getSession(sid)
+        }
+      }
+    }
+    if (!session || !session.isConnected) {
+      throw new Error('SFTP client is not connected.')
+    }
     if (sudoPassword && session.config) {
       session.config.password = sudoPassword
     }
@@ -629,12 +644,11 @@ export class SftpService {
           return
         } catch (err) {
           lastError = err instanceof Error ? err : new Error(String(err))
-        } finally {
           if (origFileMode) {
-            this.execRemote(`chmod ${origFileMode} '${escClean}'`, sessionId, true, sudoPassword).catch(() => {})
+            await this.execRemote(`chmod ${origFileMode} '${escClean}'`, sessionId, true, sudoPassword).catch(() => {})
           }
           if (!fileExists && origParentMode) {
-            this.execRemote(`chmod ${origParentMode} '${escParentDir}'`, sessionId, true, sudoPassword).catch(() => {})
+            await this.execRemote(`chmod ${origParentMode} '${escParentDir}'`, sessionId, true, sudoPassword).catch(() => {})
           }
         }
 
@@ -692,11 +706,24 @@ export class SftpService {
     try {
       await doWrite(session)
     } catch (err) {
-      if (session.config) {
-        await this.connect(session.config)
-        session = this.requireSession(sessionId)
-        await doWrite(session)
-        return
+      const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+      const isPermOrFsErr =
+        msg.includes('permission denied') ||
+        msg.includes('eacces') ||
+        msg.includes('eperm') ||
+        msg.includes('access denied') ||
+        msg.includes('not allowed to execute') ||
+        msg.includes('not in the sudoers') ||
+        msg.includes('incorrect password') ||
+        msg.includes('no such file')
+      const reconnectCfg = session.config || this.lastConfigs.get(sid)
+      if (!isPermOrFsErr && reconnectCfg) {
+        const connRes = await this.connect({ ...reconnectCfg, sessionId: sid })
+        if (connRes.success) {
+          session = this.requireSession(sid)
+          await doWrite(session)
+          return
+        }
       }
       throw err
     }

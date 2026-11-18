@@ -383,15 +383,31 @@ const api = {
       remotePath: string
       sessionId?: string
       content: string
+      asSudo?: boolean
       timestamp: number
     }) => void
   ): (() => void) => {
     const listener = (
       _: Electron.IpcRendererEvent,
-      data: { remotePath: string; sessionId?: string; content: string; timestamp: number }
+      data: { remotePath: string; sessionId?: string; content: string; asSudo?: boolean; timestamp: number }
     ): void => callback(data)
     ipcRenderer.on('editor:external-sync-complete', listener)
     return () => ipcRenderer.removeListener('editor:external-sync-complete', listener)
+  },
+  onExternalFileSyncError: (
+    callback: (payload: {
+      remotePath: string
+      sessionId?: string
+      error: string
+      timestamp: number
+    }) => void
+  ): (() => void) => {
+    const listener = (
+      _: Electron.IpcRendererEvent,
+      data: { remotePath: string; sessionId?: string; error: string; timestamp: number }
+    ): void => callback(data)
+    ipcRenderer.on('editor:external-sync-error', listener)
+    return () => ipcRenderer.removeListener('editor:external-sync-error', listener)
   }
 }
 

@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, ipcMain, Notification } from 'electron'
 import { spawn, spawnSync, ChildProcess } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -34,8 +34,13 @@ interface WatchedFileRecord {
   sessionId?: string
   asSudo?: boolean
   lastHash: string
+  lastNonEmptySize: number
+  isSyncing: boolean
+  pendingSync: boolean
+  isWritingLocal: boolean
   timer?: NodeJS.Timeout
   watcher?: fs.FSWatcher
+  statListener?: fs.StatsListener
 }
 
 export class ExternalEditorService {
@@ -215,6 +220,8 @@ export class ExternalEditorService {
       throw new Error('Remote path is required to open file in external editor.')
     }
 
+    const normalizedRemote = remotePath.trim().replace(/\/+/g, '/').replace(/^([^/])/, '/$1')
+
     // 1. Fetch remote content if not provided
     let content = payload.content
     let effectiveSudo = asSudo
@@ -222,11 +229,11 @@ export class ExternalEditorService {
 
     if (!hasValidPayloadContent) {
       try {
-        content = await this.sftpService.readFile(remotePath, sessionId, effectiveSudo)
+        content = await this.sftpService.readFile(normalizedRemote, sessionId, effectiveSudo)
       } catch (err) {
         if (!effectiveSudo) {
           try {
-            content = await this.sftpService.readFile(remotePath, sessionId, true)
+            content = await this.sftpService.readFile(normalizedRemote, sessionId, true)
             effectiveSudo = true
           } catch {
             throw err
@@ -240,7 +247,7 @@ export class ExternalEditorService {
     // 2. Prepare local cache path
     const tempRoot = path.join(os.tmpdir(), 'pullman_external')
     const safeSession = (sessionId || 'default').replace(/[^a-zA-Z0-9_-]/g, '_')
-    const safeRel = remotePath.replace(/^[/\\]+/, '').replace(/[\\/:]+/g, path.sep)
+    const safeRel = normalizedRemote.replace(/^[/\\]+/, '').replace(/[\\/:]+/g, path.sep)
     const localFilePath = path.join(tempRoot, safeSession, safeRel)
 
     const dir = path.dirname(localFilePath)
@@ -248,44 +255,70 @@ export class ExternalEditorService {
       fs.mkdirSync(dir, { recursive: true })
     }
 
-    // 3. Write content to local file with binary fidelity & fallback
-    if (hasValidPayloadContent && content !== undefined) {
-      fs.writeFileSync(localFilePath, content, 'utf8')
-    } else {
-      let downloaded = false
-      try {
-        await this.sftpService.download(remotePath, localFilePath, sessionId, effectiveSudo)
-        downloaded = fs.existsSync(localFilePath) && fs.statSync(localFilePath).size > 0
-      } catch {}
+    // Pause existing watcher during local cache write so we don't trigger a redundant echo upload
+    const existingRecord = this.watchedFiles.get(localFilePath)
+    if (existingRecord) {
+      existingRecord.isWritingLocal = true
+    }
 
-      if (!downloaded) {
-        fs.writeFileSync(localFilePath, content || '', 'utf8')
-      }
-
-      // If still 0 bytes, try reading shell cat output as final safeguard
-      if (fs.existsSync(localFilePath) && fs.statSync(localFilePath).size === 0) {
+    try {
+      // Ensure existing local file is writable before overwriting
+      if (fs.existsSync(localFilePath)) {
         try {
-          const cleanPath = remotePath.replace(/\/+/g, '/').replace(/'/g, "'\\''")
-          const catRes = await this.sftpService.execRemote(`cat '${cleanPath}'`, sessionId, effectiveSudo)
-          if (catRes.code === 0 && catRes.stdout.length > 0) {
-            content = catRes.stdout
-            fs.writeFileSync(localFilePath, content, 'utf8')
-          }
+          fs.chmodSync(localFilePath, 0o666)
         } catch {}
       }
+
+      // 3. Write content to local file with binary fidelity & fallback
+      if (hasValidPayloadContent && content !== undefined) {
+        fs.writeFileSync(localFilePath, content, 'utf8')
+      } else {
+        let downloaded = false
+        try {
+          await this.sftpService.download(normalizedRemote, localFilePath, sessionId, effectiveSudo)
+          downloaded = fs.existsSync(localFilePath) && fs.statSync(localFilePath).size > 0
+        } catch {}
+
+        if (!downloaded) {
+          fs.writeFileSync(localFilePath, content || '', 'utf8')
+        }
+
+        // If still 0 bytes, try reading shell cat output as final safeguard
+        if (fs.existsSync(localFilePath) && fs.statSync(localFilePath).size === 0) {
+          try {
+            const cleanPath = normalizedRemote.replace(/\/+/g, '/').replace(/'/g, "'\\''")
+            const catRes = await this.sftpService.execRemote(`cat '${cleanPath}'`, sessionId, effectiveSudo)
+            if (catRes.code === 0 && catRes.stdout.length > 0) {
+              content = catRes.stdout
+              fs.writeFileSync(localFilePath, content, 'utf8')
+            }
+          } catch {}
+        }
+      }
+
+      // Guarantee file is writable by VS Code on Windows
+      try {
+        fs.chmodSync(localFilePath, 0o666)
+      } catch {}
 
       if (fs.existsSync(localFilePath)) {
         try {
           content = fs.readFileSync(localFilePath, 'utf8')
         } catch {}
       }
+    } finally {
+      if (existingRecord) {
+        existingRecord.isWritingLocal = false
+      }
     }
 
-    const initialHash = crypto.createHash('md5').update(content || '', 'utf8').digest('hex')
+    const finalContent = content || ''
+    const initialHash = crypto.createHash('md5').update(finalContent, 'utf8').digest('hex')
+    const initialSize = Buffer.byteLength(finalContent, 'utf8')
 
-    // 4. Setup auto-sync watcher
+    // 4. Setup auto-sync watcher (recreate cleanly so stale/broken watchers are always healed)
     if (autoSync) {
-      this.setupFileWatcher(localFilePath, remotePath, sessionId, effectiveSudo, initialHash)
+      this.setupFileWatcher(localFilePath, normalizedRemote, sessionId, effectiveSudo, initialHash, initialSize)
     }
 
     // 5. Launch external editor
@@ -391,75 +424,225 @@ export class ExternalEditorService {
     }
   }
 
+  private cleanupWatcher(localPath: string): void {
+    const existing = this.watchedFiles.get(localPath)
+    if (!existing) return
+    if (existing.timer) clearTimeout(existing.timer)
+    if (existing.watcher) {
+      try {
+        existing.watcher.close()
+      } catch {}
+    }
+    if (existing.statListener) {
+      try {
+        fs.unwatchFile(localPath, existing.statListener)
+      } catch {}
+    }
+    this.watchedFiles.delete(localPath)
+  }
+
   private setupFileWatcher(
     localPath: string,
     remotePath: string,
     sessionId?: string,
     asSudo = false,
-    initialHash: string = ''
+    initialHash: string = '',
+    initialSize: number = 0
   ): void {
-    const existing = this.watchedFiles.get(localPath)
-    if (existing) {
-      existing.remotePath = remotePath
-      existing.sessionId = sessionId
-      existing.asSudo = asSudo
-      existing.lastHash = initialHash
-      return
-    }
+    // Always cleanly replace existing watcher so broken/stale Windows watchers are healed
+    this.cleanupWatcher(localPath)
 
     const record: WatchedFileRecord = {
       localPath,
       remotePath,
       sessionId,
       asSudo,
-      lastHash: initialHash
+      lastHash: initialHash,
+      lastNonEmptySize: initialSize,
+      isSyncing: false,
+      pendingSync: false,
+      isWritingLocal: false
     }
 
+    const scheduleSync = (): void => {
+      if (record.isWritingLocal) return
+      if (record.timer) clearTimeout(record.timer)
+      record.timer = setTimeout(() => {
+        this.syncWatchedFile(record).catch((err) => {
+          console.error(`[ExternalEditor] Unexpected sync error for ${record.remotePath}:`, err)
+        })
+      }, 350)
+    }
+
+    const dir = path.dirname(localPath)
+    const targetBase = path.basename(localPath)
+    const isWin = process.platform === 'win32'
+
+    // 1. Watch parent directory (does NOT lock localPath on Windows and survives VS Code atomic renames!)
     try {
-      const watcher = fs.watch(localPath, (eventType) => {
-        if (eventType !== 'change' && eventType !== 'rename') return
-        if (record.timer) clearTimeout(record.timer)
+      const watcher = fs.watch(dir, (_eventType, filename) => {
+        if (filename) {
+          const nameStr = filename.toString()
+          const matches = isWin
+            ? nameStr.toLowerCase() === targetBase.toLowerCase()
+            : nameStr === targetBase
+          if (!matches) return
+        }
+        scheduleSync()
+      })
+      watcher.on('error', (err) => {
+        console.warn(`[ExternalEditor] Directory watcher error for ${dir}:`, err)
+      })
+      record.watcher = watcher
+    } catch (err) {
+      console.warn(`[ExternalEditor] Could not watch directory ${dir}:`, err)
+    }
 
-        record.timer = setTimeout(async () => {
+    // 2. Stat polling fallback (guarantees save detection even if Windows ReadDirectoryChangesW drops events)
+    const statListener: fs.StatsListener = (curr, prev) => {
+      if (curr.mtimeMs !== prev.mtimeMs || curr.size !== prev.size) {
+        scheduleSync()
+      }
+    }
+    try {
+      fs.watchFile(localPath, { interval: 600, persistent: false }, statListener)
+      record.statListener = statListener
+    } catch (err) {
+      console.warn(`[ExternalEditor] Could not attach stat watcher for ${localPath}:`, err)
+    }
+
+    this.watchedFiles.set(localPath, record)
+  }
+
+  private async syncWatchedFile(record: WatchedFileRecord): Promise<void> {
+    if (record.isWritingLocal) return
+    if (record.isSyncing) {
+      record.pendingSync = true
+      return
+    }
+
+    if (!fs.existsSync(record.localPath)) return
+
+    let updatedContent: string
+    try {
+      updatedContent = fs.readFileSync(record.localPath, 'utf8')
+    } catch {
+      return
+    }
+
+    // Protect against mid-write 0-byte truncation race on Windows (e.g. VS Code writing buffer)
+    if (updatedContent.length === 0 && record.lastNonEmptySize > 0) {
+      await new Promise((r) => setTimeout(r, 400))
+      if (!fs.existsSync(record.localPath)) return
+      try {
+        updatedContent = fs.readFileSync(record.localPath, 'utf8')
+      } catch {
+        return
+      }
+    }
+
+    const currentHash = crypto.createHash('md5').update(updatedContent, 'utf8').digest('hex')
+    if (currentHash === record.lastHash) return
+
+    record.isSyncing = true
+    record.pendingSync = false
+    const fileName = path.posix.basename(record.remotePath)
+
+    try {
+      let usedSudo = Boolean(record.asSudo)
+      try {
+        await this.sftpService.writeFile(
+          record.remotePath,
+          updatedContent,
+          record.sessionId,
+          usedSudo
+        )
+      } catch (primaryErr) {
+        if (!usedSudo) {
+          // Automatic sudo fallback for remote files owned by root/www-data that are world-readable
           try {
-            if (!fs.existsSync(localPath)) return
-            const updatedContent = fs.readFileSync(localPath, 'utf8')
-            const currentHash = crypto
-              .createHash('md5')
-              .update(updatedContent, 'utf8')
-              .digest('hex')
-
-            if (currentHash === record.lastHash) return
-            record.lastHash = currentHash
-
             await this.sftpService.writeFile(
               record.remotePath,
               updatedContent,
               record.sessionId,
-              record.asSudo
+              true
             )
-
-            // Broadcast sync event to renderer so active tabs can update their buffer
-            for (const win of BrowserWindow.getAllWindows()) {
-              if (!win.isDestroyed()) {
-                win.webContents.send('editor:external-sync-complete', {
-                  remotePath: record.remotePath,
-                  sessionId: record.sessionId,
-                  content: updatedContent,
-                  timestamp: Date.now()
-                })
-              }
+            usedSudo = true
+            record.asSudo = true
+          } catch (sudoErr) {
+            const sudoMsg = sudoErr instanceof Error ? sudoErr.message : String(sudoErr)
+            // If user lacks sudoers privilege, preserve the clearer primary error
+            if (
+              sudoMsg.toLowerCase().includes('not allowed to execute') ||
+              sudoMsg.toLowerCase().includes('not in the sudoers')
+            ) {
+              throw primaryErr
             }
-          } catch (err) {
-            console.error(`[ExternalEditor] Sync error for ${record.remotePath}:`, err)
+            throw sudoErr
           }
-        }, 300)
-      })
+        } else {
+          throw primaryErr
+        }
+      }
 
-      record.watcher = watcher
-      this.watchedFiles.set(localPath, record)
+      // Only update lastHash AFTER remote write succeeds!
+      record.lastHash = currentHash
+      if (updatedContent.length > 0) {
+        record.lastNonEmptySize = Buffer.byteLength(updatedContent, 'utf8')
+      }
+
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) {
+          win.webContents.send('editor:external-sync-complete', {
+            remotePath: record.remotePath,
+            sessionId: record.sessionId,
+            content: updatedContent,
+            asSudo: usedSudo,
+            timestamp: Date.now()
+          })
+        }
+      }
+
+      try {
+        if (Notification.isSupported()) {
+          new Notification({
+            title: usedSudo ? 'Synced as Sudo (VS Code)' : 'Synced to Server (VS Code)',
+            body: `Saved "${fileName}" to remote server.`,
+            silent: true
+          }).show()
+        }
+      } catch {}
     } catch (err) {
-      console.warn(`[ExternalEditor] Could not watch ${localPath}:`, err)
+      const errMsg = err instanceof Error ? err.message : String(err)
+      console.error(`[ExternalEditor] Sync error for ${record.remotePath}:`, err)
+
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) {
+          win.webContents.send('editor:external-sync-error', {
+            remotePath: record.remotePath,
+            sessionId: record.sessionId,
+            error: errMsg,
+            timestamp: Date.now()
+          })
+        }
+      }
+
+      try {
+        if (Notification.isSupported()) {
+          new Notification({
+            title: 'Save Failed (VS Code)',
+            body: `Failed to save "${fileName}": ${errMsg}`
+          }).show()
+        }
+      } catch {}
+    } finally {
+      record.isSyncing = false
+      if (record.pendingSync) {
+        record.pendingSync = false
+        setTimeout(() => {
+          this.syncWatchedFile(record).catch(() => {})
+        }, 150)
+      }
     }
   }
 

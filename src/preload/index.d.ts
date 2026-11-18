@@ -253,6 +253,15 @@ declare global {
           remotePath: string
           sessionId?: string
           content: string
+          asSudo?: boolean
+          timestamp: number
+        }) => void
+      ) => () => void
+      onExternalFileSyncError: (
+        callback: (payload: {
+          remotePath: string
+          sessionId?: string
+          error: string
           timestamp: number
         }) => void
       ) => () => void

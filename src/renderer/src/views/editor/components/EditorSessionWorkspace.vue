@@ -212,27 +212,17 @@ function handleKeyDown(e: KeyboardEvent): void {
 
 async function handleOpenExternal(nodeOrTab: { path: string }): Promise<void> {
   const targetPath = nodeOrTab?.path
-  if (!targetPath) return
-  const openTab = openTabs.value.find((t) => t.path === targetPath)
-  let content = openTab?.content
+  if (!targetPath || !window.api?.openInExternalEditor) return
+  let content = openTabs.value.find((t) => t.path === targetPath)?.content
   if (!content && window.api?.sftpReadFile) {
-    try {
-      const clean = targetPath.trim().replace(/\/+/g, '/').replace(/^([^\/])/, '/$1')
-      content = await window.api.sftpReadFile(clean, sessionId.value)
-    } catch {}
+    try { content = await window.api.sftpReadFile(targetPath.trim().replace(/\/+/g, '/').replace(/^([^/])/, '/$1'), sessionId.value) } catch {}
   }
   try {
-    if (window.api?.openInExternalEditor) {
-      await window.api.openInExternalEditor({
-        sessionId: sessionId.value,
-        remotePath: targetPath,
-        content: content || undefined,
-        editorType: editorSettings.externalEditorType.value,
-        customPath: editorSettings.customEditorPath.value,
-        customArgs: editorSettings.customEditorArgs.value,
-        autoSync: editorSettings.autoSyncExternal.value
-      })
-    }
+    await window.api.openInExternalEditor({
+      sessionId: sessionId.value, remotePath: targetPath, content: content || undefined,
+      editorType: editorSettings.externalEditorType.value, customPath: editorSettings.customEditorPath.value,
+      customArgs: editorSettings.customEditorArgs.value, autoSync: editorSettings.autoSyncExternal.value
+    })
   } catch (err) {
     alert(`Failed to open in external editor: ${err instanceof Error ? err.message : String(err)}`)
   }
@@ -241,33 +231,32 @@ async function handleOpenExternal(nodeOrTab: { path: string }): Promise<void> {
 function handleFileTreeOpen(node: EditorFileNode): void {
   if (node.isDirectory) { toggleFolder(node); return }
   if (editorSettings.openExternalByDefault.value && editorSettings.externalEditorType.value !== 'internal') {
-    handleOpenExternal(node)
-    return
+    handleOpenExternal(node); return
   }
   openFile(node)
 }
 
-let unlistenExternalSync: (() => void) | null = null
+let unlistenExternalSync: (() => void) | null = null, unlistenExternalSyncErr: (() => void) | null = null
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeyDown)
   if (props.host) connectToHost(props.host)
-  if (window.api?.onExternalFileSynced) {
-    unlistenExternalSync = window.api.onExternalFileSynced((data) => {
-      if (data.sessionId && data.sessionId !== sessionId.value) return
-      const tab = openTabs.value.find((t) => t.path === data.remotePath)
-      if (tab) {
-        tab.content = data.content
-        tab.originalContent = data.content
-        tab.isDirty = false
-      }
-    })
-  }
+  unlistenExternalSync = window.api?.onExternalFileSynced?.((data) => {
+    if (data.sessionId && data.sessionId !== sessionId.value) return
+    const norm = (p: string) => p.trim().replace(/\/+/g, '/').replace(/^([^/])/, '/$1')
+    const tab = openTabs.value.find((t) => norm(t.path) === norm(data.remotePath))
+    if (tab) { tab.content = data.content; tab.originalContent = data.content; tab.isDirty = false }
+    fetchGitInfo(gitCandidatePath.value || rootPath.value)
+  }) || null
+  unlistenExternalSyncErr = window.api?.onExternalFileSyncError?.((data) => {
+    if (data.sessionId && data.sessionId !== sessionId.value) return
+    console.error(`[ExternalSync] Failed to save ${data.remotePath}:`, data.error)
+  }) || null
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
-  if (unlistenExternalSync) unlistenExternalSync()
+  unlistenExternalSync?.(); unlistenExternalSyncErr?.()
   if (blameTimeout) clearTimeout(blameTimeout)
   disconnect()
 })
