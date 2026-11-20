@@ -3,6 +3,8 @@ import type { SftpService } from './sftpService'
 import {
   GitCredentials,
   isGitAuthError,
+  isPushDelivered,
+  extractPushedRef,
   wrapCommandWithAskpass,
   getRemoteUrlCommand,
   buildSaveCredentialCommand,
@@ -242,30 +244,45 @@ export class SftpGitService {
       }
       return (
         lower.includes('.git/') ||
-        lower.includes('unable to create file') ||
+        lower.includes('unable to create') ||
         lower.includes('cannot create directory') ||
         lower.includes('unable to write') ||
-        lower.includes('index.lock')
+        lower.includes('cannot lock ref') ||
+        lower.includes('permission denied') ||
+        lower.includes('index.lock') ||
+        lower.includes('fetch_head')
       )
     }
 
     if (!isAuth && res.code !== 0 && isLocalFsPermError(output)) {
-      if (session.config?.password || session.config?.user !== 'root') {
-        const sudoRes = await this.sftp.execRemote(cmd, sessionId, true)
-        const sudoOutput = (sudoRes.stdout || sudoRes.stderr || '').trim()
-        if (sudoRes.code === 0) {
-          res = sudoRes
-          output = sudoOutput
-          isAuth = false
-        } else if (
-          !sudoOutput.includes('not allowed to execute') &&
-          !sudoOutput.includes('not in the sudoers file') &&
-          !sudoOutput.includes('incorrect password')
-        ) {
-          res = sudoRes
-          output = sudoOutput
-          isAuth = isGitAuthError(output)
-        }
+      // Permission healing: remove stale locks and heal permissions directly without running git as root
+      const healCmd = `${gitCd(remotePath)} && {
+        _GD=$(git -c safe.directory=* rev-parse --git-dir 2>/dev/null || echo ".git");
+        rm -f "$_GD"/*.lock "$_GD"/refs/*/*.lock "$_GD"/refs/*/*/*.lock 2>/dev/null || true;
+        chmod -R u+rwX,g+rwX,a+rwX "$_GD"/refs "$_GD"/FETCH_HEAD "$_GD"/ORIG_HEAD "$_GD"/index "$_GD"/logs "$_GD"/HEAD 2>/dev/null || true;
+      }`
+      await this.sftp.execRemote(healCmd, sessionId, false).catch(() => {})
+
+      if (session.config?.password) {
+        const escPass = (session.config.password || '').replace(/'/g, "'\\''")
+        const sudoHealCmd = `${gitCd(remotePath)} && {
+          _GD=$(git -c safe.directory=* rev-parse --git-dir 2>/dev/null || echo ".git");
+          printf '%s\\n' '${escPass}' | sudo -S -p '' -- rm -f "$_GD"/*.lock "$_GD"/refs/*/*.lock "$_GD"/refs/*/*/*.lock 2>/dev/null || true;
+          printf '%s\\n' '${escPass}' | sudo -S -p '' -- chmod -R a+rwX "$_GD" 2>/dev/null || true;
+        }`
+        await this.sftp.execRemote(sudoHealCmd, sessionId, false).catch(() => {})
+      }
+
+      // Retry git pull as the normal user
+      const retryRes = await this.sftp.execRemote(cmd, sessionId, false)
+      const retryOutput = (retryRes.stdout || retryRes.stderr || '').trim()
+      if (retryRes.code === 0) {
+        res = retryRes
+        output = retryOutput
+        isAuth = false
+      } else if (!isGitAuthError(retryOutput)) {
+        res = retryRes
+        output = retryOutput
       }
     }
 
@@ -359,34 +376,54 @@ export class SftpGitService {
       }
       return (
         lower.includes('.git/') ||
-        lower.includes('unable to create file') ||
+        lower.includes('unable to create') ||
         lower.includes('cannot create directory') ||
         lower.includes('unable to write') ||
+        lower.includes('cannot lock ref') ||
+        lower.includes('update_ref failed') ||
+        lower.includes('permission denied') ||
         lower.includes('index.lock')
       )
     }
 
-    if (!isAuth && res.code !== 0 && isLocalFsPermError(output)) {
-      if (session.config?.password || session.config?.user !== 'root') {
-        const sudoRes = await this.sftp.execRemote(cmd, sessionId, true)
-        const sudoOutput = (sudoRes.stdout || sudoRes.stderr || '').trim()
-        if (sudoRes.code === 0) {
-          res = sudoRes
-          output = sudoOutput
-          isAuth = false
-        } else if (
-          !sudoOutput.includes('not allowed to execute') &&
-          !sudoOutput.includes('not in the sudoers file') &&
-          !sudoOutput.includes('incorrect password')
-        ) {
-          res = sudoRes
-          output = sudoOutput
-          isAuth = isGitAuthError(output)
-        }
+    // 1. Check if commits were delivered to the remote git server
+    let delivered = isPushDelivered(output)
+
+    // 2. If not delivered and there was a local FS permission/lock error, heal permissions and retry
+    if (!delivered && !isAuth && res.code !== 0 && isLocalFsPermError(output)) {
+      const healCmd = `${gitCd(remotePath)} && {
+        _GD=$(git -c safe.directory=* rev-parse --git-dir 2>/dev/null || echo ".git");
+        rm -f "$_GD"/*.lock "$_GD"/refs/*/*.lock "$_GD"/refs/*/*/*.lock 2>/dev/null || true;
+        chmod -R u+rwX,g+rwX,a+rwX "$_GD"/refs "$_GD"/FETCH_HEAD "$_GD"/ORIG_HEAD "$_GD"/index "$_GD"/logs "$_GD"/HEAD 2>/dev/null || true;
+      }`
+      await this.sftp.execRemote(healCmd, sessionId, false).catch(() => {})
+
+      if (session.config?.password) {
+        const escPass = (session.config.password || '').replace(/'/g, "'\\''")
+        const sudoHealCmd = `${gitCd(remotePath)} && {
+          _GD=$(git -c safe.directory=* rev-parse --git-dir 2>/dev/null || echo ".git");
+          printf '%s\\n' '${escPass}' | sudo -S -p '' -- rm -f "$_GD"/*.lock "$_GD"/refs/*/*.lock "$_GD"/refs/*/*/*.lock 2>/dev/null || true;
+          printf '%s\\n' '${escPass}' | sudo -S -p '' -- chmod -R a+rwX "$_GD" 2>/dev/null || true;
+        }`
+        await this.sftp.execRemote(sudoHealCmd, sessionId, false).catch(() => {})
+      }
+
+      // Retry git push as normal user
+      const retryRes = await this.sftp.execRemote(cmd, sessionId, false)
+      const retryOutput = (retryRes.stdout || retryRes.stderr || '').trim()
+      if (retryRes.code === 0 || isPushDelivered(retryOutput)) {
+        res = retryRes
+        output = retryOutput
+        isAuth = false
+        delivered = isPushDelivered(output)
+      } else if (!isGitAuthError(retryOutput)) {
+        res = retryRes
+        output = retryOutput
       }
     }
 
-    if (isAuth && credentials?.username && credentials?.password) {
+    // 3. Fallback with direct credentials URL if authenticated error
+    if (!delivered && isAuth && credentials?.username && credentials?.password) {
       try {
         const urlRes = await this.sftp.execRemote(getRemoteUrlCommand(remotePath), sessionId, false)
         remoteUrl = urlRes.stdout.trim() || undefined
@@ -397,16 +434,15 @@ export class SftpGitService {
             const escAuthUrl = authUrl.replace(/'/g, "'\\''")
             const fallbackCmd = `${cd} && BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); git -c safe.directory=* push '${escAuthUrl}' "$BR" 2>&1 || git -c safe.directory=* push -u '${escAuthUrl}' "$BR" 2>&1`
             const retryRes = await this.sftp.execRemote(fallbackCmd, sessionId, false)
-            if (retryRes.code === 0) {
+            const retryOut = (retryRes.stdout || retryRes.stderr || '').trim()
+            if (retryRes.code === 0 || isPushDelivered(retryOut)) {
               res = retryRes
-              output = (res.stdout || res.stderr || '').trim()
+              output = retryOut
               isAuth = false
-            } else {
-              const retryOut = (retryRes.stderr || retryRes.stdout || '').trim()
-              if (retryOut) {
-                output = retryOut
-                isAuth = isGitAuthError(output)
-              }
+              delivered = true
+            } else if (retryOut) {
+              output = retryOut
+              isAuth = isGitAuthError(output)
             }
           }
         }
@@ -415,16 +451,56 @@ export class SftpGitService {
       }
     }
 
-    if (isAuth || (res.code === 0 && credentials?.remember)) {
+    // 4. Handle delivered push (success on remote server, even if local ref update failed)
+    if (delivered || res.code === 0) {
+      // Heal local tracking ref so Git Graph & status show the updated branch
+      try {
+        const pushedInfo = extractPushedRef(output)
+        const branchToUpdate = pushedInfo?.branch || ''
+        const commitTarget = pushedInfo?.commitHash || 'HEAD'
+        const trackingRefCmd = `${gitCd(remotePath)} && {
+          _GD=$(git -c safe.directory=* rev-parse --git-dir 2>/dev/null || echo ".git");
+          BR="${branchToUpdate}"
+          [ -z "$BR" ] && BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null || echo "");
+          REMOTE=$(git -c safe.directory=* remote 2>/dev/null | head -n 1 || echo "origin");
+          if [ -n "$BR" ] && [ -d "$_GD" ]; then
+            rm -f "$_GD/refs/remotes/$REMOTE/$BR.lock" 2>/dev/null || true;
+            mkdir -p "$_GD/refs/remotes/$REMOTE" 2>/dev/null || true;
+            git -c safe.directory=* update-ref "refs/remotes/$REMOTE/$BR" ${commitTarget} 2>/dev/null || true;
+          fi;
+        }`
+        await this.sftp.execRemote(trackingRefCmd, sessionId, false).catch(() => {})
+      } catch {}
+
+      if (credentials?.remember) {
+        if (!remoteUrl) {
+          try {
+            const urlRes = await this.sftp.execRemote(getRemoteUrlCommand(remotePath), sessionId, false)
+            remoteUrl = urlRes.stdout.trim() || undefined
+          } catch {}
+        }
+        if (remoteUrl) {
+          try {
+            const saveCmd = buildSaveCredentialCommand(remotePath, remoteUrl, credentials)
+            if (saveCmd) await this.sftp.execRemote(saveCmd, sessionId, false)
+          } catch {}
+        }
+      }
+
+      return {
+        success: true,
+        message: output || 'Pushed to origin successfully.',
+        remoteUrl
+      }
+    }
+
+    if (isAuth) {
       if (!remoteUrl) {
         try {
           const urlRes = await this.sftp.execRemote(getRemoteUrlCommand(remotePath), sessionId, false)
           remoteUrl = urlRes.stdout.trim() || undefined
         } catch {}
       }
-    }
-
-    if (isAuth) {
       return {
         success: false,
         message: output || 'Authentication required.',
@@ -433,16 +509,9 @@ export class SftpGitService {
       }
     }
 
-    if (res.code === 0 && credentials?.remember && remoteUrl) {
-      try {
-        const saveCmd = buildSaveCredentialCommand(remotePath, remoteUrl, credentials)
-        if (saveCmd) await this.sftp.execRemote(saveCmd, sessionId, false)
-      } catch {}
-    }
-
     return {
-      success: res.code === 0,
-      message: res.code === 0 ? (output || 'Pushed to origin successfully.') : (output || 'Push failed.'),
+      success: false,
+      message: output || 'Push failed.',
       remoteUrl
     }
   }

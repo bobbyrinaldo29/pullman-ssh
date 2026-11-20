@@ -7,6 +7,21 @@ export interface GitCredentials {
 export function isGitAuthError(output: string): boolean {
   if (!output) return false
   const lower = output.toLowerCase()
+
+  // Local filesystem and lock errors must NEVER be treated as auth errors
+  if (
+    lower.includes('.git/') ||
+    lower.includes('cannot lock ref') ||
+    lower.includes('unable to create') ||
+    lower.includes('index.lock') ||
+    lower.includes('fetch_head') ||
+    lower.includes('orig_head') ||
+    lower.includes('cannot open .git') ||
+    lower.includes('file exists')
+  ) {
+    return false
+  }
+
   return (
     lower.includes('could not read username') ||
     lower.includes('could not read password') ||
@@ -24,8 +39,42 @@ export function isGitAuthError(output: string): boolean {
     lower.includes('repository not found') ||
     lower.includes('please make sure you have the correct access rights') ||
     lower.includes('fatal: authentication') ||
-    (lower.includes('permission denied') && (lower.includes('git@') || lower.includes('ssh') || lower.includes('fatal:')))
+    (lower.includes('permission denied') && (lower.includes('git@') || lower.includes('ssh')))
   )
+}
+
+export function isPushDelivered(output: string): boolean {
+  if (!output) return false
+  const lower = output.toLowerCase()
+  if (lower.includes('everything up-to-date')) return true
+  // Matches "e5403507e..e7f93f36d  staging -> staging" or "+ e540350...e7f93f3 staging -> staging"
+  if (/[a-f0-9]{4,40}\.{2,3}[a-f0-9]{4,40}\s+\S+\s*->\s*\S+/i.test(output)) return true
+  // Matches "[new branch]      staging -> staging"
+  if (/\[new branch\]\s+\S+\s*->\s*\S+/i.test(output)) return true
+  // Matches "[new tag]         v1.0 -> v1.0"
+  if (/\[new tag\]\s+\S+\s*->\s*\S+/i.test(output)) return true
+  // Matches "branch 'staging' set up to track remote branch"
+  if (/branch\s+'\S+'\s+set\s+up\s+to\s+track/i.test(output)) return true
+  return false
+}
+
+export function extractPushedRef(output: string): { branch: string; commitHash?: string } | null {
+  if (!output) return null
+  // Match "e5403507e..e7f93f36d  staging -> staging"
+  const commitMatch = output.match(/[a-f0-9]{4,40}\.{2,3}([a-f0-9]{4,40})\s+\S+\s*->\s*(\S+)/i)
+  if (commitMatch) {
+    return { commitHash: commitMatch[1], branch: commitMatch[2] }
+  }
+  // Match "[new branch]  staging -> staging"
+  const newBranchMatch = output.match(/\[new branch\]\s+\S+\s*->\s*(\S+)/i)
+  if (newBranchMatch) {
+    return { branch: newBranchMatch[1] }
+  }
+  return null
+}
+
+export function gitPreflightSnippet(): string {
+  return `_GD=$(git -c safe.directory=* rev-parse --git-dir 2>/dev/null || echo ".git"); if [ -d "$_GD" ]; then rm -f "$_GD"/*.lock "$_GD"/refs/*/*.lock "$_GD"/refs/*/*/*.lock "$_GD"/refs/*/*/*/*.lock 2>/dev/null || true; chmod -R u+rwX,g+rwX,a+rwX "$_GD"/refs "$_GD"/FETCH_HEAD "$_GD"/ORIG_HEAD "$_GD"/index "$_GD"/logs "$_GD"/HEAD 2>/dev/null || true; mkdir -p "$_GD"/refs/remotes/origin 2>/dev/null && chmod 777 "$_GD"/refs/remotes/origin 2>/dev/null || true; fi`
 }
 
 export function gitCd(remotePath: string): string {
@@ -102,12 +151,14 @@ export function wrapCommandWithAskpass(
 
 export function buildGitPullCommand(remotePath: string): string {
   const cd = gitCd(remotePath)
-  return `${cd} && BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); REMOTE=$(git -c safe.directory=* remote 2>/dev/null | head -n 1); [ -z "$REMOTE" ] && REMOTE="origin"; git -c safe.directory=* pull "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* pull 2>&1`
+  const preflight = gitPreflightSnippet()
+  return `${cd} && ${preflight} && BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); REMOTE=$(git -c safe.directory=* remote 2>/dev/null | head -n 1); [ -z "$REMOTE" ] && REMOTE="origin"; git -c safe.directory=* pull "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* pull 2>&1`
 }
 
 export function buildGitPushCommand(remotePath: string): string {
   const cd = gitCd(remotePath)
-  return `${cd} && BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); REMOTE=$(git -c safe.directory=* remote 2>/dev/null | head -n 1); [ -z "$REMOTE" ] && REMOTE="origin"; git -c safe.directory=* push "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* push -u "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* push 2>&1`
+  const preflight = gitPreflightSnippet()
+  return `${cd} && ${preflight} && BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); REMOTE=$(git -c safe.directory=* remote 2>/dev/null | head -n 1); [ -z "$REMOTE" ] && REMOTE="origin"; git -c safe.directory=* push "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* push -u "$REMOTE" "$BR" 2>&1 || git -c safe.directory=* push 2>&1`
 }
 
 export function getRemoteUrlCommand(remotePath: string): string {
