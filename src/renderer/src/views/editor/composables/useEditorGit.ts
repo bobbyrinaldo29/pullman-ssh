@@ -12,6 +12,8 @@ export interface UseEditorGitReturn {
   gitStatus: Ref<GitStatusResult>
   repoName: ComputedRef<string>
   currentActivePath: ComputedRef<string>
+  customActivePath: Ref<string>
+  setCustomActivePath: (path: string) => void
   stagedFiles: ComputedRef<GitChangeItem[]>
   unstagedFiles: ComputedRef<GitChangeItem[]>
   fetchStatus: (customPath?: string) => Promise<void>
@@ -111,8 +113,10 @@ export function useEditorGit(props: {
 
   const stagedFiles = computed(() => gitStatus.value.files.filter((f) => f.staged))
   const unstagedFiles = computed(() => gitStatus.value.files.filter((f) => !f.staged))
+  const customActivePath = ref('')
 
   const currentActivePath = computed(() => {
+    if (customActivePath.value) return customActivePath.value
     if (gitStatus.value.isGit && gitStatus.value.root) {
       return gitStatus.value.root
     }
@@ -120,12 +124,21 @@ export function useEditorGit(props: {
     return cleanActive || props.rootPath || '/'
   })
 
+  function setCustomActivePath(path: string): void {
+    const trimmed = path.trim()
+    customActivePath.value = trimmed
+    fetchStatus(trimmed)
+  }
+
   async function fetchStatus(customPath?: string): Promise<void> {
     if (!props.isConnected || !window.api?.sftpGetGitStatus) return
     isLoading.value = true
     try {
+      if (customPath) {
+        customActivePath.value = customPath.trim()
+      }
       const cleanActive = props.activeFilePath?.replace(/^diff:/, '')?.trim()
-      const target = customPath || cleanActive || gitStatus.value.root || props.rootPath || '/'
+      const target = customActivePath.value || customPath || cleanActive || gitStatus.value.root || props.rootPath || '/'
       let res = await window.api.sftpGetGitStatus(target, props.sessionId)
 
       // Fallback: If target was outside git or failed, but we already had a known git root, keep it
@@ -502,6 +515,8 @@ export function useEditorGit(props: {
     gitStatus,
     repoName,
     currentActivePath,
+    customActivePath,
+    setCustomActivePath,
     stagedFiles,
     unstagedFiles,
     fetchStatus,

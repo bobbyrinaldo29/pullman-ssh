@@ -4,7 +4,7 @@ import {
   GitBranch, GitFork, RotateCw, Check, Plus,
   CheckCircle2, ChevronDown, Sparkles,
   ArrowDownToLine, ArrowUpToLine, ArrowUpRight, MoreHorizontal, FolderGit2, Folder,
-  GitMerge, Copy
+  GitMerge, Copy, Pencil, X
 } from 'lucide-vue-next'
 import { GitChangeItem } from '../types'
 import { useEditorGit } from '../composables/useEditorGit'
@@ -26,12 +26,16 @@ const emit = defineEmits<{
   (e: 'open-file', file: { name: string; path: string; isDirectory: boolean }): void
   (e: 'refresh-git'): void
   (e: 'open-git-graph'): void
+  (e: 'update:active-git-path', path: string): void
 }>()
 
 const isCommitMenuOpen = ref(false)
 const isMoreMenuOpen = ref(false)
 const isCherryPickOpen = ref(false)
 const isHashCopied = ref(false)
+const isEditingPath = ref(false)
+const editPathInput = ref('')
+const pathInputRef = ref<HTMLInputElement | null>(null)
 const menuPos = ref({ top: 40, left: 280 })
 const { isGitCredentialModalOpen: isGlobalGitCredOpen, openModal: openGlobalGitCred, closeModal: closeGlobalGitCred } = useGlobalGitCredentials()
 
@@ -49,7 +53,7 @@ function handleToggleMenu(e: MouseEvent): void {
 
 const {
   isLoading, isCommitting, isGenerating, isPushing, isPulling, commitMessage, lastCommitHash,
-  gitStatus, repoName, currentActivePath, stagedFiles, unstagedFiles,
+  gitStatus, repoName, currentActivePath, setCustomActivePath, stagedFiles, unstagedFiles,
   fetchStatus, handleCommit, handleGenerateCommit, handlePull, handlePush,
   handleCherryPick, handleCherryPickAbort, handleStageAll, handleDiscardAll,
   handleStage, handleUnstage, handleDiscard, getFileName, getFileDir,
@@ -57,6 +61,26 @@ const {
   isGitAuthOpen, gitAuthRemoteUrl, gitAuthPendingAction, gitAuthErrorMessage,
   isGitAuthenticating, handleGitAuthSubmit, handleCloseGitAuth
 } = useEditorGit(props, emit)
+
+function startEditPath(): void {
+  editPathInput.value = currentActivePath.value
+  isEditingPath.value = true
+  setTimeout(() => { pathInputRef.value?.focus(); pathInputRef.value?.select() }, 50)
+}
+
+function cancelEditPath(): void {
+  isEditingPath.value = false
+}
+
+function saveEditPath(): void {
+  if (!isEditingPath.value) return
+  isEditingPath.value = false
+  const trimmed = editPathInput.value.trim()
+  if (trimmed && trimmed !== currentActivePath.value) {
+    setCustomActivePath(trimmed)
+    emit('update:active-git-path', trimmed)
+  }
+}
 
 function handleOpenFile(file: GitChangeItem): void {
   if (file.isDirectory) return
@@ -129,17 +153,47 @@ defineExpose({
 
     <!-- Active Path Bar -->
     <div
-      class="px-3 py-1.5 bg-[#14161B] border-b border-[#24272E] flex items-center justify-between text-[11px] text-slate-400 shrink-0 gap-2"
-      :title="`Active Path: ${currentActivePath}`"
+      class="px-2.5 py-1.5 bg-[#14161B] border-b border-[#24272E] flex items-center justify-between text-[11px] text-slate-400 shrink-0 gap-1.5 min-h-[32px]"
+      :title="isEditingPath ? '' : `Active Git Path: ${currentActivePath} (Click to edit)`"
     >
-      <div class="flex items-center min-w-0 space-x-1.5 truncate">
+      <div v-if="!isEditingPath" class="flex items-center min-w-0 space-x-1.5 flex-1 group cursor-pointer" @click="startEditPath">
         <FolderGit2 v-if="gitStatus.isGit" class="w-3.5 h-3.5 text-blue-400 shrink-0" />
         <Folder v-else class="w-3.5 h-3.5 text-slate-500 shrink-0" />
-        <span class="truncate font-mono text-[11px] text-slate-300 select-all">{{ currentActivePath }}</span>
+        <span class="truncate font-mono text-[11px] text-slate-300 group-hover:text-white transition-colors">{{ currentActivePath }}</span>
+        <Pencil class="w-3 h-3 text-slate-500 opacity-0 group-hover:opacity-100 hover:text-white shrink-0 ml-0.5 transition-opacity" />
       </div>
+
+      <div v-else class="flex items-center space-x-1 flex-1 min-w-0">
+        <input
+          ref="pathInputRef"
+          v-model="editPathInput"
+          type="text"
+          placeholder="/remote/repo/path"
+          class="flex-1 min-w-0 bg-[#252A36] border border-blue-500 rounded-lg px-2 py-0.5 text-[11px] font-mono text-white focus:outline-none"
+          @keydown.enter="saveEditPath"
+          @keydown.esc="cancelEditPath"
+        />
+        <button
+          type="button"
+          class="p-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white shrink-0 transition-colors"
+          title="Apply Path"
+          @click="saveEditPath"
+        >
+          <Check class="w-3 h-3" />
+        </button>
+        <button
+          type="button"
+          class="p-1 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white shrink-0 transition-colors"
+          title="Cancel"
+          @click="cancelEditPath"
+        >
+          <X class="w-3 h-3" />
+        </button>
+      </div>
+
       <span
-        v-if="gitStatus.branch"
-        class="shrink-0 px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/20"
+        v-if="!isEditingPath && gitStatus.branch"
+        class="shrink-0 px-1.5 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/20"
       >
         {{ gitStatus.branch }}
       </span>
@@ -210,80 +264,31 @@ defineExpose({
 
         <!-- Toolbar Icons matching screenshot -->
         <div class="flex items-center space-x-0.5 shrink-0 text-slate-400">
-          <button
-            type="button"
-            class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors"
-            title="Generate Commit Message (AI)"
-            @click="handleGenerateCommit"
-          >
+          <button type="button" class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors" title="Generate Commit Message (AI)" @click="handleGenerateCommit">
             <Sparkles class="w-3.5 h-3.5" :class="{ 'text-blue-400 animate-pulse': isGenerating }" />
           </button>
-          <button
-            type="button"
-            class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors"
-            title="Pull Changes"
-            :disabled="isPulling"
-            @click="handlePull"
-          >
-            <RotateCw v-if="isPulling" class="w-3.5 h-3.5 animate-spin text-blue-400" />
-            <ArrowDownToLine v-else class="w-3.5 h-3.5" />
+          <button type="button" class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors" title="Pull Changes" :disabled="isPulling" @click="handlePull">
+            <RotateCw v-if="isPulling" class="w-3.5 h-3.5 animate-spin text-blue-400" /><ArrowDownToLine v-else class="w-3.5 h-3.5" />
           </button>
-          <button
-            type="button"
-            class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors"
-            title="Push Changes to Origin"
-            :disabled="isPushing"
-            @click="handlePush"
-          >
-            <RotateCw v-if="isPushing" class="w-3.5 h-3.5 animate-spin text-blue-400" />
-            <ArrowUpToLine v-else class="w-3.5 h-3.5" />
+          <button type="button" class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors" title="Push Changes to Origin" :disabled="isPushing" @click="handlePush">
+            <RotateCw v-if="isPushing" class="w-3.5 h-3.5 animate-spin text-blue-400" /><ArrowUpToLine v-else class="w-3.5 h-3.5" />
           </button>
-          <div
-            v-if="gitStatus.branch"
-            class="flex items-center space-x-0.5 px-1 py-0.5 rounded text-[11px] text-emerald-400 font-mono"
-            :title="`Current Branch: ${gitStatus.branch}`"
-          >
+          <div v-if="gitStatus.branch" class="flex items-center space-x-0.5 px-1 py-0.5 rounded text-[11px] text-emerald-400 font-mono" :title="`Current Branch: ${gitStatus.branch}`">
             <GitBranch class="w-3.5 h-3.5 text-emerald-400" />
           </div>
-          <button
-            type="button"
-            class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors disabled:opacity-40"
-            title="Commit"
-            :disabled="!commitMessage.trim() || isCommitting || gitStatus.files.length === 0"
-            @click="() => handleCommit()"
-          >
+          <button type="button" class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors disabled:opacity-40" title="Commit" :disabled="!commitMessage.trim() || isCommitting || gitStatus.files.length === 0" @click="() => handleCommit()">
             <Check class="w-3.5 h-3.5" />
           </button>
-          <button
-            type="button"
-            class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors"
-            title="Refresh Status"
-            @click="() => fetchStatus()"
-          >
+          <button type="button" class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors" title="Refresh Status" @click="() => fetchStatus()">
             <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isLoading }" />
           </button>
-          <button
-            type="button"
-            class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors"
-            title="Open Git Graph"
-            @click="emit('open-git-graph')"
-          >
+          <button type="button" class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors" title="Open Git Graph" @click="emit('open-git-graph')">
             <GitFork class="w-3.5 h-3.5 text-blue-400" />
           </button>
-          <button
-            type="button"
-            class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors"
-            title="Cherry-pick Commit"
-            @click="isCherryPickOpen = true"
-          >
+          <button type="button" class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors" title="Cherry-pick Commit" @click="isCherryPickOpen = true">
             <GitMerge class="w-3.5 h-3.5 text-purple-400" />
           </button>
-          <button
-            type="button"
-            class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors"
-            title="More Options"
-            @click.stop="handleToggleMenu"
-          >
+          <button type="button" class="p-1 rounded hover:text-white hover:bg-[#252A36] transition-colors" title="More Options" @click.stop="handleToggleMenu">
             <MoreHorizontal class="w-3.5 h-3.5" />
           </button>
         </div>

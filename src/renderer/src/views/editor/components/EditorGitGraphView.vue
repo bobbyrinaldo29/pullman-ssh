@@ -5,7 +5,10 @@ import {
   RotateCw,
   Search,
   X,
-  Tag
+  Tag,
+  FolderGit2,
+  Pencil,
+  Check
 } from 'lucide-vue-next'
 import { GitGraphCommit } from '../types'
 import { parseGitGraphCommits, parseCommitDetails, computeGraphLayout } from '../utils/gitGraphParser'
@@ -190,6 +193,44 @@ function cleanRef(ref: string): string {
   return ref.replace('HEAD -> ', '').replace('tag: ', '').trim()
 }
 
+const isEditingPath = ref(false)
+const pathInputValue = ref('')
+const pathInputRef = ref<HTMLInputElement | null>(null)
+
+function startEditPath(): void {
+  pathInputValue.value = activeGitPath.value || props.rootPath
+  isEditingPath.value = true
+  setTimeout(() => {
+    pathInputRef.value?.focus()
+    pathInputRef.value?.select()
+  }, 50)
+}
+
+function cancelEditPath(): void {
+  isEditingPath.value = false
+}
+
+function saveEditPath(): void {
+  if (!isEditingPath.value) return
+  isEditingPath.value = false
+  const trimmed = pathInputValue.value.trim()
+  if (trimmed) {
+    activeGitPath.value = trimmed
+    emit('update:active-git-path', trimmed)
+    fetchCommits()
+  }
+}
+
+watch(
+  () => props.activeFilePath,
+  (p) => {
+    if (p && p !== 'git-graph' && p !== activeGitPath.value && !isEditingPath.value) {
+      activeGitPath.value = p
+      fetchCommits()
+    }
+  }
+)
+
 watch(
   [() => props.rootPath, () => props.isConnected],
   () => {
@@ -229,12 +270,12 @@ onMounted(() => {
         </select>
 
         <!-- Search Input -->
-        <div class="relative w-64">
+        <div class="relative w-56">
           <input
             v-model="searchQuery"
             type="text"
             placeholder="Search commits..."
-            class="w-full bg-[#252A36] border border-[#32394C] focus:border-blue-500 rounded pl-7 pr-6 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none"
+            class="w-full bg-[#252A36] border border-[#32394C] focus:border-blue-500 rounded px-2 pl-7 pr-6 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none"
           />
           <Search class="w-3.5 h-3.5 text-slate-400 absolute left-2 top-1.5" />
           <button
@@ -245,27 +286,57 @@ onMounted(() => {
             ✕
           </button>
         </div>
+
+        <!-- Active Git Path Pill / Input -->
+        <div class="relative flex items-center">
+          <div
+            v-if="!isEditingPath"
+            class="flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-[#252A36] hover:bg-[#2F374A] border border-[#32394C] cursor-pointer text-slate-300 hover:text-white transition-colors max-w-[280px] group"
+            :title="`Repository: ${activeGitPath || rootPath} (Click to change path)`"
+            @click="startEditPath"
+          >
+            <FolderGit2 class="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span class="truncate font-mono text-[11px]">{{ activeGitPath || rootPath }}</span>
+            <Pencil class="w-2.5 h-2.5 text-slate-500 group-hover:text-slate-300 shrink-0 ml-0.5 transition-colors" />
+          </div>
+
+          <div v-else class="flex items-center space-x-1">
+            <input
+              ref="pathInputRef"
+              v-model="pathInputValue"
+              type="text"
+              placeholder="/remote/repo/path"
+              class="bg-[#1C2029] border border-blue-500 rounded-lg px-2 py-0.5 text-xs font-mono text-white focus:outline-none w-56 shadow-sm"
+              @keydown.enter="saveEditPath"
+              @keydown.esc="cancelEditPath"
+            />
+            <button
+              type="button"
+              class="p-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white shrink-0 transition-colors"
+              title="Apply Path"
+              @click="saveEditPath"
+            >
+              <Check class="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              class="p-1 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white shrink-0 transition-colors"
+              title="Cancel"
+              @click="cancelEditPath"
+            >
+              <X class="w-3 h-3" />
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Action Buttons -->
       <div class="flex items-center space-x-2">
-        <span class="text-[11px] text-slate-400">
-          {{ filteredCommits.length }} commits
-        </span>
-        <button
-          type="button"
-          class="p-1.5 rounded hover:bg-[#252A36] text-slate-400 hover:text-white transition-colors"
-          title="Refresh Git Graph"
-          @click="fetchCommits"
-        >
+        <span class="text-[11px] text-slate-400">{{ filteredCommits.length }} commits</span>
+        <button type="button" class="p-1.5 rounded hover:bg-[#252A36] text-slate-400 hover:text-white transition-colors" title="Refresh Git Graph" @click="fetchCommits">
           <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isLoading }" />
         </button>
-        <button
-          type="button"
-          class="p-1.5 rounded hover:bg-[#252A36] text-slate-400 hover:text-white transition-colors"
-          title="Close Git Graph"
-          @click="emit('close')"
-        >
+        <button type="button" class="p-1.5 rounded hover:bg-[#252A36] text-slate-400 hover:text-white transition-colors" title="Close Git Graph" @click="emit('close')">
           <X class="w-3.5 h-3.5" />
         </button>
       </div>
@@ -295,14 +366,14 @@ onMounted(() => {
         <p class="text-[11px] text-slate-500 max-w-sm text-center">
           Workspace location: {{ activeGitPath || rootPath }}
         </p>
-        <button
-          type="button"
-          class="mt-2 px-3 py-1 bg-[#252A36] hover:bg-[#2F3647] border border-[#374154] rounded text-xs text-slate-200 transition-colors flex items-center space-x-1.5"
-          @click="fetchCommits"
-        >
-          <RotateCw class="w-3.5 h-3.5" />
-          <span>Retry</span>
-        </button>
+        <div class="flex items-center space-x-2 mt-2">
+          <button type="button" class="px-3 py-1 bg-[#252A36] hover:bg-[#2F3647] border border-[#374154] rounded-lg text-xs text-slate-200 transition-colors flex items-center space-x-1.5" @click="fetchCommits">
+            <RotateCw class="w-3.5 h-3.5" /><span>Retry</span>
+          </button>
+          <button type="button" class="px-3 py-1 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 rounded-lg text-xs text-blue-300 transition-colors flex items-center space-x-1.5" @click="startEditPath">
+            <Pencil class="w-3 h-3" /><span>Change Path</span>
+          </button>
+        </div>
       </div>
 
       <!-- Commits List Rows with Unified SVG Graph Column -->

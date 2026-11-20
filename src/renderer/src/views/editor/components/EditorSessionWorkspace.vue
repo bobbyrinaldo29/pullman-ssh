@@ -106,10 +106,11 @@ watch(
 )
 
 const gitCandidatePath = computed(() => {
+  if (activeGitGraphPath.value) return activeGitGraphPath.value
   if (activeTab.value?.path && activeTab.value.viewType !== 'git-graph') {
     return activeTab.value.path.replace(/^diff:/, '')
   }
-  return activeGitGraphPath.value || rootPath.value || undefined
+  return rootPath.value || undefined
 })
 
 function handleToggleView(view: 'explorer' | 'search' | 'git' | 'antigravity'): void {
@@ -339,6 +340,7 @@ defineExpose({
           @open-file="(f) => openDiffTab(f.path)"
           @refresh-git="fetchGitInfo(gitCandidatePath || rootPath)"
           @open-git-graph="openGitGraphTab"
+          @update:active-git-path="handleGitPathUpdate"
         />
 
         <!-- AI Agent Antigravity View -->
