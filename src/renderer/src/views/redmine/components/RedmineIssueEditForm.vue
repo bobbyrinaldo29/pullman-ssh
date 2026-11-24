@@ -36,22 +36,18 @@ const editDoneRatio = ref<number>(props.issue.done_ratio || 0)
 const editNotes = ref<string>('')
 const noteMode = ref<'edit' | 'preview'>('edit')
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
-
 const pendingFiles = ref<PendingUploadFile[]>([])
 const isDragging = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const isUploading = ref(false)
 const uploadProgressText = ref('')
 
-watch(
-  () => props.issue.id,
-  () => {
-    editStatusId.value = props.issue.status?.id
-    editPriorityId.value = props.issue.priority?.id
-    editAssigneeId.value = props.issue.assigned_to?.id
-    editDoneRatio.value = props.issue.done_ratio || 0
-  }
-)
+watch(() => props.issue.id, () => {
+  editStatusId.value = props.issue.status?.id
+  editPriorityId.value = props.issue.priority?.id
+  editAssigneeId.value = props.issue.assigned_to?.id
+  editDoneRatio.value = props.issue.done_ratio || 0
+})
 
 const assignableUsers = computed(() => {
   const map = new Map<number, { id: number; name: string }>()
@@ -61,10 +57,11 @@ const assignableUsers = computed(() => {
   return Array.from(map.values())
 })
 
-function getNextPastedImageName(extension = 'png'): string {
+function getNextPastedImageName(extension = 'png', extraUsedNames?: Set<string>): string {
   const existingNames = new Set(pendingFiles.value.map((f) => f.name.toLowerCase()))
-  for (const att of props.issue.attachments || []) {
-    existingNames.add(att.filename.toLowerCase())
+  for (const att of props.issue.attachments || []) existingNames.add(att.filename.toLowerCase())
+  if (extraUsedNames) {
+    for (const name of extraUsedNames) existingNames.add(name.toLowerCase())
   }
 
   let idx = 1
@@ -119,7 +116,6 @@ function addFiles(files: FileList | File[], autoInsertWikiSyntax = true): void {
       previewUrl: isImg ? URL.createObjectURL(f) : undefined,
       description: ''
     }
-
     pendingFiles.value.push(newFile)
 
     if (isImg) {
@@ -144,6 +140,7 @@ function removeFile(index: number): void {
 
 function handleDrop(e: DragEvent): void {
   e.preventDefault()
+  e.stopPropagation()
   isDragging.value = false
   if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files, true)
 }
@@ -156,17 +153,29 @@ function handleFileSelect(e: Event): void {
   }
 }
 
+let lastPasteTimestamp = 0
+let lastPastedFileHash = ''
+
 function handlePaste(e: ClipboardEvent): void {
   if (!e.clipboardData?.items) return
   const imageFiles: File[] = []
+  const seenSizes = new Set<number>()
+  const usedNamesInBatch = new Set<string>()
 
   for (let i = 0; i < e.clipboardData.items.length; i++) {
     const item = e.clipboardData.items[i]
     if (item.kind === 'file' && item.type.startsWith('image/')) {
       const blob = item.getAsFile()
       if (blob) {
+        if (seenSizes.has(blob.size)) continue
+        seenSizes.add(blob.size)
+
         const ext = (blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg')
-        const filename = blob.name && blob.name !== 'image.png' ? blob.name : getNextPastedImageName(ext)
+        const filename =
+          blob.name && blob.name !== 'image.png'
+            ? blob.name
+            : getNextPastedImageName(ext, usedNamesInBatch)
+        usedNamesInBatch.add(filename)
         imageFiles.push(new File([blob], filename, { type: blob.type }))
       }
     }
@@ -174,6 +183,14 @@ function handlePaste(e: ClipboardEvent): void {
 
   if (imageFiles.length > 0) {
     e.preventDefault()
+    e.stopPropagation()
+
+    const now = Date.now()
+    const currentHash = imageFiles.map((f) => `${f.name}-${f.size}`).join('|')
+    if (now - lastPasteTimestamp < 400 && currentHash === lastPastedFileHash) return
+
+    lastPasteTimestamp = now
+    lastPastedFileHash = currentHash
     addFiles(imageFiles, true)
   }
 }
@@ -260,17 +277,12 @@ defineExpose({
     noteMode.value = 'edit'
     nextTick(() => textareaRef.value?.focus({ preventScroll: true }))
   },
-  focus: () => {
-    nextTick(() => textareaRef.value?.focus({ preventScroll: true }))
-  }
+  focus: () => { nextTick(() => textareaRef.value?.focus({ preventScroll: true })) }
 })
 </script>
 
 <template>
-  <div
-    class="bg-[#171c27] border border-[#283447] rounded-lg p-3.5 sm:p-4 space-y-2.5 shadow-sm select-none"
-    @paste="handlePaste"
-  >
+  <div class="bg-[#171c27] border border-[#283447] rounded-lg p-3.5 sm:p-4 space-y-2.5 shadow-sm select-none">
     <!-- Header -->
     <div class="text-[13px] font-bold text-white border-b border-[#242f42] pb-2 flex items-center justify-between gap-2">
       <span class="flex items-center space-x-1.5">
@@ -345,11 +357,11 @@ defineExpose({
         rows="3"
         placeholder="Add a comment or update note here... Paste screenshot (Ctrl+V) or drop images directly to insert !Gambar1.png!"
         class="w-full min-h-[74px] max-h-[260px] px-3 py-2 bg-[#141822] border border-[#2b3548] rounded-b-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 font-sans resize-y leading-relaxed text-xs select-text"
-        @paste="handlePaste"
+        @paste.stop="handlePaste"
         @keydown.ctrl.enter.prevent="handleSubmit"
         @dragover.prevent="isDragging = true"
         @dragleave="isDragging = false"
-        @drop="handleDrop"
+        @drop.stop="handleDrop"
       ></textarea>
 
       <!-- Live Mini Image Preview in Edit Mode -->
@@ -428,10 +440,12 @@ defineExpose({
             ? 'border-sky-400 bg-sky-500/10 text-sky-300'
             : 'border-[#2d374a] hover:border-slate-500 bg-[#141822]/60 text-slate-400'
         "
+        tabindex="0"
         @dragover.prevent="isDragging = true"
         @dragleave.prevent="isDragging = false"
-        @drop="handleDrop"
+        @drop.stop="handleDrop"
         @click="fileInputRef?.click()"
+        @paste.stop="handlePaste"
       >
         <div class="flex items-center justify-center gap-2 pointer-events-none select-none flex-wrap">
           <Upload class="w-4 h-4 text-slate-400 shrink-0" :class="{ 'text-sky-400 animate-bounce': isDragging }" />
