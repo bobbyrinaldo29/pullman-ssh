@@ -8,7 +8,10 @@ import {
   Search,
   FolderKanban,
   Copy,
-  Check
+  Check,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown
 } from 'lucide-vue-next'
 import type {
   RedmineIssue,
@@ -26,6 +29,8 @@ import {
   formatShortRelative
 } from '../utils/issueDisplay'
 import RedmineQueriesSidebar from './RedmineQueriesSidebar.vue'
+import { useIssueColumns } from '../composables/useIssueColumns'
+import { useIssueSorting } from '../composables/useIssueSorting'
 
 const props = withDefaults(
   defineProps<{
@@ -112,84 +117,8 @@ const visibleQueries = computed(() => {
 const myQueries = computed(() => visibleQueries.value.filter((q) => !q.is_public))
 const publicQueries = computed(() => visibleQueries.value.filter((q) => q.is_public))
 
-interface ColumnDef {
-  key: string
-  label: string
-  width: number
-  minWidth: number
-  align?: 'left' | 'center' | 'right'
-}
-
-const columns = ref<ColumnDef[]>([
-  { key: 'id', label: '#', width: 75, minWidth: 50, align: 'center' },
-  { key: 'project', label: 'Project', width: 230, minWidth: 120, align: 'left' },
-  { key: 'tracker', label: 'Tracker', width: 135, minWidth: 80, align: 'left' },
-  { key: 'status', label: 'Status', width: 135, minWidth: 80, align: 'left' },
-  { key: 'priority', label: 'Priority', width: 100, minWidth: 70, align: 'left' },
-  { key: 'subject', label: 'Subject', width: 440, minWidth: 200, align: 'left' },
-  { key: 'assignee', label: 'Assignee', width: 170, minWidth: 90, align: 'left' },
-  { key: 'updated', label: 'Updated', width: 110, minWidth: 80, align: 'left' },
-  { key: 'done_ratio', label: '% Done', width: 115, minWidth: 80, align: 'right' }
-])
-
-function loadColumnWidths(): void {
-  try {
-    const savedStr = localStorage.getItem('redmine_issues_column_widths')
-    if (!savedStr) return
-    const saved = JSON.parse(savedStr) as Array<{ key: string; width: number }>
-    for (const s of saved) {
-      const col = columns.value.find((c) => c.key === s.key)
-      if (col && s.width >= col.minWidth) {
-        col.width = s.width
-      }
-    }
-  } catch {
-    // ignore invalid persisted column widths
-  }
-}
-
-function saveColumnWidths(): void {
-  try {
-    const saved = columns.value.map((c) => ({ key: c.key, width: c.width }))
-    localStorage.setItem('redmine_issues_column_widths', JSON.stringify(saved))
-  } catch {
-    // ignore storage errors
-  }
-}
-
-loadColumnWidths()
-
-const resizingColIndex = ref<number | null>(null)
-let startX = 0
-let startWidth = 0
-
-function startResize(index: number, e: MouseEvent): void {
-  e.preventDefault()
-  resizingColIndex.value = index
-  startX = e.clientX
-  startWidth = columns.value[index].width
-  document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
-
-  const onMouseMove = (moveEvent: MouseEvent): void => {
-    if (resizingColIndex.value === null) return
-    const deltaX = moveEvent.clientX - startX
-    const col = columns.value[resizingColIndex.value]
-    col.width = Math.max(col.minWidth, startWidth + deltaX)
-  }
-
-  const onMouseUp = (): void => {
-    resizingColIndex.value = null
-    document.body.style.cursor = ''
-    document.body.style.userSelect = ''
-    window.removeEventListener('mousemove', onMouseMove)
-    window.removeEventListener('mouseup', onMouseUp)
-    saveColumnWidths()
-  }
-
-  window.addEventListener('mousemove', onMouseMove)
-  window.addEventListener('mouseup', onMouseUp)
-}
+const { columns, startResize } = useIssueColumns()
+const { sortKey, sortDirection, toggleSort, sortedIssues } = useIssueSorting(() => props.issues)
 </script>
 
 <template>
@@ -341,14 +270,30 @@ function startResize(index: number, e: MouseEvent): void {
               <th
                 v-for="(col, cIdx) in columns"
                 :key="col.key"
-                class="py-2.5 px-3 relative border-r border-[#263042] last:border-r-0 overflow-hidden"
-                :class="col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'"
+                class="py-2.5 px-3 relative border-r border-[#263042] last:border-r-0 overflow-hidden cursor-pointer hover:bg-[#232c3d] transition-colors select-none group/col"
+                :class="[
+                  col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left',
+                  sortKey === col.key ? 'text-sky-400 bg-[#1e2738]' : 'text-slate-400'
+                ]"
                 :style="{ width: `${col.width}px` }"
+                :title="`Click to sort by ${col.label}`"
+                @click="toggleSort(col.key)"
               >
-                <div class="truncate pr-1">{{ col.label }}</div>
+                <div
+                  class="flex items-center gap-1.5 truncate pr-1"
+                  :class="col.align === 'center' ? 'justify-center' : col.align === 'right' ? 'justify-end' : 'justify-start'"
+                >
+                  <span class="truncate">{{ col.label }}</span>
+                  <span class="inline-flex shrink-0 items-center">
+                    <ArrowUp v-if="sortKey === col.key && sortDirection === 'asc'" class="w-3 h-3 text-sky-400" />
+                    <ArrowDown v-else-if="sortKey === col.key && sortDirection === 'desc'" class="w-3 h-3 text-sky-400" />
+                    <ArrowUpDown v-else class="w-3 h-3 text-slate-500/50 opacity-0 group-hover/col:opacity-100 transition-opacity" />
+                  </span>
+                </div>
                 <div
                   class="absolute top-0 right-0 bottom-0 w-2.5 cursor-col-resize hover:bg-sky-500/50 active:bg-sky-400 z-20 flex items-center justify-center transition-colors group/resizer"
                   title="Drag to resize column"
+                  @click.stop
                   @mousedown.stop="startResize(cIdx, $event)"
                 >
                   <div class="w-px h-3.5 bg-slate-600/60 group-hover/resizer:bg-sky-300"></div>
@@ -371,9 +316,9 @@ function startResize(index: number, e: MouseEvent): void {
               </tr>
             </template>
 
-            <template v-else-if="props.issues.length > 0">
+            <template v-else-if="sortedIssues.length > 0">
               <tr
-                v-for="issue in props.issues"
+                v-for="issue in sortedIssues"
                 :key="issue.id"
                 class="hover:bg-[#1f2636] transition-colors cursor-pointer group"
                 @mousedown="handleRowMouseDown"
