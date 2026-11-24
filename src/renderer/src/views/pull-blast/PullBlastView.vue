@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   XCircle,
   GitBranch,
-  KeyRound,
   SlidersHorizontal,
   ChevronDown,
   ChevronUp,
@@ -22,7 +21,6 @@ import type { HostItem } from '../../types/connection'
 import { usePullBlast } from './composables/usePullBlast'
 import PullBlastServerRow from './components/PullBlastServerRow.vue'
 import PullBlastConsole from './components/PullBlastConsole.vue'
-import { useGlobalGitCredentials } from '../../composables/useGlobalGitCredentials'
 
 const props = defineProps<{
   hosts: HostItem[]
@@ -31,7 +29,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'back-to-hosts'): void
-  (e: 'open-git-credentials'): void
 }>()
 
 const hostsRef = computed(() => props.hosts)
@@ -54,8 +51,6 @@ const {
   saveHostConfig,
   clearLogs
 } = usePullBlast(hostsRef)
-
-const { hasCredentials } = useGlobalGitCredentials()
 
 const searchQuery = ref('')
 const selectedGroupFilter = ref('')
@@ -142,22 +137,6 @@ function applyGlobalBranch(branch: string): void {
 
       <!-- Action Buttons -->
       <div class="flex items-center space-x-2.5">
-        <!-- Git Credentials Pill -->
-        <button
-          type="button"
-          class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors flex items-center space-x-1.5 cursor-pointer"
-          :class="
-            hasCredentials
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
-              : 'border-[#2D3547] bg-[#252B3A] text-slate-300 hover:text-white hover:bg-[#2F374A]'
-          "
-          title="Configure Git Credentials (PAT/Password) for all servers"
-          @click="emit('open-git-credentials')"
-        >
-          <KeyRound class="w-3.5 h-3.5" :class="hasCredentials ? 'text-emerald-400' : 'text-slate-400'" />
-          <span>{{ hasCredentials ? 'Git Credentials Set' : 'Git Credentials' }}</span>
-        </button>
-
         <!-- Cancel / Abort Button (when blasting) -->
         <button
           v-if="isBlasting"

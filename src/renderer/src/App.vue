@@ -287,7 +287,6 @@ function handlePluginCenter(): void {
       @data-transfer="handleDataTransfer"
       @plugin-center="handlePluginCenter"
       @open-import-export="openImportExport('import')"
-      @open-git-credentials="showGitCredentialModal = true"
     />
 
     <!-- Git Credential Modal Dialog (Applies to all SSH connections) -->
@@ -389,7 +388,6 @@ function handlePluginCenter(): void {
           :hosts="hostsList"
           :selected-host-id="selectedHostId"
           @back-to-hosts="currentView = 'hosts'"
-          @open-git-credentials="showGitCredentialModal = true"
         />
 
         <!-- Query Console Canvas (Legacy Fallback) -->

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import {
-  ChevronDown,
   Cloud,
   BookOpen,
   GitBranch,
@@ -9,9 +8,6 @@ import {
   Bot,
   Sparkles,
   Settings,
-  ShieldCheck,
-  RotateCcw,
-  Info,
   Minus,
   Square,
   Copy,
@@ -57,12 +53,10 @@ const emit = defineEmits<{
   (e: 'toggle-theme'): void
   (e: 'open-history'): void
   (e: 'open-git'): void
-  (e: 'open-git-credentials'): void
 }>()
 
 const isMac = ref(true)
 const isMaximized = ref(false)
-const showMoreMenu = ref(false)
 let cleanupMaximizeListener: (() => void) | null = null
 
 function handleSftpClick(): void {
@@ -88,23 +82,13 @@ onMounted(async () => {
       isMaximized.value = max
     })
   }
-
-  window.addEventListener('click', closeMenuOnClickOutside)
 })
 
 onUnmounted(() => {
   if (cleanupMaximizeListener) {
     cleanupMaximizeListener()
   }
-  window.removeEventListener('click', closeMenuOnClickOutside)
 })
-
-function closeMenuOnClickOutside(e: MouseEvent): void {
-  const target = e.target as HTMLElement
-  if (!target.closest('#more-dropdown-trigger') && !target.closest('#more-dropdown-menu')) {
-    showMoreMenu.value = false
-  }
-}
 
 function handleMinimize(): void {
   window.api?.minimizeWindow?.()
@@ -230,50 +214,6 @@ function handleClose(): void {
         <Zap class="w-3.5 h-3.5 text-amber-400 fill-amber-400/20" />
         <span class="font-medium">Pull Blast</span>
       </button>
-
-      <!-- Button: More Dropdown -->
-      <div class="relative">
-        <button
-          id="more-dropdown-trigger"
-          type="button"
-          class="app-no-drag flex items-center space-x-1 px-2 py-1 rounded text-[#C2C9D6] hover:text-white hover:bg-[#2C3345] transition-colors"
-          :class="{ 'bg-[#2C3345] text-white': showMoreMenu }"
-          @click.stop="showMoreMenu = !showMoreMenu"
-        >
-          <span>More</span>
-          <ChevronDown class="w-3 h-3 opacity-70" />
-        </button>
-
-        <!-- Dropdown Menu -->
-        <div
-          v-if="showMoreMenu"
-          id="more-dropdown-menu"
-          class="app-no-drag absolute top-full left-0 mt-1 w-48 bg-[#1C202B] border border-[#2D3446] rounded-lg shadow-xl shadow-black/40 py-1.5 z-50 text-[12px]"
-        >
-          <button
-            class="w-full text-left px-3 py-1.5 flex items-center space-x-2 text-[#CBD5E1] hover:text-white hover:bg-[#293040] transition-colors"
-            @click="() => { showMoreMenu = false; emit('open-git-credentials') }"
-          >
-            <ShieldCheck class="w-3.5 h-3.5 text-blue-400" />
-            <span>Git Credentials</span>
-          </button>
-          <button
-            class="w-full text-left px-3 py-1.5 flex items-center space-x-2 text-[#CBD5E1] hover:text-white hover:bg-[#293040] transition-colors"
-            @click="showMoreMenu = false"
-          >
-            <RotateCcw class="w-3.5 h-3.5 text-emerald-400" />
-            <span>Clear Execution Log</span>
-          </button>
-          <div class="my-1 border-t border-[#293040]"></div>
-          <button
-            class="w-full text-left px-3 py-1.5 flex items-center space-x-2 text-[#CBD5E1] hover:text-white hover:bg-[#293040] transition-colors"
-            @click="showMoreMenu = false"
-          >
-            <Info class="w-3.5 h-3.5 text-slate-400" />
-            <span>About DO.MBA Pull Manager</span>
-          </button>
-        </div>
-      </div>
     </div>
 
     <!-- Right Section: Utility Icons + Windows Window Controls (if on Windows) -->
