@@ -66,10 +66,12 @@ const api = {
   saveFileDialog: (options: {
     title?: string
     defaultPath?: string
-    content: string
+    content?: string
+    base64?: string
     filters?: { name: string; extensions: string[] }[]
   }): Promise<{ canceled: boolean; filePath?: string; error?: string }> =>
     ipcRenderer.invoke('dialog:save-file', options),
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:open-external', url),
   detectDBeaver: (): Promise<{
     found: boolean
     path?: string

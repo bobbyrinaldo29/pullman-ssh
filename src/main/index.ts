@@ -532,7 +532,8 @@ app.whenReady().then(() => {
       options: {
         title?: string
         defaultPath?: string
-        content: string
+        content?: string
+        base64?: string
         filters?: { name: string; extensions: string[] }[]
       }
     ) => {
@@ -546,13 +547,19 @@ app.whenReady().then(() => {
         return { canceled: true }
       }
       try {
-        writeFileSync(result.filePath, options.content, 'utf-8')
+        if (options.base64) {
+          writeFileSync(result.filePath, Buffer.from(options.base64, 'base64'))
+        } else {
+          writeFileSync(result.filePath, options.content || '', 'utf-8')
+        }
         return { canceled: false, filePath: result.filePath }
       } catch (err: any) {
         return { canceled: false, error: err.message || String(err) }
       }
     }
   )
+
+  ipcMain.handle('app:open-external', (_, url: string) => shell.openExternal(url))
 
   ipcMain.handle('tools:detect-dbeaver', () => {
     const home = os.homedir()

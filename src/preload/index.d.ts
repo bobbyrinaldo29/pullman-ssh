@@ -45,9 +45,11 @@ declare global {
       saveFileDialog: (options: {
         title?: string
         defaultPath?: string
-        content: string
+        content?: string
+        base64?: string
         filters?: { name: string; extensions: string[] }[]
       }) => Promise<{ canceled: boolean; filePath?: string; error?: string }>
+      openExternal: (url: string) => Promise<void>
       detectDBeaver: () => Promise<{
         found: boolean
         path?: string

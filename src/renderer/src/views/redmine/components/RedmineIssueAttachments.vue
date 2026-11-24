@@ -16,6 +16,64 @@ const emit = defineEmits<{
 
 const imageAttachments = computed(() => props.attachments.filter((a) => isImageFile(a.filename)))
 const fileAttachments = computed(() => props.attachments.filter((a) => !isImageFile(a.filename)))
+
+async function handleDownloadAttachment(att: RedmineAttachment): Promise<void> {
+  const filename = att.filename || 'download'
+  const src = props.resolveImageSrc ? props.resolveImageSrc(att) : ''
+  const downloadUrl = props.resolveDownloadUrl ? props.resolveDownloadUrl(att) : ''
+  const effectiveUrl = src && src.startsWith('data:') ? src : downloadUrl
+
+  if (!effectiveUrl) return
+
+  if (effectiveUrl.startsWith('data:')) {
+    const base64Data = effectiveUrl.split(',')[1] || ''
+    if (window.api?.saveFileDialog) {
+      await window.api.saveFileDialog({
+        title: `Save ${filename}`,
+        defaultPath: filename,
+        base64: base64Data
+      })
+      return
+    }
+
+    const a = document.createElement('a')
+    a.href = effectiveUrl
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    return
+  }
+
+  if (window.api?.saveFileDialog) {
+    try {
+      const res = await fetch(effectiveUrl)
+      const arrayBuf = await res.arrayBuffer()
+      const bytes = new Uint8Array(arrayBuf)
+      let binary = ''
+      const len = bytes.byteLength
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i])
+      }
+      const base64Data = btoa(binary)
+      await window.api.saveFileDialog({
+        title: `Save ${filename}`,
+        defaultPath: filename,
+        base64: base64Data
+      })
+      return
+    } catch (err) {
+      console.warn('[RedmineIssueAttachments] Fetch fallback:', err)
+    }
+  }
+
+  const a = document.createElement('a')
+  a.href = effectiveUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
 </script>
 
 <template>
@@ -52,16 +110,14 @@ const fileAttachments = computed(() => props.attachments.filter((a) => !isImageF
             <div class="font-medium text-slate-200 truncate select-text" :title="att.filename">{{ att.filename }}</div>
             <div class="text-[10px] text-slate-500 font-mono">{{ formatFileSize(att.filesize) }}</div>
           </div>
-          <a
-            :href="props.resolveImageSrc(att)"
-            :download="att.filename"
-            target="_blank"
-            class="p-1 text-slate-400 hover:text-sky-300 hover:bg-[#202737] rounded transition-colors"
-            title="Download / Open file"
-            @click.stop
+          <button
+            type="button"
+            class="p-1 text-slate-400 hover:text-sky-300 hover:bg-[#202737] rounded-lg transition-colors cursor-pointer"
+            title="Download file"
+            @click.stop="handleDownloadAttachment(att)"
           >
             <Download class="w-3.5 h-3.5" />
-          </a>
+          </button>
         </div>
       </div>
     </div>
@@ -70,31 +126,30 @@ const fileAttachments = computed(() => props.attachments.filter((a) => !isImageF
       <div
         v-for="att in fileAttachments"
         :key="att.id"
-        class="flex items-center justify-between px-3 py-1.5 rounded bg-[#141822] border border-[#242e40] text-xs hover:border-[#323f54] transition-colors"
+        class="flex items-center justify-between px-3 py-1.5 rounded-lg bg-[#141822] border border-[#242e40] text-xs hover:border-[#323f54] transition-colors"
       >
         <div class="flex items-center space-x-2 truncate">
           <FileText class="w-4 h-4 text-sky-400 shrink-0" />
-          <a
-            :href="props.resolveDownloadUrl(att)"
-            target="_blank"
-            class="text-sky-400 hover:underline font-medium truncate"
-            :title="att.filename"
+          <button
+            type="button"
+            class="text-sky-400 hover:underline font-medium truncate text-left cursor-pointer"
+            :title="`Download ${att.filename}`"
+            @click="handleDownloadAttachment(att)"
           >
             {{ att.filename }}
-          </a>
+          </button>
           <span class="text-[10px] text-slate-500 font-mono shrink-0">({{ formatFileSize(att.filesize) }})</span>
           <span v-if="att.author" class="text-[10px] text-slate-500 shrink-0">&bull; {{ att.author.name }}</span>
         </div>
-        <a
-          :href="props.resolveDownloadUrl(att)"
-          target="_blank"
-          class="p-1 rounded text-slate-400 hover:text-white hover:bg-[#202737] transition-colors shrink-0"
-          title="Download / Open"
+        <button
+          type="button"
+          class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-[#202737] transition-colors shrink-0 cursor-pointer"
+          title="Download file"
+          @click.stop="handleDownloadAttachment(att)"
         >
           <Download class="w-3.5 h-3.5" />
-        </a>
+        </button>
       </div>
     </div>
   </div>
 </template>
-

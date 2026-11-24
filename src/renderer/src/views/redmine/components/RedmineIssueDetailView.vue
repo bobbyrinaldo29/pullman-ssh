@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onUnmounted } from 'vue'
-import { Pencil, Clock, Star, Trash2, Quote, RotateCw, X, Copy, Check } from 'lucide-vue-next'
+import { Pencil, Clock, Star, Trash2, Quote, RotateCw, X, Copy, Check, ExternalLink } from 'lucide-vue-next'
 import type { RedmineIssue, RedmineStatus, RedminePriority, RedmineConfig, RedmineUploadItem } from '../types'
 import {
   copyToClipboard,
@@ -63,6 +63,17 @@ async function handleCopyCombinedTitle(): Promise<void> {
   copyResetTimer = setTimeout(() => {
     isTitleCopied.value = false
   }, 1500)
+}
+
+function handleOpenInBrowser(): void {
+  const baseUrl = props.config?.url?.trim()?.replace(/\/$/, '')
+  if (!baseUrl || !props.issue?.id) return
+  const url = `${baseUrl}/issues/${props.issue.id}`
+  if (window.api?.openExternal) {
+    window.api.openExternal(url)
+  } else {
+    window.open(url, '_blank')
+  }
 }
 
 onUnmounted(() => {
@@ -201,6 +212,15 @@ function handleFormSubmit(payload: {
               <Check v-if="isTitleCopied" class="w-3.5 h-3.5 text-emerald-400" />
               <Copy v-else class="w-3.5 h-3.5" />
               <span>{{ isTitleCopied ? 'Copied!' : 'Copy' }}</span>
+            </button>
+            <button
+              type="button"
+              class="px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer select-none flex items-center space-x-1 border bg-[#1b212e] hover:bg-[#252d3e] text-slate-300 hover:text-white border-[#2b3548]"
+              title="Open issue in default browser"
+              @click="handleOpenInBrowser"
+            >
+              <ExternalLink class="w-3.5 h-3.5 text-sky-400" />
+              <span>Open in Browser</span>
             </button>
           </div>
 
