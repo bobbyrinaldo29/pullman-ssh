@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import {
-  FileCode2,
   ChevronDown,
   Cloud,
   BookOpen,
@@ -22,7 +21,8 @@ import {
   Code,
   FolderKanban,
   ChevronsRight,
-  Terminal
+  Terminal,
+  Zap
 } from 'lucide-vue-next'
 
 const props = withDefaults(
@@ -46,6 +46,7 @@ const emit = defineEmits<{
   (e: 'open-ssh'): void
   (e: 'new-connection'): void
   (e: 'new-query'): void
+  (e: 'open-pull-blast'): void
   (e: 'open-sftp'): void
   (e: 'open-editor'): void
   (e: 'open-redmine'): void
@@ -218,15 +219,16 @@ function handleClose(): void {
         </span>
       </button>
 
-      <!-- Button: New Query -->
+      <!-- Button: Pull Blast (Multi-server Git Pull) -->
       <button
         type="button"
         class="app-no-drag flex items-center space-x-1.5 px-2.5 py-1 rounded text-[#C2C9D6] hover:text-white hover:bg-[#2C3345] transition-colors"
-        :class="{ 'bg-[#2C3345] text-white': props.currentView === 'query' }"
-        @click="emit('new-query')"
+        :class="{ 'bg-[#2C3345] text-white': props.currentView === 'pull-blast' || props.currentView === 'query' }"
+        title="Pull Blast: Multi-server Git Pull"
+        @click="emit('open-pull-blast')"
       >
-        <FileCode2 class="w-3.5 h-3.5 text-[#A78BFA]" />
-        <span>New Query</span>
+        <Zap class="w-3.5 h-3.5 text-amber-400 fill-amber-400/20" />
+        <span class="font-medium">Pull Blast</span>
       </button>
 
       <!-- Button: More Dropdown -->

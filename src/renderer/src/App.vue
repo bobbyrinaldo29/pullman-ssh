@@ -10,6 +10,7 @@ import { HostItem } from './types/connection'
 import SftpView from './views/sftp/SftpView.vue'
 import HostsView from './views/hosts/HostsView.vue'
 import QueryView from './views/query/QueryView.vue'
+import PullBlastView from './views/pull-blast/PullBlastView.vue'
 import RedmineView from './views/redmine/RedmineView.vue'
 import EditorView from './views/editor/EditorView.vue'
 import SshView from './views/ssh/SshView.vue'
@@ -76,7 +77,7 @@ const {
 } = useAppConnections()
 
 const appVersion = '2.0.0'
-const currentView = ref<'hosts' | 'ssh' | 'query' | 'sftp' | 'redmine' | 'editor' | 'settings'>('hosts')
+const currentView = ref<'hosts' | 'ssh' | 'query' | 'sftp' | 'redmine' | 'editor' | 'settings' | 'pull-blast'>('hosts')
 const previousView = ref<string>('hosts')
 const visitedViews = ref<Set<string>>(new Set(['hosts']))
 watch(currentView, (v) => {
@@ -219,8 +220,8 @@ function handleOpenEditor(): void {
   })
 }
 
-function handleNewQuery(): void {
-  currentView.value = 'query'
+function handleOpenPullBlast(): void {
+  currentView.value = 'pull-blast'
 }
 
 function handleDataTransfer(): void {
@@ -281,7 +282,8 @@ function handlePluginCenter(): void {
       @open-settings="handleToggleSettings"
       @toggle-theme="toggleTheme"
       @new-connection="() => handleNewConnection()"
-      @new-query="handleNewQuery"
+      @new-query="handleOpenPullBlast"
+      @open-pull-blast="handleOpenPullBlast"
       @data-transfer="handleDataTransfer"
       @plugin-center="handlePluginCenter"
       @open-import-export="openImportExport('import')"
@@ -380,9 +382,19 @@ function handlePluginCenter(): void {
           @bulk-delete="handleBulkDeleteHosts"
         />
 
-        <!-- Query Console Canvas -->
+        <!-- Pull Blast Console (Multi-Server Git Deploy) -->
+        <PullBlastView
+          v-if="visitedViews.has('pull-blast') || visitedViews.has('query')"
+          v-show="currentView === 'pull-blast' || currentView === 'query'"
+          :hosts="hostsList"
+          :selected-host-id="selectedHostId"
+          @back-to-hosts="currentView = 'hosts'"
+          @open-git-credentials="showGitCredentialModal = true"
+        />
+
+        <!-- Query Console Canvas (Legacy Fallback) -->
         <QueryView
-          v-if="visitedViews.has('query')"
+          v-if="visitedViews.has('query') && currentView === 'query'"
           v-show="currentView === 'query'"
           :hosts="hostsList"
           @back-to-hosts="currentView = 'hosts'"
