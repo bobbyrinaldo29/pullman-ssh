@@ -430,6 +430,7 @@ defineExpose({
             v-else
             ref="primaryCodeAreaRef"
             :active-tab="activeTab"
+            :tabs="openTabs"
             :cursor-pos="cursorPos"
             :blame="currentBlame"
             :host-name="currentHost?.name"
@@ -457,6 +458,7 @@ defineExpose({
           <EditorCodeArea
             v-else
             :active-tab="splitActiveTab"
+            :tabs="openTabs"
             :host-name="currentHost?.name"
             @save="handleSaveActiveTab(false)"
             @save-as-sudo="handleSaveActiveTab(true)"

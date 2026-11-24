@@ -4,6 +4,7 @@ import { Code } from 'lucide-vue-next'
 import { EditorTab, EditorCursorPos, GitBlameInfo } from '../types'
 import { monaco, getMonacoLanguage } from '../monaco/monacoSetup'
 import { getEnclosingSymbolsAtPosition, getDocumentOutlineSymbols, BreadcrumbSymbol, DocumentOutlineSymbol } from '../services/treeSitterService'
+import { createWrapLogStatement } from '../utils/wrapLog'
 import { useEditorSettings } from '../../../composables/useEditorSettings'
 import { createGitBlameWidget } from '../services/editorBlameWidget'
 import EditorBreadcrumbBar from './EditorBreadcrumbBar.vue'
@@ -12,6 +13,7 @@ import '../monaco/editorMonaco.css'
 
 const props = defineProps<{
   activeTab: EditorTab | null
+  tabs?: EditorTab[]
   cursorPos?: EditorCursorPos
   blame?: GitBlameInfo | null
   hostName?: string
@@ -35,39 +37,33 @@ const outlineSymbols = ref<DocumentOutlineSymbol[]>([])
 const isOutlineModalOpen = ref(false)
 
 async function updateOutlineSymbols(): Promise<void> {
-  if (!editor || !props.activeTab) {
-    outlineSymbols.value = []
-    return
-  }
-  const model = editor.getModel()
-  if (!model) return
-  const lang = getMonacoLanguage(props.activeTab.name || props.activeTab.path)
+  const model = editor?.getModel()
+  if (!model || !props.activeTab) { outlineSymbols.value = []; return }
   try {
-    const syms = await getDocumentOutlineSymbols(model, lang)
-    outlineSymbols.value = syms
+    outlineSymbols.value = await getDocumentOutlineSymbols(model, getMonacoLanguage(props.activeTab.name || props.activeTab.path))
   } catch {
     outlineSymbols.value = []
   }
 }
 
 async function updateActiveSymbols(line: number, col: number): Promise<void> {
-  if (!editor || !props.activeTab) {
-    activeSymbols.value = []
-    return
-  }
-  const model = editor.getModel()
-  if (!model) return
-  const lang = getMonacoLanguage(props.activeTab.name || props.activeTab.path)
+  const model = editor?.getModel()
+  if (!model || !props.activeTab) { activeSymbols.value = []; return }
   try {
-    const syms = await getEnclosingSymbolsAtPosition(model, lang, line, col)
-    activeSymbols.value = syms
+    activeSymbols.value = await getEnclosingSymbolsAtPosition(model, getMonacoLanguage(props.activeTab.name || props.activeTab.path), line, col)
   } catch {
     activeSymbols.value = []
   }
 }
 
-// Cache models & view states (scroll, cursor, selections) per tab
-const modelMap = new Map<string, monaco.editor.ITextModel>()
+// Cache models, tab records & view states (scroll, cursor, selections) per tab
+interface TabModelRecord {
+  tab: EditorTab
+  model: monaco.editor.ITextModel
+  changeDebounce: ReturnType<typeof setTimeout> | null
+}
+
+const tabRecordMap = new Map<string, TabModelRecord>()
 const viewStateMap = new Map<string, monaco.editor.ICodeEditorViewState>()
 let currentTabId: string | null = null
 let isSwitchingTab = false
@@ -77,35 +73,58 @@ const blameWidget = createGitBlameWidget(
   () => props.blame
 )
 
+function flushTabRecord(tabId: string): void {
+  const record = tabRecordMap.get(tabId)
+  if (!record || record.model.isDisposed()) return
+  if (record.changeDebounce) {
+    clearTimeout(record.changeDebounce)
+    record.changeDebounce = null
+  }
+  const val = record.model.getValue()
+  record.tab.content = val
+  record.tab.isDirty = val !== record.tab.originalContent
+}
+
 function getOrCreateModel(tab: EditorTab): monaco.editor.ITextModel {
-  const existing = modelMap.get(tab.id)
-  if (existing && !existing.isDisposed()) {
-    if (existing.getValue() !== tab.content && !tab.isDirty) {
-      existing.setValue(tab.content)
-    }
-    return existing
+  let record = tabRecordMap.get(tab.id)
+  if (record && !record.model.isDisposed()) {
+    record.tab = tab
+    return record.model
+  }
+
+  if (record && record.model.isDisposed()) {
+    tabRecordMap.delete(tab.id)
   }
 
   const lang = getMonacoLanguage(tab.name || tab.path || tab.language)
   const uri = monaco.Uri.parse(`inmemory://pullman/${tab.id}/${encodeURIComponent(tab.name || 'untitled')}`)
+  const existingMonacoModel = monaco.editor.getModel(uri)
+  if (existingMonacoModel && !existingMonacoModel.isDisposed()) {
+    existingMonacoModel.dispose()
+  }
+
   const model = monaco.editor.createModel(tab.content, lang, uri)
   model.updateOptions({ tabSize: editorSettings.tabSize.value })
 
-  let changeDebounce: ReturnType<typeof setTimeout> | null = null
+  const newRecord: TabModelRecord = {
+    tab,
+    model,
+    changeDebounce: null
+  }
+
   model.onDidChangeContent(() => {
-    if (props.activeTab && props.activeTab.id === tab.id) {
-      props.activeTab.isDirty = true
-      if (changeDebounce) clearTimeout(changeDebounce)
-      changeDebounce = setTimeout(() => {
-        if (props.activeTab && props.activeTab.id === tab.id) {
-          props.activeTab.content = model.getValue()
-          props.activeTab.isDirty = props.activeTab.content !== props.activeTab.originalContent
-        }
-      }, 150)
-    }
+    if (isSwitchingTab) return
+    tab.isDirty = true
+    if (newRecord.changeDebounce) clearTimeout(newRecord.changeDebounce)
+    newRecord.changeDebounce = setTimeout(() => {
+      if (!model.isDisposed()) {
+        tab.content = model.getValue()
+        tab.isDirty = tab.content !== tab.originalContent
+      }
+    }, 100)
   })
 
-  modelMap.set(tab.id, model)
+  tabRecordMap.set(tab.id, newRecord)
   return model
 }
 
@@ -119,16 +138,10 @@ const defaultEditorOptions: monaco.editor.IStandaloneEditorConstructionOptions =
 }
 
 function flushContent(): string {
-  if (editor) {
-    const m = editor.getModel()
-    if (m) {
-      const val = m.getValue()
-      if (props.activeTab) {
-        props.activeTab.content = val
-        props.activeTab.isDirty = val !== props.activeTab.originalContent
-      }
-      return val
-    }
+  if (currentTabId) {
+    flushTabRecord(currentTabId)
+    const rec = tabRecordMap.get(currentTabId)
+    if (rec && !rec.model.isDisposed()) return rec.tab.content
   }
   return props.activeTab?.content || ''
 }
@@ -139,9 +152,7 @@ async function handleSaveTrigger(asSudo = false): Promise<void> {
     try {
       await editor.getAction('editor.action.formatDocument')?.run()
       flushContent()
-    } catch (e) {
-      console.warn('Format on save failed:', e)
-    }
+    } catch {}
   }
   if (asSudo) emit('save-as-sudo')
   else emit('save')
@@ -149,13 +160,9 @@ async function handleSaveTrigger(asSudo = false): Promise<void> {
 
 watch(
   () => [
-    editorSettings.fontFamily.value,
-    editorSettings.fontSize.value,
-    editorSettings.tabSize.value,
-    editorSettings.fontLigatures.value,
-    editorSettings.minimap.value,
-    editorSettings.lineNumbers.value,
-    editorSettings.wordWrap.value
+    editorSettings.fontFamily.value, editorSettings.fontSize.value,
+    editorSettings.tabSize.value, editorSettings.fontLigatures.value,
+    editorSettings.minimap.value, editorSettings.lineNumbers.value, editorSettings.wordWrap.value
   ],
   () => {
     if (editor) {
@@ -202,22 +209,12 @@ function initMonaco(): void {
     }
   })
 
-  // Keyboard Shortcuts: Save, Save as Sudo, AI Gen, Wrap Log
+  // Keyboard Shortcuts: Save, Save as Sudo, AI Gen, Wrap Log, Outline
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => handleSaveTrigger(false))
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyS, () => handleSaveTrigger(true))
-
-  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () => {
-    emit('toggle-ai-gen')
-  })
-
-  editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.KeyL, () => {
-    handleWrapLog()
-  })
-
-  // Quick Outline Modal shortcut: Cmd+Shift+O / Ctrl+Shift+O
-  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyO, () => {
-    isOutlineModalOpen.value = true
-  })
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () => emit('toggle-ai-gen'))
+  editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.KeyL, () => handleWrapLog())
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyO, () => { isOutlineModalOpen.value = true })
 
   // Set model if active tab exists
   if (props.activeTab) {
@@ -240,14 +237,15 @@ function initMonaco(): void {
   resizeObserver.observe(containerRef.value)
 }
 
-function switchTabModel(): void {
+function switchTabModel(prevTabId?: string | null): void {
   if (!editor) return
 
-  const oldTabId = currentTabId
+  const oldTabId = prevTabId ?? currentTabId
   const newTab = props.activeTab
 
-  // 1. Save previous tab view state before switching
+  // 1. Flush previous tab content & save its view state
   if (oldTabId && oldTabId !== newTab?.id) {
+    flushTabRecord(oldTabId)
     const state = editor.saveViewState()
     if (state) viewStateMap.set(oldTabId, state)
   }
@@ -280,9 +278,7 @@ function switchTabModel(): void {
     updateOutlineSymbols()
     nextTick(() => {
       editor?.layout()
-      if (savedState) {
-        editor?.restoreViewState(savedState)
-      }
+      if (savedState) editor?.restoreViewState(savedState)
       isSwitchingTab = false
     })
     const pos = editor.getPosition()
@@ -299,26 +295,44 @@ function switchTabModel(): void {
 
 watch(
   () => props.activeTab?.id,
-  () => {
-    nextTick(() => {
-      if (!editor && containerRef.value) {
-        initMonaco()
-      } else {
-        switchTabModel()
-      }
-    })
+  (newId, oldId) => {
+    if (newId === oldId) return
+    if (!editor && containerRef.value) {
+      nextTick(() => initMonaco())
+    } else {
+      switchTabModel(oldId)
+    }
   }
 )
 
 watch(
   () => props.activeTab?.content,
   (newContent) => {
-    if (!editor || !props.activeTab || newContent === undefined) return
-    const model = editor.getModel()
-    if (model && model.getValue() !== newContent && !props.activeTab.isDirty) {
-      model.setValue(newContent)
+    if (!editor || !props.activeTab || newContent === undefined || isSwitchingTab) return
+    const rec = tabRecordMap.get(props.activeTab.id)
+    if (!rec || rec.model.isDisposed()) return
+    if (editor.getModel() !== rec.model) return
+    if (rec.model.getValue() !== newContent && !props.activeTab.isDirty) {
+      rec.model.setValue(newContent)
     }
   }
+)
+
+watch(
+  () => props.tabs,
+  (tabs) => {
+    if (!tabs) return
+    const openIds = new Set(tabs.map((t) => t.id))
+    for (const [id, rec] of tabRecordMap.entries()) {
+      if (!openIds.has(id)) {
+        if (rec.changeDebounce) clearTimeout(rec.changeDebounce)
+        if (!rec.model.isDisposed()) rec.model.dispose()
+        tabRecordMap.delete(id)
+        viewStateMap.delete(id)
+      }
+    }
+  },
+  { deep: true }
 )
 
 watch(
@@ -360,34 +374,21 @@ function handleWrapLog(): void {
   let selectedText = model.getValueInRange(selection).trim()
   if (!selectedText) {
     const word = model.getWordAtPosition(selection.getPosition())
-    if (word) {
-      selectedText = word.word
-    }
+    if (word) selectedText = word.word
   }
 
-  const lang = (props.activeTab.language || '').toLowerCase()
-  let statement = ''
-  if (lang.includes('php')) {
-    statement = selectedText ? `error_log('${selectedText}: ' . print_r(${selectedText}, true));` : `error_log('DEBUG: ' . __FILE__ . ':' . __LINE__);`
-  } else if (lang.includes('python') || lang.includes('py')) {
-    statement = selectedText ? `print(f"${selectedText}: {${selectedText}}")` : `print("DEBUG:", __file__)`
-  } else {
-    statement = selectedText ? `console.log('${selectedText}:', ${selectedText});` : `console.log('DEBUG');`
-  }
-
+  const statement = createWrapLogStatement(selectedText, props.activeTab.language || 'PHP')
   const line = selection.endLineNumber
   const lineContent = model.getLineContent(line)
   const indent = lineContent.match(/^\s*/)?.[0] || ''
   const insertText = `\n${indent}${statement}`
-
   const endOfLineCol = model.getLineMaxColumn(line)
-  editor.executeEdits('wrap-log', [
-    {
-      range: new monaco.Range(line, endOfLineCol, line, endOfLineCol),
-      text: insertText,
-      forceMoveMarkers: true
-    }
-  ])
+
+  editor.executeEdits('wrap-log', [{
+    range: new monaco.Range(line, endOfLineCol, line, endOfLineCol),
+    text: insertText,
+    forceMoveMarkers: true
+  }])
   editor.setPosition({ lineNumber: line + 1, column: indent.length + statement.length + 1 })
   editor.focus()
 }
@@ -402,23 +403,17 @@ onMounted(() => {
     e.stopPropagation()
     const target = e.target as HTMLElement
     const copyBtn = target.closest('[data-blame-action="copy"]') as HTMLElement | null
-    const graphBtn = target.closest('[data-blame-action="graph"]') as HTMLElement | null
     if (copyBtn && props.blame?.hash) {
       navigator.clipboard.writeText(props.blame.hash)
-      const oldText = copyBtn.innerText
       copyBtn.innerText = '✓ Copied'
-      setTimeout(() => {
-        if (copyBtn) copyBtn.innerText = oldText
-      }, 1500)
-    } else if (graphBtn) {
+      setTimeout(() => { if (copyBtn) copyBtn.innerText = 'Copy' }, 1500)
+    } else if (target.closest('[data-blame-action="graph"]')) {
       emit('open-git-graph')
     }
   }
 
   nextTick(() => {
-    if (props.activeTab && containerRef.value) {
-      initMonaco()
-    }
+    if (props.activeTab && containerRef.value) initMonaco()
   })
 })
 
@@ -427,10 +422,11 @@ onUnmounted(() => {
   try {
     editor?.removeContentWidget(blameWidget.contentWidget)
   } catch {}
-  for (const m of modelMap.values()) {
-    if (!m.isDisposed()) m.dispose()
+  for (const record of tabRecordMap.values()) {
+    if (record.changeDebounce) clearTimeout(record.changeDebounce)
+    if (!record.model.isDisposed()) record.model.dispose()
   }
-  modelMap.clear()
+  tabRecordMap.clear()
   viewStateMap.clear()
   currentTabId = null
   editor?.dispose()
