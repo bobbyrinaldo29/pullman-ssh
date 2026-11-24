@@ -678,3 +678,280 @@ html.theme-light ::-webkit-scrollbar-thumb {
 html.theme-light ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* ==========================================================================
+   13. Schema Compare & Pull Blast Views Complete Light Theming
+   ========================================================================== */
+
+/* 13.1 Top Bars, Headers & High-Level Containers */
+html.theme-light .bg-\[\#181D29\],
+html.theme-light .bg-\[\#181d29\],
+html.theme-light .bg-\[\#181E2B\],
+html.theme-light .bg-\[\#181e2b\] {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* 13.2 Sub-toolbars, Filter Bars & Navigation Lists */
+html.theme-light .bg-\[\#121620\],
+html.theme-light .bg-\[\#151A25\],
+html.theme-light .bg-\[\#151a25\],
+html.theme-light .bg-\[\#171D2A\],
+html.theme-light .bg-\[\#171d2a\],
+html.theme-light .bg-\[\#161C27\],
+html.theme-light .bg-\[\#161c27\],
+html.theme-light .bg-\[\#141A26\],
+html.theme-light .bg-\[\#141a26\],
+html.theme-light .bg-\[\#1A202C\],
+html.theme-light .bg-\[\#1a202c\],
+html.theme-light .bg-\[\#1A212E\],
+html.theme-light .bg-\[\#1a212e\],
+html.theme-light .bg-\[\#191F2C\],
+html.theme-light .bg-\[\#191f2c\] {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.theme-light .bg-\[\#1A202C\] span,
+html.theme-light .bg-\[\#1a202c\] span,
+html.theme-light .bg-\[\#191F2C\] span,
+html.theme-light .bg-\[\#191f2c\] span {
+  color: #0f172a !important;
+}
+
+/* 13.3 Cards, Modal Bodies & Section Surfaces */
+html.theme-light .bg-\[\#11141D\],
+html.theme-light .bg-\[\#11141d\],
+html.theme-light .bg-\[\#141822\],
+html.theme-light .bg-\[\#141822\],
+html.theme-light .bg-\[\#161B26\],
+html.theme-light .bg-\[\#161b26\],
+html.theme-light .bg-\[\#181E2C\],
+html.theme-light .bg-\[\#181e2c\],
+html.theme-light .bg-\[\#161B27\],
+html.theme-light .bg-\[\#161b27\] {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* 13.4 Custom Inputs, Dropdown Triggers & Search Fields */
+html.theme-light .bg-\[\#0F131C\],
+html.theme-light .bg-\[\#0f131c\],
+html.theme-light .bg-\[\#0E121B\],
+html.theme-light .bg-\[\#0e121b\],
+html.theme-light .bg-\[\#0E121A\],
+html.theme-light .bg-\[\#0e121a\],
+html.theme-light .bg-\[\#11151F\],
+html.theme-light .bg-\[\#11151f\] {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* 13.5 Terminal / Console Output & SQL Code Previews */
+html.theme-light .bg-\[\#0B0E14\],
+html.theme-light .bg-\[\#0b0e14\],
+html.theme-light .bg-\[\#0C1017\],
+html.theme-light .bg-\[\#0c1017\],
+html.theme-light .bg-\[\#0F131D\],
+html.theme-light .bg-\[\#0f131d\],
+html.theme-light .bg-\[\#10141D\],
+html.theme-light .bg-\[\#10141d\],
+html.theme-light .bg-\[\#131924\],
+html.theme-light .bg-\[\#131924\] {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* 13.6 Small Icon Boxes & Action Buttons */
+html.theme-light .bg-\[\#1F2737\],
+html.theme-light .bg-\[\#1f2737\],
+html.theme-light .bg-\[\#1F2738\],
+html.theme-light .bg-\[\#1f2738\],
+html.theme-light .bg-\[\#202738\],
+html.theme-light .bg-\[\#202738\],
+html.theme-light .bg-\[\#222938\],
+html.theme-light .bg-\[\#222938\],
+html.theme-light .bg-\[\#171C27\],
+html.theme-light .bg-\[\#171c27\] {
+  background-color: #e2e8f0 !important;
+  color: #1e293b !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* 13.7 Active / Inactive Tab Pill States */
+html.theme-light .bg-\[\#171C27\] {
+  background-color: #f1f5f9 !important;
+  color: #334155 !important;
+}
+
+/* 13.8 Universal Hover States for Pull Blast & Schema Compare */
+html.theme-light .hover\:bg-\[\#181E2C\]:hover,
+html.theme-light .hover\:bg-\[\#181E2B\]:hover,
+html.theme-light .hover\:bg-\[\#1E2536\]:hover,
+html.theme-light .hover\:bg-\[\#232B3E\]:hover,
+html.theme-light .hover\:bg-\[\#283248\]:hover,
+html.theme-light .hover\:bg-\[\#2B3448\]:hover {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* 13.9 Universal Borders for Schema Compare & Pull Blast */
+html.theme-light .border-\[\#1E2738\],
+html.theme-light .border-\[\#1F2736\],
+html.theme-light .border-\[\#212938\],
+html.theme-light .border-\[\#21293A\],
+html.theme-light .border-\[\#21293B\],
+html.theme-light .border-\[\#212A3D\],
+html.theme-light .border-\[\#212B3D\],
+html.theme-light .border-\[\#222B3D\],
+html.theme-light .border-\[\#232B3B\],
+html.theme-light .border-\[\#232C3E\],
+html.theme-light .border-\[\#232D3F\],
+html.theme-light .border-\[\#232D40\],
+html.theme-light .border-\[\#232D42\],
+html.theme-light .border-\[\#242D40\],
+html.theme-light .border-\[\#242E40\],
+html.theme-light .border-\[\#242F44\],
+html.theme-light .border-\[\#252E40\],
+html.theme-light .border-\[\#252F43\],
+html.theme-light .border-\[\#273245\],
+html.theme-light .border-\[\#273246\],
+html.theme-light .border-\[\#273247\],
+html.theme-light .border-\[\#283246\],
+html.theme-light .border-\[\#283347\],
+html.theme-light .border-\[\#2B3547\],
+html.theme-light .border-\[\#2B354A\],
+html.theme-light .border-\[\#2B374C\],
+html.theme-light .border-\[\#2C374D\],
+html.theme-light .border-\[\#2C384E\],
+html.theme-light .border-\[\#2D3547\],
+html.theme-light .border-\[\#2D374D\],
+html.theme-light .border-\[\#2E3A52\],
+html.theme-light .border-\[\#35435C\],
+html.theme-light .border-\[\#384660\] {
+  border-color: #cbd5e1 !important;
+}
+
+/* 13.10 Table & List Dividers */
+html.theme-light .divide-\[\#1B2232\] > :not([hidden]) ~ :not([hidden]),
+html.theme-light .divide-\[\#1D2433\] > :not([hidden]) ~ :not([hidden]),
+html.theme-light .divide-\[\#1D2536\] > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e2e8f0 !important;
+}
+
+/* 13.11 Schema Compare Table Row Diff Highlights in Light Mode */
+html.theme-light .bg-yellow-950\/10 {
+  background-color: #fefce8 !important;
+}
+
+html.theme-light .bg-emerald-950\/15,
+html.theme-light .bg-emerald-950\/10 {
+  background-color: #f0fdf4 !important;
+}
+
+html.theme-light .bg-rose-950\/15,
+html.theme-light .bg-rose-950\/10 {
+  background-color: #fff1f2 !important;
+}
+
+html.theme-light .bg-amber-950\/10 {
+  background-color: #fffbeb !important;
+}
+
+/* 13.12 Pill Badges & Status Highlights */
+html.theme-light .bg-yellow-500\/15,
+html.theme-light .bg-yellow-500\/20 {
+  background-color: #fef9c3 !important;
+  color: #854d0e !important;
+  border-color: #fde047 !important;
+}
+
+html.theme-light .bg-emerald-500\/15,
+html.theme-light .bg-emerald-500\/20 {
+  background-color: #dcfce7 !important;
+  color: #166534 !important;
+  border-color: #86efac !important;
+}
+
+html.theme-light .bg-rose-500\/10,
+html.theme-light .bg-rose-500\/15,
+html.theme-light .bg-rose-500\/20 {
+  background-color: #fee2e2 !important;
+  color: #991b1b !important;
+  border-color: #fca5a5 !important;
+}
+
+html.theme-light .bg-sky-500\/15,
+html.theme-light .bg-sky-500\/20 {
+  background-color: #e0f2fe !important;
+  color: #0369a1 !important;
+  border-color: #7dd3fc !important;
+}
+
+html.theme-light .bg-indigo-500\/10,
+html.theme-light .bg-indigo-500\/15 {
+  background-color: #e0e7ff !important;
+  color: #4338ca !important;
+  border-color: #a5b4fc !important;
+}
+
+html.theme-light .bg-amber-500\/10,
+html.theme-light .bg-amber-500\/15,
+html.theme-light .bg-amber-500\/20 {
+  background-color: #fef3c7 !important;
+  color: #b45309 !important;
+  border-color: #fcd34d !important;
+}
+
+/* Neutral Status Badges (Ready, Standby, Count badges) */
+html.theme-light .bg-slate-800\/80,
+html.theme-light .bg-slate-800\/60,
+html.theme-light .bg-slate-800\/50 {
+  background-color: #f1f5f9 !important;
+  color: #475569 !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.theme-light .border-slate-700\/80,
+html.theme-light .border-slate-700\/60,
+html.theme-light .border-slate-700\/50 {
+  border-color: #cbd5e1 !important;
+}
+
+/* 13.13 Accent Colors in Light Mode */
+html.theme-light .text-sky-400 {
+  color: #0284c7 !important;
+}
+
+html.theme-light .text-emerald-300,
+html.theme-light .text-emerald-400 {
+  color: #059669 !important;
+}
+
+html.theme-light .text-indigo-400 {
+  color: #4f46e5 !important;
+}
+
+/* 13.14 Active Selected Navigation Items */
+html.theme-light .bg-blue-600\/15 {
+  background-color: #eff6ff !important;
+  color: #1d4ed8 !important;
+}
+
+html.theme-light .bg-blue-600\/15 span {
+  color: #1d4ed8 !important;
+}
+
+/* 13.15 Dark Checkbox Controls */
+html.theme-light input[type='checkbox'].bg-\[\#11151F\],
+html.theme-light input[type='checkbox'].bg-\[\#11151f\],
+html.theme-light input[type='checkbox'].bg-\[\#1A212E\],
+html.theme-light input[type='checkbox'].bg-\[\#1a212e\] {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
