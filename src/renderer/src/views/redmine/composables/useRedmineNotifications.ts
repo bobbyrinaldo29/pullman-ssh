@@ -28,6 +28,8 @@ export function getDefaultNotificationSettings(): RedmineNotificationSettings {
     projectId: 'all',
     ignoreOwnChanges: false,
     desktopNotification: true,
+    overlayNotification: true,
+    osSoundEnabled: true,
     inAppToast: true,
     soundEnabled: true,
     autoRefreshList: true,
@@ -71,6 +73,8 @@ function loadStoredNotificationSettings(): RedmineNotificationSettings {
     return {
       ...defaults,
       ...parsed,
+      overlayNotification: parsed?.overlayNotification ?? defaults.overlayNotification,
+      osSoundEnabled: parsed?.osSoundEnabled ?? defaults.osSoundEnabled,
       events: {
         ...defaults.events,
         ...(parsed?.events || {})
@@ -226,15 +230,18 @@ export function useRedmineNotifications(deps: RedmineNotificationManagerDeps) {
       }
     }
 
-    if ((settings.desktopNotification || options?.forceDeliver) && window.api?.showNotification) {
+    const shouldShowOs = settings.desktopNotification || settings.overlayNotification || options?.forceDeliver
+    if (shouldShowOs && window.api?.showNotification) {
       window.api
         .showNotification({
           title: item.title,
           subtitle: item.projectName || 'Redmine',
           body: item.summary,
-          silent: !settings.soundEnabled,
+          silent: !settings.osSoundEnabled,
           tag: 'redmine',
-          issueId: item.isSimulated ? undefined : item.issueId
+          issueId: item.isSimulated ? undefined : item.issueId,
+          showNative: settings.desktopNotification,
+          showOverlay: settings.overlayNotification
         })
         .catch(() => {})
     }
@@ -461,15 +468,35 @@ export function useRedmineNotifications(deps: RedmineNotificationManagerDeps) {
       playNotificationChime('default')
     }
 
-    if (window.api?.showNotification) {
+    if (activeSettings.inAppToast) {
+      activeToasts.value.unshift({
+        id: `sim-${Date.now()}`,
+        issueId: sampleIssue?.id || 144720,
+        issueSubject: sampleIssue?.subject || 'Simulasi Update Tiket',
+        projectName: subtitle,
+        authorName: 'Tim QA',
+        changeType: 'status',
+        title,
+        summary: body,
+        detailLines: ['Status: In Progress → Ready to test'],
+        timestamp: new Date().toISOString(),
+        read: false,
+        isSimulated: true
+      })
+    }
+
+    const shouldShowOs = activeSettings.desktopNotification || activeSettings.overlayNotification
+    if (shouldShowOs && window.api?.showNotification) {
       window.api
         .showNotification({
           title,
           subtitle,
           body,
-          silent: !activeSettings.soundEnabled,
+          silent: !activeSettings.osSoundEnabled,
           tag: 'redmine-test',
-          issueId: sampleIssue?.id || 144720
+          issueId: sampleIssue?.id || 144720,
+          showNative: activeSettings.desktopNotification,
+          showOverlay: activeSettings.overlayNotification
         })
         .catch(() => {})
     }

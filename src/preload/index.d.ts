@@ -182,6 +182,8 @@ declare global {
         silent?: boolean
         tag?: string
         issueId?: number
+        showNative?: boolean
+        showOverlay?: boolean
       }) => Promise<void>
       onNotificationClick: (
         callback: (payload: { tag?: string; issueId?: number }) => void

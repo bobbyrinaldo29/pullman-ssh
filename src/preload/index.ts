@@ -302,6 +302,8 @@ const api = {
     silent?: boolean
     tag?: string
     issueId?: number
+    showNative?: boolean
+    showOverlay?: boolean
   }): Promise<void> => ipcRenderer.invoke('app:show-notification', payload),
   onNotificationClick: (
     callback: (payload: { tag?: string; issueId?: number }) => void

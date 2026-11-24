@@ -143,7 +143,11 @@ export interface RedmineNotificationSettings {
   scope: RedmineNotificationScope
   projectId: number | 'all'
   ignoreOwnChanges: boolean
+  // Windows & OS Notifications
   desktopNotification: boolean
+  overlayNotification: boolean
+  osSoundEnabled: boolean
+  // In-App Notifications
   inAppToast: boolean
   soundEnabled: boolean
   autoRefreshList: boolean

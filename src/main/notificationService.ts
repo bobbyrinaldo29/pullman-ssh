@@ -11,6 +11,8 @@ export interface NotificationPayload {
   silent?: boolean
   tag?: string
   issueId?: number
+  showNative?: boolean
+  showOverlay?: boolean
 }
 
 class NotificationService {
@@ -129,36 +131,40 @@ class NotificationService {
       const icon = this.getIconPath(assetIcon)
 
       // 1. Native OS notification via Electron Notification (uses Windows 10/11 Action Center with app icon, NO SnoreToast)
-      try {
-        if (Notification.isSupported()) {
-          const electronOptions: Electron.NotificationConstructorOptions = {
-            title: title || 'Pullman',
-            subtitle: subtitle || undefined,
-            body: body || '',
-            silent: Boolean(silent)
-          }
-          if (icon) {
-            const nativeImg = nativeImage.createFromPath(icon)
-            if (!nativeImg.isEmpty()) {
-              electronOptions.icon = nativeImg
+      if (payload.showNative !== false) {
+        try {
+          if (Notification.isSupported()) {
+            const electronOptions: Electron.NotificationConstructorOptions = {
+              title: title || 'Pullman',
+              subtitle: subtitle || undefined,
+              body: body || '',
+              silent: Boolean(silent)
             }
+            if (icon) {
+              const nativeImg = nativeImage.createFromPath(icon)
+              if (!nativeImg.isEmpty()) {
+                electronOptions.icon = nativeImg
+              }
+            }
+            if (process.platform === 'linux') {
+              electronOptions.urgency = 'normal'
+            }
+            const notif = new Notification(electronOptions)
+            notif.on('click', onNotificationClicked)
+            notif.show()
           }
-          if (process.platform === 'linux') {
-            electronOptions.urgency = 'normal'
-          }
-          const notif = new Notification(electronOptions)
-          notif.on('click', onNotificationClicked)
-          notif.show()
+        } catch (nativeErr) {
+          console.warn('[NotificationService] Native notification warning:', nativeErr)
         }
-      } catch (nativeErr) {
-        console.warn('[NotificationService] Native notification warning:', nativeErr)
       }
 
       // 2. High-priority Overlay Notification: stays visible on top of full-screen games, videos, and other apps
-      try {
-        overlayNotificationService.show(payload, onNotificationClicked)
-      } catch (overlayErr) {
-        console.warn('[NotificationService] Overlay notification warning:', overlayErr)
+      if (payload.showOverlay !== false) {
+        try {
+          overlayNotificationService.show(payload, onNotificationClicked)
+        } catch (overlayErr) {
+          console.warn('[NotificationService] Overlay notification warning:', overlayErr)
+        }
       }
 
       return true

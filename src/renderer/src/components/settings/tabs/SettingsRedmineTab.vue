@@ -10,7 +10,8 @@ import {
   KeyRound,
   Bell,
   Zap,
-  Settings
+  Settings,
+  LayoutTemplate
 } from 'lucide-vue-next'
 import ToggleSwitch from '../../ToggleSwitch.vue'
 import { useRedmine } from '../../../views/redmine/composables/useRedmine'
@@ -45,30 +46,16 @@ const isManualChecking = ref(false)
 const { config, currentUser } = useRedmine()
 
 function cloneSettings(src: RedmineNotificationSettings): RedmineNotificationSettings {
-  return {
-    ...src,
-    events: { ...src.events }
-  }
+  return { ...src, events: { ...src.events } }
 }
 
-watch(
-  () => props.settings,
-  (updated) => {
-    draft.value = cloneSettings(updated)
-  },
-  { deep: true }
-)
+watch(() => props.settings, (updated) => { draft.value = cloneSettings(updated) }, { deep: true })
 
-watch(
-  () => draft.value.desktopNotification,
-  (enabled) => {
-    if (enabled && typeof window !== 'undefined' && 'Notification' in window) {
-      if (Notification.permission === 'default') {
-        Notification.requestPermission().catch(() => {})
-      }
-    }
+watch(() => draft.value.desktopNotification, (enabled) => {
+  if (enabled && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission().catch(() => {})
   }
-)
+})
 
 const intervalPresets = INTERVAL_PRESETS
 const scopeOptions = SCOPE_OPTIONS
@@ -84,26 +71,34 @@ function buildNormalizedDraft(): RedmineNotificationSettings {
 function handleSave(): void {
   emit('save', buildNormalizedDraft())
   checkFeedback.value = 'Redmine settings saved successfully.'
-  setTimeout(() => {
-    checkFeedback.value = null
-  }, 2500)
+  setTimeout(() => { checkFeedback.value = null }, 2500)
 }
 
-function handleTest(): void {
+function handleTestOs(): void {
   if (window.api?.showNotification) {
     window.api
       .showNotification({
         title: 'Pullman Redmine • Update #144720',
         subtitle: 'PBB-P2',
-        body: 'Status: In Progress → Ready to test (Desktop Notification Simulation)',
-        silent: !draft.value.soundEnabled,
-        tag: 'redmine-test'
+        body: 'Status: In Progress → Ready to test (Notifikasi Windows / Game Overlay)',
+        silent: !draft.value.osSoundEnabled,
+        tag: 'redmine-test',
+        showNative: draft.value.desktopNotification,
+        showOverlay: draft.value.overlayNotification
       })
       .catch(() => {})
   } else {
     emit('test-notification', buildNormalizedDraft())
   }
-  checkFeedback.value = 'Desktop notification sent to OS!'
+  checkFeedback.value = 'Notifikasi Windows / Overlay terkirim!'
+  setTimeout(() => {
+    checkFeedback.value = null
+  }, 3000)
+}
+
+function handleTestInApp(): void {
+  emit('test-notification', buildNormalizedDraft())
+  checkFeedback.value = 'Notifikasi internal In-App dikirim!'
   setTimeout(() => {
     checkFeedback.value = null
   }, 3000)
@@ -384,62 +379,103 @@ defineExpose({
       </div>
     </div>
 
-    <!-- Delivery Methods -->
+    <!-- Windows & OS Notifications Group -->
     <div class="space-y-3" :class="{ 'opacity-50 pointer-events-none': !draft.enabled }">
-      <div class="flex items-center space-x-1.5 font-semibold text-slate-200">
-        <Monitor class="w-3.5 h-3.5 text-emerald-400" />
-        <span>Display, Sound &amp; Sync</span>
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-1.5 font-semibold text-slate-200">
+          <Monitor class="w-3.5 h-3.5 text-sky-400" />
+          <span>Notifikasi Windows &amp; OS (Luar Aplikasi)</span>
+        </div>
+        <span class="text-[10px] text-slate-400">Muncul saat diminimize atau saat main game</span>
       </div>
 
       <div class="p-4 rounded-lg bg-[#1D222E] border border-[#2B3245] divide-y divide-[#252C3D] space-y-3">
         <ToggleSwitch
           v-model="draft.desktopNotification"
           size="sm"
-          label="Desktop Notifications (macOS, Windows, Linux)"
-          description="Display native operating system notifications even when Pullman is minimized."
+          label="Notifikasi Windows (Action Center)"
+          description="Tampilkan notifikasi resmi Windows di pojok layar dan simpan ke riwayat Action Center."
         />
         <div class="pt-3">
           <ToggleSwitch
-            v-model="draft.inAppToast"
+            v-model="draft.overlayNotification"
             size="sm"
-            label="In-App Toast Banner (Pop-up)"
-            description="Display interactive notification cards in the bottom-right corner of the app."
+            label="Overlay Layar Penuh (Game &amp; Video)"
+            description="Tampilkan toast melayang di atas game fullscreen DirectX/OpenGL tanpa mencuri fokus/minimize game."
           />
         </div>
         <div class="pt-3">
           <ToggleSwitch
+            v-model="draft.osSoundEnabled"
+            size="sm"
+            label="Suara Notifikasi Windows"
+            description="Bunyikan suara notifikasi sistem operasi ketika tiket Redmine diperbarui."
+          />
+        </div>
+        <div class="pt-3 flex items-center justify-between">
+          <span class="text-[11px] text-slate-400">Tes notifikasi sistem operasi:</span>
+          <button
+            type="button"
+            class="px-3.5 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-sky-300 hover:text-white font-medium text-xs flex items-center space-x-1.5 cursor-pointer transition-colors"
+            @click="handleTestOs"
+          >
+            <Monitor class="w-3.5 h-3.5 text-sky-400" />
+            <span>Test Notifikasi Windows</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- In-App Pullman Notifications Group -->
+    <div class="space-y-3" :class="{ 'opacity-50 pointer-events-none': !draft.enabled }">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-1.5 font-semibold text-slate-200">
+          <LayoutTemplate class="w-3.5 h-3.5 text-emerald-400" />
+          <span>Notifikasi In-App (Bawaan Aplikasi Pullman)</span>
+        </div>
+        <span class="text-[10px] text-slate-400">Muncul di dalam jendela Pullman</span>
+      </div>
+
+      <div class="p-4 rounded-lg bg-[#1D222E] border border-[#2B3245] divide-y divide-[#252C3D] space-y-3">
+        <ToggleSwitch
+          v-model="draft.inAppToast"
+          size="sm"
+          label="Banner Pop-up Toast Internal"
+          description="Tampilkan kartu pop-up interaktif di pojok kanan bawah jendela aplikasi Pullman."
+        />
+        <div class="pt-3">
+          <ToggleSwitch
             v-model="draft.soundEnabled"
             size="sm"
-            label="Play Notification Sound (Chime)"
-            description="Play a soft chime sound when new changes are detected."
+            label="Suara Notifikasi Internal (App Chime)"
+            description="Putar nada dering audio bawaan Pullman ketika tiket diperbarui."
           />
         </div>
         <div class="pt-3">
           <ToggleSwitch
             v-model="draft.autoRefreshList"
             size="sm"
-            label="Auto-Refresh Issue Table & Details"
-            description="Automatically refresh the Redmine issue list when new changes occur."
+            label="Auto-Refresh Tabel &amp; Detail Tiket"
+            description="Otomatis muat ulang daftar issue dan data tiket Redmine saat ada perubahan baru."
           />
+        </div>
+        <div class="pt-3 flex items-center justify-between">
+          <span class="text-[11px] text-slate-400">Tes notifikasi internal Pullman:</span>
+          <button
+            type="button"
+            class="px-3.5 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-emerald-300 hover:text-white font-medium text-xs flex items-center space-x-1.5 cursor-pointer transition-colors"
+            @click="handleTestInApp"
+          >
+            <LayoutTemplate class="w-3.5 h-3.5 text-emerald-400" />
+            <span>Test Toast Internal</span>
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- Action feedback & test button -->
-    <div class="flex items-center justify-between pt-2">
-      <button
-        type="button"
-        class="px-3.5 py-1.5 rounded-lg border border-[#2D3547] bg-[#252B3A] hover:bg-[#2F374A] text-sky-300 hover:text-white font-medium text-xs flex items-center space-x-1.5 cursor-pointer transition-colors"
-        @click="handleTest"
-      >
-        <Monitor class="w-3.5 h-3.5 text-sky-400" />
-        <span>Test Desktop Notification (OS)</span>
-      </button>
-
-      <div
-        v-if="checkFeedback"
-        class="p-2 px-3 rounded-lg bg-emerald-500/15 border border-emerald-500/35 text-emerald-300 text-[11px] font-medium flex items-center space-x-2"
-      >
+    <!-- Action feedback -->
+    <div v-if="checkFeedback" class="flex items-center justify-end pt-1">
+      <div class="p-2 px-3 rounded-lg bg-emerald-500/15 border border-emerald-500/35 text-emerald-300 text-[11px] font-medium flex items-center space-x-2">
         <Check class="w-3.5 h-3.5 text-emerald-400 shrink-0" />
         <span>{{ checkFeedback }}</span>
       </div>
