@@ -135,7 +135,9 @@ export class SftpGitService {
     const escMsg = message.replace(/'/g, "'\\''")
     const cmd = `${cd} && if git -c safe.directory=* status --porcelain=v1 | grep -E '^[MADRC]' >/dev/null 2>&1; then :; else git -c safe.directory=* add -A; fi && git -c safe.directory=* commit -m '${escMsg}' && git -c safe.directory=* rev-parse HEAD`
     let res = await this.sftp.execRemote(cmd, sessionId, false)
-    if (res.code !== 0 && session.config?.password) {
+    if (res.code !== 0 && (session.config?.password || session.config?.user !== 'root')) {
+      const healCmd = `${cd} && { _GD=$(git -c safe.directory=* rev-parse --git-dir 2>/dev/null || echo ".git"); rm -f "$_GD"/*.lock 2>/dev/null || true; chmod -R a+rwX "$_GD" 2>/dev/null || true; }`
+      await this.sftp.execRemote(healCmd, sessionId, true).catch(() => {})
       res = await this.sftp.execRemote(cmd, sessionId, true)
     }
     if (res.code !== 0) {
@@ -161,7 +163,7 @@ export class SftpGitService {
 
     const cmd = `${gitCd(dir)} && (git -c safe.directory=* restore -- '${escClean}' 2>/dev/null || git -c safe.directory=* restore -- '${escBase}' 2>/dev/null || git -c safe.directory=* checkout -- '${escClean}' 2>/dev/null || git -c safe.directory=* checkout -- '${escBase}' 2>/dev/null || git -c safe.directory=* clean -fd -- '${escClean}' 2>/dev/null || git -c safe.directory=* clean -fd -- '${escBase}' 2>/dev/null || rm -rf '${escClean}')`
     const res = await this.sftp.execRemote(cmd, sessionId, false)
-    if (res.code !== 0 && session.config?.password) {
+    if (res.code !== 0 && (session.config?.password || session.config?.user !== 'root')) {
       await this.sftp.execRemote(cmd, sessionId, true)
     }
   }
@@ -254,27 +256,17 @@ export class SftpGitService {
       )
     }
 
-    if (!isAuth && res.code !== 0 && isLocalFsPermError(output)) {
-      // Permission healing: remove stale locks and heal permissions directly without running git as root
+    if (!isAuth && res.code !== 0 && (isLocalFsPermError(output) || output.toLowerCase().includes('permission denied') || session.config?.user !== 'root')) {
+      // Permission healing: remove stale locks and heal permissions directly via sudo su
       const healCmd = `${gitCd(remotePath)} && {
         _GD=$(git -c safe.directory=* rev-parse --git-dir 2>/dev/null || echo ".git");
         rm -f "$_GD"/*.lock "$_GD"/refs/*/*.lock "$_GD"/refs/*/*/*.lock 2>/dev/null || true;
-        chmod -R u+rwX,g+rwX,a+rwX "$_GD"/refs "$_GD"/FETCH_HEAD "$_GD"/ORIG_HEAD "$_GD"/index "$_GD"/logs "$_GD"/HEAD 2>/dev/null || true;
+        chmod -R a+rwX "$_GD" 2>/dev/null || true;
       }`
-      await this.sftp.execRemote(healCmd, sessionId, false).catch(() => {})
+      await this.sftp.execRemote(healCmd, sessionId, true).catch(() => {})
 
-      if (session.config?.password) {
-        const escPass = (session.config.password || '').replace(/'/g, "'\\''")
-        const sudoHealCmd = `${gitCd(remotePath)} && {
-          _GD=$(git -c safe.directory=* rev-parse --git-dir 2>/dev/null || echo ".git");
-          printf '%s\\n' '${escPass}' | sudo -S -p '' -- rm -f "$_GD"/*.lock "$_GD"/refs/*/*.lock "$_GD"/refs/*/*/*.lock 2>/dev/null || true;
-          printf '%s\\n' '${escPass}' | sudo -S -p '' -- chmod -R a+rwX "$_GD" 2>/dev/null || true;
-        }`
-        await this.sftp.execRemote(sudoHealCmd, sessionId, false).catch(() => {})
-      }
-
-      // Retry git pull as the normal user
-      const retryRes = await this.sftp.execRemote(cmd, sessionId, false)
+      // Retry git pull as root via sudo su
+      const retryRes = await this.sftp.execRemote(cmd, sessionId, true)
       const retryOutput = (retryRes.stdout || retryRes.stderr || '').trim()
       if (retryRes.code === 0) {
         res = retryRes
@@ -296,7 +288,10 @@ export class SftpGitService {
             const cd = gitCd(remotePath)
             const escAuthUrl = authUrl.replace(/'/g, "'\\''")
             const fallbackCmd = `${cd} && BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); git -c safe.directory=* pull '${escAuthUrl}' "$BR" 2>&1 || git -c safe.directory=* pull '${escAuthUrl}' 2>&1`
-            const retryRes = await this.sftp.execRemote(fallbackCmd, sessionId, false)
+            let retryRes = await this.sftp.execRemote(fallbackCmd, sessionId, false)
+            if (retryRes.code !== 0 && (session.config?.password || session.config?.user !== 'root')) {
+              retryRes = await this.sftp.execRemote(fallbackCmd, sessionId, true)
+            }
             if (retryRes.code === 0) {
               res = retryRes
               output = (res.stdout || res.stderr || '').trim()
@@ -389,27 +384,17 @@ export class SftpGitService {
     // 1. Check if commits were delivered to the remote git server
     let delivered = isPushDelivered(output)
 
-    // 2. If not delivered and there was a local FS permission/lock error, heal permissions and retry
-    if (!delivered && !isAuth && res.code !== 0 && isLocalFsPermError(output)) {
+    // 2. If not delivered and there was a local FS permission/lock error, heal permissions and retry via sudo su
+    if (!delivered && !isAuth && res.code !== 0 && (isLocalFsPermError(output) || output.toLowerCase().includes('permission denied') || session.config?.user !== 'root')) {
       const healCmd = `${gitCd(remotePath)} && {
         _GD=$(git -c safe.directory=* rev-parse --git-dir 2>/dev/null || echo ".git");
         rm -f "$_GD"/*.lock "$_GD"/refs/*/*.lock "$_GD"/refs/*/*/*.lock 2>/dev/null || true;
-        chmod -R u+rwX,g+rwX,a+rwX "$_GD"/refs "$_GD"/FETCH_HEAD "$_GD"/ORIG_HEAD "$_GD"/index "$_GD"/logs "$_GD"/HEAD 2>/dev/null || true;
+        chmod -R a+rwX "$_GD" 2>/dev/null || true;
       }`
-      await this.sftp.execRemote(healCmd, sessionId, false).catch(() => {})
+      await this.sftp.execRemote(healCmd, sessionId, true).catch(() => {})
 
-      if (session.config?.password) {
-        const escPass = (session.config.password || '').replace(/'/g, "'\\''")
-        const sudoHealCmd = `${gitCd(remotePath)} && {
-          _GD=$(git -c safe.directory=* rev-parse --git-dir 2>/dev/null || echo ".git");
-          printf '%s\\n' '${escPass}' | sudo -S -p '' -- rm -f "$_GD"/*.lock "$_GD"/refs/*/*.lock "$_GD"/refs/*/*/*.lock 2>/dev/null || true;
-          printf '%s\\n' '${escPass}' | sudo -S -p '' -- chmod -R a+rwX "$_GD" 2>/dev/null || true;
-        }`
-        await this.sftp.execRemote(sudoHealCmd, sessionId, false).catch(() => {})
-      }
-
-      // Retry git push as normal user
-      const retryRes = await this.sftp.execRemote(cmd, sessionId, false)
+      // Retry git push as root via sudo su
+      const retryRes = await this.sftp.execRemote(cmd, sessionId, true)
       const retryOutput = (retryRes.stdout || retryRes.stderr || '').trim()
       if (retryRes.code === 0 || isPushDelivered(retryOutput)) {
         res = retryRes
@@ -419,6 +404,7 @@ export class SftpGitService {
       } else if (!isGitAuthError(retryOutput)) {
         res = retryRes
         output = retryOutput
+        delivered = isPushDelivered(output)
       }
     }
 
@@ -433,7 +419,10 @@ export class SftpGitService {
             const cd = gitCd(remotePath)
             const escAuthUrl = authUrl.replace(/'/g, "'\\''")
             const fallbackCmd = `${cd} && BR=$(git -c safe.directory=* rev-parse --abbrev-ref HEAD 2>/dev/null); git -c safe.directory=* push '${escAuthUrl}' "$BR" 2>&1 || git -c safe.directory=* push -u '${escAuthUrl}' "$BR" 2>&1`
-            const retryRes = await this.sftp.execRemote(fallbackCmd, sessionId, false)
+            let retryRes = await this.sftp.execRemote(fallbackCmd, sessionId, false)
+            if (retryRes.code !== 0 && (session.config?.password || session.config?.user !== 'root')) {
+              retryRes = await this.sftp.execRemote(fallbackCmd, sessionId, true)
+            }
             const retryOut = (retryRes.stdout || retryRes.stderr || '').trim()
             if (retryRes.code === 0 || isPushDelivered(retryOut)) {
               res = retryRes
@@ -469,7 +458,7 @@ export class SftpGitService {
             git -c safe.directory=* update-ref "refs/remotes/$REMOTE/$BR" ${commitTarget} 2>/dev/null || true;
           fi;
         }`
-        await this.sftp.execRemote(trackingRefCmd, sessionId, false).catch(() => {})
+        await this.sftp.execRemote(trackingRefCmd, sessionId, true).catch(() => {})
       } catch {}
 
       if (credentials?.remember) {
@@ -489,7 +478,10 @@ export class SftpGitService {
 
       return {
         success: true,
-        message: output || 'Pushed to origin successfully.',
+        message:
+          output && !output.includes('cannot lock ref') && !output.includes('Permission denied')
+            ? output
+            : 'Pushed to origin successfully.',
         remoteUrl
       }
     }

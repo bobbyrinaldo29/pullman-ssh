@@ -283,12 +283,19 @@ export class ExternalEditorService {
           fs.writeFileSync(localFilePath, content || '', 'utf8')
         }
 
-        // If still 0 bytes, try reading shell cat output as final safeguard
+        // If still 0 bytes, try reading shell cat output as final safeguard (with auto sudo fallback)
         if (fs.existsSync(localFilePath) && fs.statSync(localFilePath).size === 0) {
           try {
             const cleanPath = normalizedRemote.replace(/\/+/g, '/').replace(/'/g, "'\\''")
-            const catRes = await this.sftpService.execRemote(`cat '${cleanPath}'`, sessionId, effectiveSudo)
-            if (catRes.code === 0 && catRes.stdout.length > 0) {
+            let catRes = await this.sftpService.execRemote(`cat '${cleanPath}'`, sessionId, effectiveSudo)
+            if ((catRes.code !== 0 || !catRes.stdout) && !effectiveSudo) {
+              const sudoCatRes = await this.sftpService.execRemote(`cat '${cleanPath}'`, sessionId, true).catch(() => null)
+              if (sudoCatRes && sudoCatRes.code === 0 && sudoCatRes.stdout.length > 0) {
+                catRes = sudoCatRes
+                effectiveSudo = true
+              }
+            }
+            if (catRes && catRes.code === 0 && catRes.stdout.length > 0) {
               content = catRes.stdout
               fs.writeFileSync(localFilePath, content, 'utf8')
             }

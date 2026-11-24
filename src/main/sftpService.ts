@@ -279,22 +279,12 @@ export class SftpService {
     let feedStdin = false
 
     if (asSudo && !isRoot) {
-      const hasShellMeta = /[&|;><]/.test(command)
       const esc = command.replace(/'/g, "'\\''")
-      if (hasShellMeta) {
-        if (password) {
-          const escPass = password.replace(/'/g, "'\\''")
-          cmdToRun = `printf '%s\\n' '${escPass}' | sudo -S -p '' -- sh -c '${esc}'`
-        } else {
-          cmdToRun = `sudo -n -- sh -c '${esc}'`
-        }
+      if (password) {
+        const escPass = password.replace(/'/g, "'\\''")
+        cmdToRun = `printf '%s\\n' '${escPass}' | sudo -S -p '' su -c '${esc}'`
       } else {
-        if (password) {
-          const escPass = password.replace(/'/g, "'\\''")
-          cmdToRun = `printf '%s\\n' '${escPass}' | sudo -S -p '' -- ${command}`
-        } else {
-          cmdToRun = `sudo -n -- ${command}`
-        }
+        cmdToRun = `sudo -n su -c '${esc}'`
       }
     }
 
