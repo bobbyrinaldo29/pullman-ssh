@@ -49,6 +49,30 @@ const api = {
     }
   }): Promise<{ success: boolean; message: string; latency?: number }> =>
     ipcRenderer.invoke('connections:test', input),
+  getDatabases: (target: unknown): Promise<{ success: boolean; databases?: string[]; error?: string }> => {
+    const safeTarget = JSON.parse(JSON.stringify(target || {}))
+    return ipcRenderer.invoke('database:get-databases', safeTarget)
+  },
+  getDatabaseSchema: (target: unknown): Promise<{
+    success: boolean
+    schema?: any
+    error?: string
+  }> => {
+    const safeTarget = JSON.parse(JSON.stringify(target || {}))
+    return ipcRenderer.invoke('database:get-schema', safeTarget)
+  },
+  executeSyncSql: (
+    target: unknown,
+    statements: string[]
+  ): Promise<{
+    success: boolean
+    results: { statement: string; success: boolean; error?: string }[]
+    error?: string
+  }> => {
+    const safeTarget = JSON.parse(JSON.stringify(target || {}))
+    const safeStatements = JSON.parse(JSON.stringify(statements || []))
+    return ipcRenderer.invoke('database:execute-sync-sql', { target: safeTarget, statements: safeStatements })
+  },
   deleteConnection: (id: number): Promise<boolean> => ipcRenderer.invoke('connections:delete', id),
   importMultipleConnections: (
     inputs: unknown[],

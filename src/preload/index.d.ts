@@ -33,6 +33,90 @@ declare global {
           password?: string
         }
       }) => Promise<{ success: boolean; message: string; latency?: number }>
+      getDatabases: (target: {
+        host: string
+        port: number
+        user: string
+        password?: string
+        database?: string
+        timeoutMs?: number
+        ssh?: {
+          host: string
+          port: number
+          user: string
+          password?: string
+        }
+      }) => Promise<{ success: boolean; databases?: string[]; error?: string }>
+      getDatabaseSchema: (target: {
+        host: string
+        port: number
+        user: string
+        password?: string
+        database: string
+        timeoutMs?: number
+        ssh?: {
+          host: string
+          port: number
+          user: string
+          password?: string
+        }
+      }) => Promise<{
+        success: boolean
+        schema?: {
+          database: string
+          tables: Record<
+            string,
+            {
+              name: string
+              type: string
+              engine?: string
+              rows?: number
+              collation?: string
+              comment?: string
+              columns: {
+                name: string
+                ordinalPosition: number
+                dataType: string
+                columnType: string
+                isNullable: boolean
+                defaultValue: string | null
+                columnKey: string
+                extra: string
+                comment?: string
+              }[]
+              indexes: {
+                name: string
+                nonUnique: boolean
+                columnName: string
+                seqInIndex: number
+                indexType: string
+              }[]
+            }
+          >
+        }
+        error?: string
+      }>
+      executeSyncSql: (
+        target: {
+          host: string
+          port: number
+          user: string
+          password?: string
+          database: string
+          timeoutMs?: number
+          ssh?: {
+            host: string
+            port: number
+            user: string
+            password?: string
+          }
+        },
+        statements: string[]
+      ) => Promise<{
+        success: boolean
+        results: { statement: string; success: boolean; error?: string }[]
+        error?: string
+      }>
       deleteConnection: (id: number) => Promise<boolean>
       importMultipleConnections: (
         inputs: unknown[],

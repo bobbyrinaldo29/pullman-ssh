@@ -11,6 +11,7 @@ import SftpView from './views/sftp/SftpView.vue'
 import HostsView from './views/hosts/HostsView.vue'
 import QueryView from './views/query/QueryView.vue'
 import PullBlastView from './views/pull-blast/PullBlastView.vue'
+import SchemaCompareView from './views/schema-compare/SchemaCompareView.vue'
 import RedmineView from './views/redmine/RedmineView.vue'
 import EditorView from './views/editor/EditorView.vue'
 import SshView from './views/ssh/SshView.vue'
@@ -77,7 +78,9 @@ const {
 } = useAppConnections()
 
 const appVersion = '2.0.0'
-const currentView = ref<'hosts' | 'ssh' | 'query' | 'sftp' | 'redmine' | 'editor' | 'settings' | 'pull-blast'>('hosts')
+const currentView = ref<
+  'hosts' | 'ssh' | 'query' | 'sftp' | 'redmine' | 'editor' | 'settings' | 'pull-blast' | 'schema-compare'
+>('hosts')
 const previousView = ref<string>('hosts')
 const visitedViews = ref<Set<string>>(new Set(['hosts']))
 watch(currentView, (v) => {
@@ -284,6 +287,7 @@ function handlePluginCenter(): void {
       @new-connection="() => handleNewConnection()"
       @new-query="handleOpenPullBlast"
       @open-pull-blast="handleOpenPullBlast"
+      @open-schema-compare="currentView = 'schema-compare'"
       @data-transfer="handleDataTransfer"
       @plugin-center="handlePluginCenter"
       @open-import-export="openImportExport('import')"
@@ -388,6 +392,13 @@ function handlePluginCenter(): void {
           :hosts="hostsList"
           :selected-host-id="selectedHostId"
           @back-to-hosts="currentView = 'hosts'"
+        />
+
+        <!-- Compare Schemas Canvas (Database & Table Column Diff) -->
+        <SchemaCompareView
+          v-if="visitedViews.has('schema-compare')"
+          v-show="currentView === 'schema-compare'"
+          :hosts="hostsList"
         />
 
         <!-- Query Console Canvas (Legacy Fallback) -->

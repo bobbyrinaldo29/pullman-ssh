@@ -18,7 +18,8 @@ import {
   FolderKanban,
   ChevronsRight,
   Terminal,
-  Zap
+  Zap,
+  GitCompare
 } from 'lucide-vue-next'
 
 const props = withDefaults(
@@ -53,6 +54,7 @@ const emit = defineEmits<{
   (e: 'toggle-theme'): void
   (e: 'open-history'): void
   (e: 'open-git'): void
+  (e: 'open-schema-compare'): void
 }>()
 
 const isMac = ref(true)
@@ -213,6 +215,18 @@ function handleClose(): void {
       >
         <Zap class="w-3.5 h-3.5 text-amber-400 fill-amber-400/20" />
         <span class="font-medium">Pull Blast</span>
+      </button>
+
+      <!-- Button: Compare Schemas (Database & Table Column Diff) -->
+      <button
+        type="button"
+        class="app-no-drag flex items-center space-x-1.5 px-2.5 py-1 rounded text-[#C2C9D6] hover:text-white hover:bg-[#2C3345] transition-colors"
+        :class="{ 'bg-[#2C3345] text-white': props.currentView === 'schema-compare' }"
+        title="Compare Schemas: Database & Table Column Diff"
+        @click="emit('open-schema-compare')"
+      >
+        <GitCompare class="w-3.5 h-3.5 text-indigo-400" />
+        <span class="font-medium">Compare Schemas</span>
       </button>
     </div>
 
