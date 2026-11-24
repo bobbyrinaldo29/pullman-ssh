@@ -2,7 +2,7 @@ import { app, BrowserWindow, Notification, nativeImage } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { execFile } from 'child_process'
-import notifier from 'node-notifier'
+import { overlayNotificationService } from './overlayNotificationService'
 
 export interface NotificationPayload {
   title: string
@@ -128,35 +128,12 @@ class NotificationService {
       // Windows and Linux handling
       const icon = this.getIconPath(assetIcon)
 
-      try {
-        notifier.notify(
-          {
-            title: title || 'Pullman',
-            subtitle: subtitle || undefined,
-            message: body || '',
-            icon: icon,
-            sound: !silent,
-            wait: true
-          },
-          (err) => {
-            if (err) {
-              console.warn('[NotificationService] node-notifier error:', err)
-            }
-          }
-        )
-
-        notifier.once('click', () => {
-          onNotificationClicked()
-        })
-      } catch (notifierErr) {
-        console.warn('[NotificationService] node-notifier warning:', notifierErr)
-      }
-
-      // Also trigger Electron Notification for Windows/Linux
+      // 1. Native OS notification via Electron Notification (uses Windows 10/11 Action Center with app icon, NO SnoreToast)
       try {
         if (Notification.isSupported()) {
           const electronOptions: Electron.NotificationConstructorOptions = {
             title: title || 'Pullman',
+            subtitle: subtitle || undefined,
             body: body || '',
             silent: Boolean(silent)
           }
@@ -173,7 +150,16 @@ class NotificationService {
           notif.on('click', onNotificationClicked)
           notif.show()
         }
-      } catch {}
+      } catch (nativeErr) {
+        console.warn('[NotificationService] Native notification warning:', nativeErr)
+      }
+
+      // 2. High-priority Overlay Notification: stays visible on top of full-screen games, videos, and other apps
+      try {
+        overlayNotificationService.show(payload, onNotificationClicked)
+      } catch (overlayErr) {
+        console.warn('[NotificationService] Overlay notification warning:', overlayErr)
+      }
 
       return true
     } catch (err) {
