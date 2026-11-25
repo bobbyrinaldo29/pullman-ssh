@@ -20,6 +20,7 @@ import { localFileService, LocalFileItem } from './localFileService'
 import { SftpSearchService } from './sftpSearchService'
 import { SftpGitService } from './sftpGitService'
 import { GitCredentials } from './sftpGitAuthHelper'
+import { execElevatedCommand, rawExec, SudoCapability } from './sftpSudoHelper'
 export type { LocalFileItem, GitCredentials }
 
 export interface SftpSession {
@@ -27,6 +28,8 @@ export interface SftpSession {
   isConnected: boolean
   cwd?: string
   config?: { sessionId?: string; host: string; port: number; user: string; password?: string; timeoutMs?: number; skipCwd?: boolean }
+  sudoCapability?: SudoCapability
+  sudoProbePromise?: Promise<SudoCapability>
 }
 
 export class SftpService {
@@ -271,52 +274,11 @@ export class SftpService {
     }
 
     const isRoot = session.config?.user === 'root'
-    const password = (sudoPassword !== undefined && sudoPassword !== null && sudoPassword !== '')
-      ? sudoPassword
-      : (session.config?.password || '')
-
-    let cmdToRun = command
-    let feedStdin = false
-
     if (asSudo && !isRoot) {
-      const esc = command.replace(/'/g, "'\\''")
-      if (password) {
-        const escPass = password.replace(/'/g, "'\\''")
-        cmdToRun = `printf '%s\\n' '${escPass}' | sudo -S -p '' su -c '${esc}'`
-      } else {
-        cmdToRun = `sudo -n su -c '${esc}'`
-      }
+      return execElevatedCommand(session, command, sudoPassword)
     }
 
-    return new Promise((resolve, reject) => {
-      rawSsh.exec(cmdToRun, { pty: false }, (err: any, stream: any) => {
-        if (err) return reject(err)
-        let stdout = ''
-        let stderr = ''
-        let exitCode = 0
-
-        if (feedStdin && password) {
-          try {
-            stream.write(password + '\n')
-          } catch {
-            // ignore
-          }
-        }
-
-        stream.on('data', (data: Buffer) => {
-          stdout += data.toString()
-        })
-        stream.stderr.on('data', (data: Buffer) => {
-          stderr += data.toString()
-        })
-        stream.on('exit', (code: number) => {
-          exitCode = typeof code === 'number' ? code : 0
-        })
-        stream.on('close', () => {
-          resolve({ stdout, stderr, code: exitCode })
-        })
-      })
-    })
+    return rawExec(rawSsh, command, false)
   }
 
   public async upload(localPath: string, remotePath: string, sessionId?: string, asSudo = false): Promise<void> {

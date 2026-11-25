@@ -168,6 +168,28 @@ export class SftpGitService {
     }
   }
 
+  private async execWithSudoLockRetry(
+    targetPath: string,
+    cmd: string,
+    sessionId?: string
+  ): Promise<{ stdout: string; stderr: string; code: number }> {
+    const session = this.sftp.getSession(sessionId)
+    let res = await this.sftp.execRemote(cmd, sessionId, false)
+    if (res.code !== 0 && (session?.config?.password || session?.config?.user !== 'root')) {
+      let sudoRes = await this.sftp.execRemote(cmd, sessionId, true)
+      if (sudoRes.code !== 0) {
+        const combined = `${sudoRes.stderr}\n${sudoRes.stdout}\n${res.stderr}\n${res.stdout}`.toLowerCase()
+        if (combined.includes('index.lock')) {
+          const unlockCmd = `${gitCd(targetPath)} && _GD=$(git -c safe.directory=* rev-parse --git-dir 2>/dev/null || echo ".git"); rm -f "$_GD"/index.lock 2>/dev/null || true`
+          await this.sftp.execRemote(unlockCmd, sessionId, true).catch(() => {})
+          sudoRes = await this.sftp.execRemote(cmd, sessionId, true)
+        }
+      }
+      res = sudoRes
+    }
+    return res
+  }
+
   public async gitStage(
     filePath: string,
     staged: boolean,
@@ -186,10 +208,7 @@ export class SftpGitService {
       : `git -c safe.directory=* restore --staged -- '${escBase}' 2>/dev/null || git -c safe.directory=* restore --staged -- '${escClean}' 2>/dev/null || git -c safe.directory=* reset HEAD -- '${escBase}' 2>/dev/null || git -c safe.directory=* reset HEAD -- '${escClean}' 2>/dev/null || git -c safe.directory=* rm --cached -r -f -- '${escBase}' 2>/dev/null || git -c safe.directory=* rm --cached -r -f -- '${escClean}' 2>/dev/null`
 
     const cmd = `${gitCd(dir)} && ${action}`
-    let res = await this.sftp.execRemote(cmd, sessionId, false)
-    if (res.code !== 0 && (session.config?.password || session.config?.user !== 'root')) {
-      res = await this.sftp.execRemote(cmd, sessionId, true)
-    }
+    const res = await this.execWithSudoLockRetry(dir, cmd, sessionId)
     if (res.code !== 0) {
       throw new Error(res.stderr.trim() || res.stdout.trim() || `Failed to ${staged ? 'stage' : 'unstage'} file.`)
     }
@@ -199,10 +218,7 @@ export class SftpGitService {
     const session = this.sftp.getSession(sessionId)
     if (!session || !session.isConnected) throw new Error('SFTP client is not connected.')
     const cmd = `${gitCd(remotePath)} && git -c safe.directory=* add -A`
-    let res = await this.sftp.execRemote(cmd, sessionId, false)
-    if (res.code !== 0 && (session.config?.password || session.config?.user !== 'root')) {
-      res = await this.sftp.execRemote(cmd, sessionId, true)
-    }
+    const res = await this.execWithSudoLockRetry(remotePath, cmd, sessionId)
     if (res.code !== 0) {
       throw new Error(res.stderr.trim() || res.stdout.trim() || 'Failed to stage all changes.')
     }
