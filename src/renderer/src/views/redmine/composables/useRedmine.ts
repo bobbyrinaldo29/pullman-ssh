@@ -38,70 +38,21 @@ import {
   getDefaultNotificationSettings,
   snapshotMap
 } from './useRedmineNotifications'
+import {
+  ALLOWED_PAGE_SIZES,
+  loadStoredCurrentUser,
+  persistCurrentUser,
+  loadStoredQueries,
+  persistQueries,
+  loadStoredProjects,
+  persistProjects,
+  loadStoredPageSize,
+  persistPageSize
+} from '../utils/storage'
 
 export { getDefaultNotificationSettings }
 
-const STORAGE_USER_KEY = 'redmine_current_user'
-const STORAGE_QUERIES_KEY = 'redmine_cached_queries'
-const STORAGE_PROJECTS_KEY = 'redmine_cached_projects'
 const DEMO_API_KEY = 'demo_redmine_api_key_1234567890'
-
-function loadStoredCurrentUser(): RedmineUser | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_USER_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
-
-function persistCurrentUser(user: RedmineUser | null): void {
-  try {
-    if (user) {
-      localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(user))
-    } else {
-      localStorage.removeItem(STORAGE_USER_KEY)
-    }
-  } catch {}
-}
-
-function loadStoredQueries(): RedmineQuery[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_QUERIES_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
-
-function persistQueries(items: RedmineQuery[]): void {
-  try {
-    if (items && items.length > 0) {
-      localStorage.setItem(STORAGE_QUERIES_KEY, JSON.stringify(items))
-    } else {
-      localStorage.removeItem(STORAGE_QUERIES_KEY)
-    }
-  } catch {}
-}
-
-function loadStoredProjects(): RedmineProject[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_PROJECTS_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
-
-function persistProjects(items: RedmineProject[]): void {
-  try {
-    if (items && items.length > 0) {
-      localStorage.setItem(STORAGE_PROJECTS_KEY, JSON.stringify(items))
-    } else {
-      localStorage.removeItem(STORAGE_PROJECTS_KEY)
-    }
-  } catch {}
-}
 
 // Shared module-level reactive state
 const config = ref<RedmineConfig>({
@@ -128,6 +79,9 @@ const isLoading = ref(false)
 const error = ref<string | null>(null)
 const activeTab = ref<string>('issues')
 const openIssueTabs = ref<OpenIssueTab[]>([])
+const currentPage = ref<number>(1)
+const pageSize = ref<number>(loadStoredPageSize())
+const totalIssuesCount = ref<number>(0)
 
 const filters = ref<RedmineFilterOptions>({
   status: 'open',
@@ -353,6 +307,8 @@ export function useRedmine() {
     issues.value = []
     projects.value = []
     queries.value = []
+    currentPage.value = 1
+    totalIssuesCount.value = 0
     selectedIssue.value = null
     openIssueTabs.value = []
     hasInitialized = false
@@ -426,10 +382,37 @@ export function useRedmine() {
     }
   }
 
-  async function fetchIssues(options?: { background?: boolean }): Promise<void> {
+  async function fetchIssues(options?: {
+    background?: boolean
+    page?: number
+    resetPage?: boolean
+    _clamped?: boolean
+  }): Promise<void> {
+    if (options?.resetPage) {
+      currentPage.value = 1
+    } else if (typeof options?.page === 'number' && options.page >= 1) {
+      currentPage.value = Math.floor(options.page)
+    }
+
+    if (isDemoMode.value) {
+      totalIssuesCount.value = issues.value.length
+      return
+    }
+
     if (!options?.background) {
       isLoading.value = true
       error.value = null
+    }
+
+    const limit = pageSize.value
+    const offset = (currentPage.value - 1) * limit
+
+    const applyPageData = (resData: any): void => {
+      const list: RedmineIssue[] = Array.isArray(resData?.issues) ? resData.issues : []
+      issues.value = list
+      registerKnownUsersFromIssues(list)
+      totalIssuesCount.value =
+        typeof resData?.total_count === 'number' ? resData.total_count : offset + list.length
     }
 
     try {
@@ -443,20 +426,21 @@ export function useRedmine() {
         const endpointsToTry: string[] = []
         if (projId) {
           endpointsToTry.push(
-            `/projects/${projId}/issues.json?query_id=${filters.value.queryId}&limit=100`
+            `/projects/${projId}/issues.json?query_id=${filters.value.queryId}&limit=${limit}&offset=${offset}`
           )
           endpointsToTry.push(
-            `/issues.json?project_id=${projId}&query_id=${filters.value.queryId}&limit=100`
+            `/issues.json?project_id=${projId}&query_id=${filters.value.queryId}&limit=${limit}&offset=${offset}`
           )
         }
-        endpointsToTry.push(`/issues.json?query_id=${filters.value.queryId}&limit=100`)
+        endpointsToTry.push(
+          `/issues.json?query_id=${filters.value.queryId}&limit=${limit}&offset=${offset}`
+        )
 
         let querySuccess = false
         for (const ep of endpointsToTry) {
           const res = await apiCall(ep)
           if (res.ok && Array.isArray(res.data?.issues)) {
-            issues.value = res.data.issues
-            registerKnownUsersFromIssues(issues.value)
+            applyPageData(res.data)
             querySuccess = true
             break
           }
@@ -464,12 +448,12 @@ export function useRedmine() {
 
         if (!querySuccess && targetQuery) {
           const qName = targetQuery.name.toLowerCase()
-          let fallbackEndpoint = '/issues.json?limit=100'
+          let fallbackEndpoint = `/issues.json?limit=${limit}&offset=${offset}`
 
           const matchedProj = projId ? null : getMatchedProject(targetQuery.name, projects.value)
           const effectiveProjId = projId || matchedProj?.id
           if (effectiveProjId) {
-            fallbackEndpoint = `/projects/${effectiveProjId}/issues.json?limit=100`
+            fallbackEndpoint = `/projects/${effectiveProjId}/issues.json?limit=${limit}&offset=${offset}`
           }
 
           if (qName.includes('closed')) {
@@ -505,8 +489,7 @@ export function useRedmine() {
 
           const fallbackRes = await apiCall(fallbackEndpoint)
           if (fallbackRes.ok && Array.isArray(fallbackRes.data?.issues)) {
-            issues.value = fallbackRes.data.issues
-            registerKnownUsersFromIssues(issues.value)
+            applyPageData(fallbackRes.data)
             querySuccess = true
             error.value = null
           }
@@ -514,12 +497,13 @@ export function useRedmine() {
 
         if (!querySuccess && !options?.background) {
           issues.value = []
+          totalIssuesCount.value = 0
           error.value = 'Failed to load issues for this query.'
         }
       } else {
-        let endpoint = '/issues.json?limit=100'
+        let endpoint = `/issues.json?limit=${limit}&offset=${offset}`
         if (selectedProjectId.value !== 'all') {
-          endpoint = `/projects/${selectedProjectId.value}/issues.json?limit=100`
+          endpoint = `/projects/${selectedProjectId.value}/issues.json?limit=${limit}&offset=${offset}`
         }
         if (filters.value.status === 'open') endpoint += '&status_id=open'
         else if (filters.value.status === 'closed') endpoint += '&status_id=closed'
@@ -532,16 +516,31 @@ export function useRedmine() {
 
         const res = await apiCall(endpoint)
         if (res.ok && res.data?.issues) {
-          issues.value = res.data.issues
-          registerKnownUsersFromIssues(issues.value)
+          applyPageData(res.data)
         } else if (!options?.background) {
           issues.value = []
+          totalIssuesCount.value = 0
           error.value = res.error || `HTTP ${res.status}: Failed to fetch issues`
+        }
+      }
+
+      if (
+        !options?._clamped &&
+        currentPage.value > 1 &&
+        issues.value.length === 0 &&
+        totalIssuesCount.value > 0
+      ) {
+        const maxValidPage = Math.max(1, Math.ceil(totalIssuesCount.value / limit))
+        if (currentPage.value > maxValidPage) {
+          currentPage.value = maxValidPage
+          await fetchIssues({ ...options, page: maxValidPage, _clamped: true })
+          return
         }
       }
     } catch (err) {
       if (!options?.background) {
         issues.value = []
+        totalIssuesCount.value = 0
         error.value = err instanceof Error ? err.message : String(err)
       }
     } finally {
@@ -815,6 +814,8 @@ export function useRedmine() {
     projects.value = getSampleRedmineProjects()
     issues.value = getSampleRedmineIssues()
     queries.value = getSampleRedmineQueries()
+    currentPage.value = 1
+    totalIssuesCount.value = issues.value.length
   }
 
   const filteredIssues = computed(() => {
@@ -877,6 +878,41 @@ export function useRedmine() {
     })
   })
 
+  const displayedIssues = computed(() => {
+    if (!isDemoMode.value) return filteredIssues.value
+    const start = (currentPage.value - 1) * pageSize.value
+    return filteredIssues.value.slice(start, start + pageSize.value)
+  })
+
+  const effectiveTotalCount = computed(() => {
+    if (isDemoMode.value) return filteredIssues.value.length
+    return totalIssuesCount.value || issues.value.length
+  })
+
+  const totalPages = computed(() => {
+    return Math.max(1, Math.ceil(effectiveTotalCount.value / Math.max(1, pageSize.value)))
+  })
+
+  async function goToPage(page: number): Promise<void> {
+    const clamped = Math.max(1, Math.min(Math.floor(page), totalPages.value))
+    if (clamped === currentPage.value && issues.value.length > 0) return
+    currentPage.value = clamped
+    if (!isDemoMode.value) {
+      await fetchIssues({ page: clamped })
+    }
+  }
+
+  async function changePageSize(size: number): Promise<void> {
+    if (!(ALLOWED_PAGE_SIZES as readonly number[]).includes(size)) return
+    if (pageSize.value === size && currentPage.value === 1) return
+    pageSize.value = size
+    persistPageSize(size)
+    currentPage.value = 1
+    if (!isDemoMode.value) {
+      await fetchIssues({ page: 1 })
+    }
+  }
+
   function triggerFocusCheck(): void {
     if (!notifMgr.isMonitoringActive.value || notifMgr.isCheckingUpdates.value) return
     const now = Date.now()
@@ -925,6 +961,11 @@ export function useRedmine() {
     selectedProjectId,
     issues,
     filteredIssues,
+    displayedIssues,
+    currentPage,
+    pageSize,
+    totalIssuesCount: effectiveTotalCount,
+    totalPages,
     selectedIssue,
     trackers,
     statuses,
@@ -957,6 +998,8 @@ export function useRedmine() {
     fetchMetadata,
     fetchProjects,
     fetchIssues,
+    goToPage,
+    changePageSize,
     fetchIssueDetail,
     createIssue,
     updateIssue,
